@@ -106,7 +106,7 @@ def allowed_screens_for_roles(
     allowed: set[str] = set()
     for role in role_set:
         is_central = role == CENTRAL_ROLE
-        for tela in role_to_screens.get(role, ()):  # type: ignore[arg-type]
+        for tela in role_to_screens.get(role, ()):
             if tela not in KNOWN_SCREENS:
                 continue
             # Só o papel `pastor` contribui com uma tela Central-only.

@@ -32,7 +32,12 @@ const SECTIONS: NavSection[] = [
     items: [
       { target: "dashboard", label: "Painel de Hoje", icon: "dashboard" },
       { target: "consolidar", label: "Consolidar", icon: "consolidar" },
-      { target: "universidade-vida", label: "Universidade da Vida", icon: "university", locked: true },
+      {
+        target: "universidade-vida",
+        label: "Universidade da Vida",
+        icon: "university",
+        locked: true,
+      },
     ],
   },
 ];
@@ -92,7 +97,11 @@ describe("Sidebar: cadastro da igreja", () => {
     const link = container.querySelector<HTMLAnchorElement>('[aria-label="Painel de Hoje"]')!;
     expect(link.tagName).toBe("A");
     expect(link.getAttribute("href")).toBe("#dashboard");
-    const modifiedClick = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    const modifiedClick = new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+    });
     act(() => link.dispatchEvent(modifiedClick));
     expect(modifiedClick.defaultPrevented).toBe(false);
     expect(onNavigate).not.toHaveBeenCalled();
@@ -171,8 +180,8 @@ describe("Sidebar — nav-item ativo/aria-label (contrato compartilhado M7B-Visu
     expect(active.getAttribute("aria-current")).toBe("page");
     expect(active.getAttribute("aria-label")).toBe("Painel de Hoje");
 
-    const other = Array.from(container.querySelectorAll(".nav-item")).find(
-      (el) => el.textContent?.includes("Consolidar"),
+    const other = Array.from(container.querySelectorAll(".nav-item")).find((el) =>
+      el.textContent?.includes("Consolidar"),
     ) as HTMLButtonElement;
     expect(other.classList.contains("active")).toBe(false);
     expect(other.getAttribute("aria-current")).toBeNull();
@@ -180,9 +189,13 @@ describe("Sidebar — nav-item ativo/aria-label (contrato compartilhado M7B-Visu
 
   it("item locked: aria-label soma o sufixo, nunca fica active e não navega ao clicar", () => {
     render("dashboard");
-    const locked = Array.from(container.querySelectorAll(".nav-item.locked")) as HTMLButtonElement[];
+    const locked = Array.from(
+      container.querySelectorAll(".nav-item.locked"),
+    ) as HTMLButtonElement[];
     expect(locked).toHaveLength(1);
-    expect(locked[0]!.getAttribute("aria-label")).toBe("Universidade da Vida — disponível em breve");
+    expect(locked[0]!.getAttribute("aria-label")).toBe(
+      "Universidade da Vida — disponível em breve",
+    );
     expect(locked[0]!.getAttribute("aria-disabled")).toBe("true");
 
     act(() => locked[0]!.click());

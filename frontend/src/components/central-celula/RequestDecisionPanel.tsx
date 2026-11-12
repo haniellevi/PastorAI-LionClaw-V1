@@ -93,7 +93,10 @@ export function RequestDecisionPanel({
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | "approve" | "reject" | "adjust">(null);
 
-  const status = STATUS_META[request.status] ?? { label: request.status, tone: "muted" as PillTone };
+  const status = STATUS_META[request.status] ?? {
+    label: request.status,
+    tone: "muted" as PillTone,
+  };
   const isAbertura = request.tipo === "abrir_celula";
   const isNomeacao = request.tipo === "nomear_lider" || isAbertura;
   const isMultiplicacao = request.tipo === "multiplicacao";
@@ -107,7 +110,14 @@ export function RequestDecisionPanel({
       const key = isMultiplicacao
         ? (globalThis.crypto?.randomUUID?.() ?? `mult-${request.id}-${Date.now()}`)
         : undefined;
-      const updated = await approveRequest(token, request.id, key, isNomeacao ? { confirmar_execucao: confirmed, versao_proposta: request.versao_proposta! } : undefined);
+      const updated = await approveRequest(
+        token,
+        request.id,
+        key,
+        isNomeacao
+          ? { confirmar_execucao: confirmed, versao_proposta: request.versao_proposta! }
+          : undefined,
+      );
       onToast({ kind: "ok", text: "Solicitação aprovada." });
       onDecided(updated);
     } catch (err) {
@@ -183,9 +193,19 @@ export function RequestDecisionPanel({
           </p>
         ) : null}
 
-        {isNomeacao ? <p><strong>{request.candidato_nome ?? request.candidato_id}</strong> para liderar <strong>{request.celula_nome ?? String(request.payload_proposto.nome ?? request.celula_id)}</strong>. Proposta {request.versao_proposta}.</p> : null}
+        {isNomeacao ? (
+          <p>
+            <strong>{request.candidato_nome ?? request.candidato_id}</strong> para liderar{" "}
+            <strong>
+              {request.celula_nome ?? String(request.payload_proposto.nome ?? request.celula_id)}
+            </strong>
+            . Proposta {request.versao_proposta}.
+          </p>
+        ) : null}
         {isAbertura && request.status === "aprovada" && request.celula_criada_id ? (
-          <p><a href={`#celulas/${request.celula_criada_id}`}>Ver célula criada</a></p>
+          <p>
+            <a href={`#celulas/${request.celula_criada_id}`}>Ver célula criada</a>
+          </p>
         ) : null}
         {/* Payload proposto — LEITURA apenas (Central não edita). */}
         <dl className="payload-view">
@@ -211,10 +231,19 @@ export function RequestDecisionPanel({
           </div>
         ) : null}
 
-        {isNomeacao && request.status === "aguardando" ? <label>
-          <input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} disabled={anyBusy} />
-          {isAbertura ? "Confirmo que aprovar cria a célula e nomeia o líder imediatamente." : "Confirmo que aprovar executa imediatamente a troca de líder desta célula."}
-        </label> : null}
+        {isNomeacao && request.status === "aguardando" ? (
+          <label>
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+              disabled={anyBusy}
+            />
+            {isAbertura
+              ? "Confirmo que aprovar cria a célula e nomeia o líder imediatamente."
+              : "Confirmo que aprovar executa imediatamente a troca de líder desta célula."}
+          </label>
+        ) : null}
         {mode ? (
           <div className="ds-mt-3">
             <DsField
@@ -253,7 +282,12 @@ export function RequestDecisionPanel({
           </div>
         ) : (
           <div className="chip-actions ds-mt-3">
-            <DsButton variant="primary" onClick={() => void approve()} loading={busy === "approve"} disabled={anyBusy || (isNomeacao && (!confirmed || !request.versao_proposta))}>
+            <DsButton
+              variant="primary"
+              onClick={() => void approve()}
+              loading={busy === "approve"}
+              disabled={anyBusy || (isNomeacao && (!confirmed || !request.versao_proposta))}
+            >
               <Icon name="check" />
               <span>Aprovar</span>
             </DsButton>

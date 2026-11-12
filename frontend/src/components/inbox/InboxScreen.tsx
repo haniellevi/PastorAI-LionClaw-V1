@@ -157,7 +157,7 @@ function InboxSession() {
   const { user, token, status, expireSession } = useAuth();
   // An opaque identity avoids passing session credentials to the thread.
   const recordingContext = useMemo(
-    () => status === "authenticated" && token && user?.churchId && user.appUserId ? {} : null,
+    () => (status === "authenticated" && token && user?.churchId && user.appUserId ? {} : null),
     [status, token, user?.churchId, user?.appUserId],
   );
 
@@ -192,7 +192,9 @@ function InboxSession() {
   const [conflicts, setConflicts] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
-  useEffect(() => { messagesRef.current = messages; },[messages]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesSnapshotId, setMessagesSnapshotId] = useState<string | null>(null);
   const [messagesError, setMessagesError] = useState<string | null>(null);
@@ -201,7 +203,13 @@ function InboxSession() {
   const mediaControllers = useRef(new Set<AbortController>());
   const mediaSignedAt = useRef(new Map<string, number>());
   const mediaInFlight = useRef(new Set<string>());
-  const messageWindowRef = useRef<{ before?: string | null; after?: string | null; supported: boolean; initialized?: boolean; total?: number }>({ supported: false });
+  const messageWindowRef = useRef<{
+    before?: string | null;
+    after?: string | null;
+    supported: boolean;
+    initialized?: boolean;
+    total?: number;
+  }>({ supported: false });
   const [toast, setToast] = useState<Toast | null>(null);
 
   // Painel de dados do contato (Parte B) e exclusão de conversa.
@@ -226,8 +234,7 @@ function InboxSession() {
   const [connStatus, setConnStatus] = useState<ConnectionStatus | "unknown">("unknown");
   // Fail closed in the UI: "IA ativa" is shown only after the tenant-scoped
   // runtime flag has been read successfully.
-  const [agentAvailability, setAgentAvailability] =
-    useState<AgentAvailability>("unknown");
+  const [agentAvailability, setAgentAvailability] = useState<AgentAvailability>("unknown");
 
   // Polling is best-effort. A slow network must not stack another identical
   // request every 15 seconds; besides wasting work, overlapping responses
@@ -326,9 +333,7 @@ function InboxSession() {
         }
         if (mode !== "poll") {
           setError(
-            err instanceof ApiError
-              ? err.message
-              : "Não foi possível carregar as conversas.",
+            err instanceof ApiError ? err.message : "Não foi possível carregar as conversas.",
           );
         }
         return false;
@@ -341,6 +346,10 @@ function InboxSession() {
     },
     [token, handleSessionError],
   );
+
+  const loadMore = useCallback(() => {
+    void load("more");
+  }, [load]);
 
   const loadConnection = useCallback(async () => {
     if (!token || !canReadConnection) return;
@@ -367,48 +376,51 @@ function InboxSession() {
     }
   }, [token, canReadConnection, handleSessionError]);
 
-  const loadAgentStatus = useCallback(async function readAgentStatus(refresh = false) {
-    if (!token) return;
-    if (refresh) setAgentAvailability("unknown");
-    if (agentStatusRequestRef.current) {
-      // Preserve an explicit retry behind the current single-flight request.
-      // Its pre-retry snapshot must no longer authorize an active indicator.
-      if (refresh) agentStatusRefreshPendingRef.current = true;
-      return;
-    }
-    const controller = new AbortController();
-    agentStatusRequestRef.current = controller;
-    try {
-      const info = await runTimedRequest(controller, (signal) =>
-        fetchInboxAgentStatus(token, signal),
-      );
-      if (agentStatusRefreshPendingRef.current) return;
-      setAgentAvailability(
-        info.configured && info.ativo && !info.pausedByChurch
-          ? "active"
-          : info.configured && info.pausedByChurch
-            ? "paused_by_church"
-            : "unknown",
-      );
-      return true;
-    } catch (err) {
-      if (controller.signal.aborted && !(err instanceof RequestTimeoutError)) return;
-      setAgentAvailability("unknown");
-      if (handleSessionError(err)) {
-        agentStatusRefreshPendingRef.current = false;
+  const loadAgentStatus = useCallback(
+    async function readAgentStatus(refresh = false) {
+      if (!token) return;
+      if (refresh) setAgentAvailability("unknown");
+      if (agentStatusRequestRef.current) {
+        // Preserve an explicit retry behind the current single-flight request.
+        // Its pre-retry snapshot must no longer authorize an active indicator.
+        if (refresh) agentStatusRefreshPendingRef.current = true;
         return;
       }
-      return false;
-    } finally {
-      if (agentStatusRequestRef.current === controller) {
-        agentStatusRequestRef.current = null;
-        if (agentStatusRefreshPendingRef.current) {
+      const controller = new AbortController();
+      agentStatusRequestRef.current = controller;
+      try {
+        const info = await runTimedRequest(controller, (signal) =>
+          fetchInboxAgentStatus(token, signal),
+        );
+        if (agentStatusRefreshPendingRef.current) return;
+        setAgentAvailability(
+          info.configured && info.ativo && !info.pausedByChurch
+            ? "active"
+            : info.configured && info.pausedByChurch
+              ? "paused_by_church"
+              : "unknown",
+        );
+        return true;
+      } catch (err) {
+        if (controller.signal.aborted && !(err instanceof RequestTimeoutError)) return;
+        setAgentAvailability("unknown");
+        if (handleSessionError(err)) {
           agentStatusRefreshPendingRef.current = false;
-          void readAgentStatus();
+          return;
+        }
+        return false;
+      } finally {
+        if (agentStatusRequestRef.current === controller) {
+          agentStatusRequestRef.current = null;
+          if (agentStatusRefreshPendingRef.current) {
+            agentStatusRefreshPendingRef.current = false;
+            void readAgentStatus();
+          }
         }
       }
-    }
-  }, [token, handleSessionError]);
+    },
+    [token, handleSessionError],
+  );
 
   const refreshInbox = useCallback(() => {
     void load("retry");
@@ -475,52 +487,103 @@ function InboxSession() {
           const seq = (reqSeqRef.current += 1);
           try {
             const window = messageWindowRef.current;
-            const options = window.initialized && !window.supported ? {legacy:true} : mode === "older" && window.before ? { before: window.before } : {};
+            const options =
+              window.initialized && !window.supported
+                ? { legacy: true }
+                : mode === "older" && window.before
+                  ? { before: window.before }
+                  : {};
             // Existing rows can become private without changing total or the
             // latest cursor. Revalidate the loaded range on every poll, using
             // text-only pages and stopping before history not yet loaded.
             const reconcile = (mode === "poll" || mode === "refresh") && window.supported;
-            const page = await runTimedRequest(controller, (signal) => reconcile ? fetchLoadedMessageRange(token,convId,messagesRef.current,signal,window.before === null) : fetchMessageWindow(token, convId, options, signal));
+            const page = await runTimedRequest(controller, (signal) =>
+              reconcile
+                ? fetchLoadedMessageRange(
+                    token,
+                    convId,
+                    messagesRef.current,
+                    signal,
+                    window.before === null,
+                  )
+                : fetchMessageWindow(token, convId, options, signal),
+            );
             if (!atual()) return;
             if (seq >= appliedSeqRef.current) {
               appliedSeqRef.current = seq;
-              const currentById = new Map(messagesRef.current.map(message => [message.id,message]));
+              const currentById = new Map(
+                messagesRef.current.map((message) => [message.id, message]),
+              );
               const items = page.items.map((message) => {
                 if (isPastoralProtected(message)) {
                   mediaSignedAt.current.delete(message.id);
-                  return {...message,mediaUrl:null,mediaMime:null,mediaNome:null,mediaPending:false};
+                  return {
+                    ...message,
+                    mediaUrl: null,
+                    mediaMime: null,
+                    mediaNome: null,
+                    mediaPending: false,
+                  };
                 }
-                if (message.mediaUrl) mediaSignedAt.current.set(message.id,Date.now());
+                if (message.mediaUrl) mediaSignedAt.current.set(message.id, Date.now());
                 const mediaUrl = message.mediaUrl ?? currentById.get(message.id)?.mediaUrl ?? null;
-                return {...message,mediaUrl,mediaPending:page.cursorSupported && message.tipo !== "texto" && !mediaUrl};
+                return {
+                  ...message,
+                  mediaUrl,
+                  mediaPending: page.cursorSupported && message.tipo !== "texto" && !mediaUrl,
+                };
               });
               const merge = (current: ChatMessage[]) => {
-                if (!page.cursorSupported || mode === "initial" || page.rangeReconciled) return items;
+                if (!page.cursorSupported || mode === "initial" || page.rangeReconciled)
+                  return items;
                 const firstTime = items[0]?.criadoEm;
-                const keep = mode === "older" ? current : current.filter((message) => firstTime && message.criadoEm && (message.criadoEm < firstTime || (message.criadoEm === firstTime && message.id < items[0]!.id)));
+                const keep =
+                  mode === "older"
+                    ? current
+                    : current.filter(
+                        (message) =>
+                          firstTime &&
+                          message.criadoEm &&
+                          (message.criadoEm < firstTime ||
+                            (message.criadoEm === firstTime && message.id < items[0]!.id)),
+                      );
                 const merged = new Map(keep.map((message) => [message.id, message]));
                 for (const message of items) merged.set(message.id, message);
-                return [...merged.values()].sort((a, b) => (a.criadoEm ?? "").localeCompare(b.criadoEm ?? "") || a.id.localeCompare(b.id));
+                return [...merged.values()].sort(
+                  (a, b) =>
+                    (a.criadoEm ?? "").localeCompare(b.criadoEm ?? "") || a.id.localeCompare(b.id),
+                );
               };
-              const renewMedia = (rows: ChatMessage[]) => rows.map((message) => {
-                if (!page.cursorSupported || message.tipo === "texto") return message;
-                const signedAt = mediaSignedAt.current.get(message.id);
-                if (message.mediaUrl && signedAt === undefined) mediaSignedAt.current.set(message.id,Date.now());
-                const expired = signedAt !== undefined && Date.now() - signedAt >= MEDIA_URL_REFRESH_MS;
-                const mediaUrl = expired ? null : message.mediaUrl;
-                return { ...message,mediaUrl,mediaPending:!mediaUrl };
-              });
+              const renewMedia = (rows: ChatMessage[]) =>
+                rows.map((message) => {
+                  if (!page.cursorSupported || message.tipo === "texto") return message;
+                  const signedAt = mediaSignedAt.current.get(message.id);
+                  if (message.mediaUrl && signedAt === undefined)
+                    mediaSignedAt.current.set(message.id, Date.now());
+                  const expired =
+                    signedAt !== undefined && Date.now() - signedAt >= MEDIA_URL_REFRESH_MS;
+                  const mediaUrl = expired ? null : message.mediaUrl;
+                  return { ...message, mediaUrl, mediaPending: !mediaUrl };
+                });
               const nextMessages = renewMedia(merge(messagesRef.current));
               setMessages((current) => renewMedia(merge(current)));
               setMessagesError(null);
               setMessagesSnapshotId(convId);
               if (mode !== "older") window.after = page.nextAfter ?? window.after;
-              if (mode === "older" || mode === "initial" || page.rangeReconciled || !window.supported) window.before = page.nextBefore;
+              if (
+                mode === "older" ||
+                mode === "initial" ||
+                page.rangeReconciled ||
+                !window.supported
+              )
+                window.before = page.nextBefore;
               window.supported = page.cursorSupported;
               window.initialized = true;
               window.total = page.total;
               setHasOlderMessages(Boolean(window.before));
-              const mediaIds = nextMessages.filter((item) => item.mediaPending && !mediaInFlight.current.has(item.id)).map((item) => item.id);
+              const mediaIds = nextMessages
+                .filter((item) => item.mediaPending && !mediaInFlight.current.has(item.id))
+                .map((item) => item.id);
               // Text paints before Storage signing. This read shares the visit's
               // cancellation, but never extends the history loading state.
               if (mediaIds.length) {
@@ -528,29 +591,53 @@ function InboxSession() {
                 const signingIds = mediaInFlight.current;
                 for (const id of mediaIds) signingIds.add(id);
                 mediaControllers.current.add(mediaController);
-                void fetchMessageMediaUrls(token, convId, mediaIds, mediaController.signal).then((urls) => {
-                if (!atual() || mediaController.signal.aborted) return;
-                for (const id of mediaIds) if (urls[id]) mediaSignedAt.current.set(id,Date.now());
-                setMessages((current) => current.map((message) => mediaIds.includes(message.id) && !isPastoralProtected(message) ? { ...message, mediaUrl: urls[message.id] ?? null, mediaPending: false } : message));
-              }).catch((error) => {
-                if (!atual() || mediaController.signal.aborted || handleSessionError(error)) return;
-                const forbidden = error instanceof ApiError && error.status === 403;
-                if (forbidden) {
-                  mediaSignedAt.current.clear();
-                  for (const activeController of mediaControllers.current) activeController.abort();
-                }
-                setMessages((current) => current.map((message) => forbidden || mediaIds.includes(message.id) ? { ...message,mediaUrl:forbidden ? null : message.mediaUrl,mediaPending:false } : message));
-              }).finally(() => {
-                for (const id of mediaIds) signingIds.delete(id);
-                mediaControllers.current.delete(mediaController);
-              });
+                void fetchMessageMediaUrls(token, convId, mediaIds, mediaController.signal)
+                  .then((urls) => {
+                    if (!atual() || mediaController.signal.aborted) return;
+                    for (const id of mediaIds)
+                      if (urls[id]) mediaSignedAt.current.set(id, Date.now());
+                    setMessages((current) =>
+                      current.map((message) =>
+                        mediaIds.includes(message.id) && !isPastoralProtected(message)
+                          ? { ...message, mediaUrl: urls[message.id] ?? null, mediaPending: false }
+                          : message,
+                      ),
+                    );
+                  })
+                  .catch((error) => {
+                    if (!atual() || mediaController.signal.aborted || handleSessionError(error))
+                      return;
+                    const forbidden = error instanceof ApiError && error.status === 403;
+                    if (forbidden) {
+                      mediaSignedAt.current.clear();
+                      for (const activeController of mediaControllers.current)
+                        activeController.abort();
+                    }
+                    setMessages((current) =>
+                      current.map((message) =>
+                        forbidden || mediaIds.includes(message.id)
+                          ? {
+                              ...message,
+                              mediaUrl: forbidden ? null : message.mediaUrl,
+                              mediaPending: false,
+                            }
+                          : message,
+                      ),
+                    );
+                  })
+                  .finally(() => {
+                    for (const id of mediaIds) signingIds.delete(id);
+                    mediaControllers.current.delete(mediaController);
+                  });
               }
             }
           } catch (err) {
             failed = true;
             if (err instanceof RequestTimeoutError) {
               if ((mode === "initial" || mode === "older") && atual()) {
-                setMessagesError("O carregamento do histórico demorou mais que o esperado. Tente novamente.");
+                setMessagesError(
+                  "O carregamento do histórico demorou mais que o esperado. Tente novamente.",
+                );
               }
               break;
             }
@@ -562,7 +649,11 @@ function InboxSession() {
                 for (const mediaController of mediaControllers.current) mediaController.abort();
                 setMessages([]);
               }
-              setMessagesError(mode === "initial" ? "Não foi possível carregar o histórico desta conversa." : "Não foi possível confirmar a atualização do histórico. Tente novamente.");
+              setMessagesError(
+                mode === "initial"
+                  ? "Não foi possível carregar o histórico desta conversa."
+                  : "Não foi possível confirmar a atualização do histórico. Tente novamente.",
+              );
             }
           }
 
@@ -661,12 +752,21 @@ function InboxSession() {
     };
   }, [allowed, load, loadConnection, loadAgentStatus]);
 
-  useVisibleInterval(() => {
-    setNow(Date.now());
-    return Promise.all([load("poll"), loadConnection(), loadAgentStatus(), selectedId ? loadMessages(selectedId, "poll") : Promise.resolve()]).then((results) => {
-      if (results.includes(false)) throw new Error("A consulta periódica falhou.");
-    });
-  }, POLL_MS, allowed);
+  useVisibleInterval(
+    () => {
+      setNow(Date.now());
+      return Promise.all([
+        load("poll"),
+        loadConnection(),
+        loadAgentStatus(),
+        selectedId ? loadMessages(selectedId, "poll") : Promise.resolve(),
+      ]).then((results) => {
+        if (results.includes(false)) throw new Error("A consulta periódica falhou.");
+      });
+    },
+    POLL_MS,
+    allowed,
+  );
 
   // Gate 8: o painel de dados é um DRAWER sob demanda em TODAS as larguras —
   // sem três colunas permanentes competindo por atenção. Abre só pelo botão
@@ -749,7 +849,7 @@ function InboxSession() {
         const res = await handoffConversation(token, c.id, to);
         patch(c.id, {
           estado: (res.estado as Conversation["estado"]) ?? (to === "human" ? "humano" : "ia"),
-          assumidoPor: to === "human" ? res.assumidoPor ?? user.appUserId : null,
+          assumidoPor: to === "human" ? (res.assumidoPor ?? user.appUserId) : null,
           assumidoEm: to === "human" ? new Date().toISOString() : null,
           esperaDesde: to === "human" ? null : c.esperaDesde,
         });
@@ -810,7 +910,8 @@ function InboxSession() {
         return true;
       } catch (err) {
         if (handleSessionError(err)) return false;
-        const rejected = err instanceof ApiError && [400, 403, 409, 413, 422, 429].includes(err.status);
+        const rejected =
+          err instanceof ApiError && [400, 403, 409, 413, 422, 429].includes(err.status);
         flashToast({
           kind: "err",
           text: rejected
@@ -837,7 +938,8 @@ function InboxSession() {
           if (
             currentDraft.version !== draftAtSubmission.version ||
             currentDraft.value !== draftAtSubmission.value
-          ) return current;
+          )
+            return current;
           return {
             ...current,
             [c.id]: { value: "", version: currentDraft.version + 1 },
@@ -901,8 +1003,11 @@ function InboxSession() {
     try {
       setDeletionReceipt(await fetchConversationDeletionReceipt(token, deleteTarget.id));
     } catch (err) {
-      if (!handleSessionError(err)) setDeleteError("Não foi possível atualizar o recibo. Tente novamente.");
-    } finally { setDeleting(false); }
+      if (!handleSessionError(err))
+        setDeleteError("Não foi possível atualizar o recibo. Tente novamente.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // ---- marcar como lida ao abrir + foto de perfil -------------------------
@@ -966,9 +1071,7 @@ function InboxSession() {
       } catch (err) {
         if (handleSessionError(err)) return;
         setTransferError(
-          err instanceof ApiError
-            ? err.message
-            : "Não foi possível transferir a conversa.",
+          err instanceof ApiError ? err.message : "Não foi possível transferir a conversa.",
         );
       } finally {
         setTransferBusy(false);
@@ -989,16 +1092,15 @@ function InboxSession() {
   // ---- bloqueio de acesso (US-11) -----------------------------------------
   if (!allowed) {
     return (
-        <div className="screen operations-screen access-screen" key="inbox-denied">
+      <div className="screen operations-screen access-screen" key="inbox-denied">
         <div className="card">
           <div className="access-denied">
             <Icon name="lock" className="access-ic" />
             <h3>Acesso restrito</h3>
             <p>
-              O inbox do WhatsApp é restrito à liderança de atendimento. Conforme o
-              seu papel, você veria todas as conversas (admin/pastor) ou apenas as
-              transferidas a você (responsável). Fale com a liderança da sua igreja
-              se precisar de acesso.
+              O inbox do WhatsApp é restrito à liderança de atendimento. Conforme o seu papel, você
+              veria todas as conversas (admin/pastor) ou apenas as transferidas a você
+              (responsável). Fale com a liderança da sua igreja se precisar de acesso.
             </p>
           </div>
         </div>
@@ -1017,11 +1119,7 @@ function InboxSession() {
           <p>Selecione uma pessoa. Assuma o atendimento para responder.</p>
         </div>
         <div className="actions">
-          <DsButton
-            variant="secondary"
-            onClick={refreshInbox}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={refreshInbox} disabled={loading}>
             Atualizar
           </DsButton>
         </div>
@@ -1031,11 +1129,7 @@ function InboxSession() {
         <DsBanner
           kind="error"
           action={
-            <DsButton
-              variant="secondary"
-              onClick={refreshInbox}
-              disabled={loading}
-            >
+            <DsButton variant="secondary" onClick={refreshInbox} disabled={loading}>
               Tentar novamente
             </DsButton>
           }
@@ -1046,8 +1140,8 @@ function InboxSession() {
 
       {degraded ? (
         <DsBanner kind="degraded">
-          Conexão do WhatsApp {connStatus === "reconectando" ? "reconectando" : "offline"}.
-          O atendimento está degradado e o envio de respostas está desabilitado.
+          Conexão do WhatsApp {connStatus === "reconectando" ? "reconectando" : "offline"}. O
+          atendimento está degradado e o envio de respostas está desabilitado.
         </DsBanner>
       ) : null}
 
@@ -1083,7 +1177,7 @@ function InboxSession() {
             total={listTotal}
             hasMore={hasMorePages}
             loadingMore={loading}
-            onLoadMore={() => void load("more")}
+            onLoadMore={loadMore}
           />
         )}
 
@@ -1129,8 +1223,16 @@ function InboxSession() {
         ) : (
           <div className="empty-pane">
             <DsEmptyState
-              title={conversations.length > 0 ? "Selecione uma conversa para ver o atendimento." : "Ainda não há conversas."}
-              hint={conversations.length > 0 ? undefined : "As conversas recebidas pelo número oficial aparecerão aqui."}
+              title={
+                conversations.length > 0
+                  ? "Selecione uma conversa para ver o atendimento."
+                  : "Ainda não há conversas."
+              }
+              hint={
+                conversations.length > 0
+                  ? undefined
+                  : "As conversas recebidas pelo número oficial aparecerão aqui."
+              }
             />
           </div>
         )}
@@ -1151,35 +1253,53 @@ function InboxSession() {
               telefone={selected.telefone}
               avatarUrl={photoUrl}
               onClose={() => setPanelOpen(false)}
-              onResetPrivateContent={selected.pessoaId && token && user?.roles.includes("admin")
-                ? () => { setPanelOpen(false); setResetTarget(selected); setResetOpen(true); }
-                : undefined}
+              onResetPrivateContent={
+                selected.pessoaId && token && user?.roles.includes("admin")
+                  ? () => {
+                      setPanelOpen(false);
+                      setResetTarget(selected);
+                      setResetOpen(true);
+                    }
+                  : undefined
+              }
             />
           </>
         ) : null}
       </div>
 
-      {resetTarget?.pessoaId && token && user?.roles.includes("admin") ? <PrivateContentReset
-        key={`${token}:${resetTarget.pessoaId}`} open={resetOpen} token={token}
-        personId={resetTarget.pessoaId} personName={resetTarget.nome || "Contato selecionado"}
-        expireSession={expireSession} onClose={() => setResetOpen(false)}
-        onErased={() => {
-          conversationsRequestRef.current?.abort();
-          conversationsRequestRef.current = null;
-          setLoading(false);
-          for (const controller of mediaControllers.current) controller.abort();
-          mediaSignedAt.current.clear();
-          const deletedIds = new Set(conversationsRef.current.filter(row => row.pessoaId === resetTarget.pessoaId).map(row => row.id));
-          setDrafts(rows => Object.fromEntries(Object.entries(rows).filter(([id]) => !deletedIds.has(id))));
-          setConversations(rows => rows.filter(row => row.pessoaId !== resetTarget.pessoaId));
-          setSelectedId(null);
-          selectedIdRef.current = null;
-          selectionGenRef.current += 1;
-          messagesRef.current = [];
-          setMessages([]);
-          setPanelOpen(false);
-        }}
-      /> : null}
+      {resetTarget?.pessoaId && token && user?.roles.includes("admin") ? (
+        <PrivateContentReset
+          key={`${token}:${resetTarget.pessoaId}`}
+          open={resetOpen}
+          token={token}
+          personId={resetTarget.pessoaId}
+          personName={resetTarget.nome || "Contato selecionado"}
+          expireSession={expireSession}
+          onClose={() => setResetOpen(false)}
+          onErased={() => {
+            conversationsRequestRef.current?.abort();
+            conversationsRequestRef.current = null;
+            setLoading(false);
+            for (const controller of mediaControllers.current) controller.abort();
+            mediaSignedAt.current.clear();
+            const deletedIds = new Set(
+              conversationsRef.current
+                .filter((row) => row.pessoaId === resetTarget.pessoaId)
+                .map((row) => row.id),
+            );
+            setDrafts((rows) =>
+              Object.fromEntries(Object.entries(rows).filter(([id]) => !deletedIds.has(id))),
+            );
+            setConversations((rows) => rows.filter((row) => row.pessoaId !== resetTarget.pessoaId));
+            setSelectedId(null);
+            selectedIdRef.current = null;
+            selectionGenRef.current += 1;
+            messagesRef.current = [];
+            setMessages([]);
+            setPanelOpen(false);
+          }}
+        />
+      ) : null}
 
       {deleteTarget ? (
         <DeleteConversationDialog

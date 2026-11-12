@@ -10,9 +10,7 @@ function invalidUrl(name) {
 }
 
 function invalidPort(name) {
-  return new Error(
-    `[M09] ${name} invalida: informe uma porta local canonica entre 1 e 65535.`,
-  );
+  return new Error(`[M09] ${name} invalida: informe uma porta local canonica entre 1 e 65535.`);
 }
 
 function isLoopbackHostname(hostname) {
@@ -59,8 +57,7 @@ export function assertM09LoopbackUrl(name, rawValue) {
   }
 
   const port = parsed.port === "" ? 80 : Number(parsed.port);
-  const canonicalOrigin =
-    rawValue.endsWith("/") ? `${parsed.origin}/` : parsed.origin;
+  const canonicalOrigin = rawValue.endsWith("/") ? `${parsed.origin}/` : parsed.origin;
   if (
     parsed.protocol !== "http:" ||
     parsed.username !== "" ||
@@ -92,14 +89,10 @@ export function resolveM09Urls(environment = process.env) {
 
   const appValue =
     environment.M09_APP_URL ??
-    (appPort !== undefined
-      ? `http://127.0.0.1:${appPort}`
-      : DEFAULT_APP_URL);
+    (appPort !== undefined ? `http://127.0.0.1:${appPort}` : DEFAULT_APP_URL);
   const apiValue =
     environment.M09_API_URL ??
-    (apiPort !== undefined
-      ? `http://127.0.0.1:${apiPort}`
-      : DEFAULT_API_URL);
+    (apiPort !== undefined ? `http://127.0.0.1:${apiPort}` : DEFAULT_API_URL);
 
   return Object.freeze({
     app: assertM09LoopbackUrl("M09_APP_URL", appValue),

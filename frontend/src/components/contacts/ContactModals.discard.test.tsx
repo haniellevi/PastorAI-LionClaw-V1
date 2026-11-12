@@ -50,13 +50,27 @@ afterEach(() => {
 
 describe.each(["novo", "edição"] as const)("Modal de contato (%s), descarte", (mode) => {
   function renderModal(busy: boolean, onSubmit: () => void, onClose: () => void) {
-    act(() => root.render(mode === "novo"
-      ? <NewContactModal busy={busy} error={null} onSubmit={onSubmit} onClose={onClose} />
-      : <EditContactModal contact={contact} busy={busy} error={null} onSubmit={onSubmit} onClose={onClose} />));
+    act(() =>
+      root.render(
+        mode === "novo" ? (
+          <NewContactModal busy={busy} error={null} onSubmit={onSubmit} onClose={onClose} />
+        ) : (
+          <EditContactModal
+            contact={contact}
+            busy={busy}
+            error={null}
+            onSubmit={onSubmit}
+            onClose={onClose}
+          />
+        ),
+      ),
+    );
   }
 
   function button(text: string): HTMLButtonElement {
-    const found = Array.from(container.querySelectorAll("button")).find((el) => el.textContent?.trim() === text);
+    const found = Array.from(container.querySelectorAll("button")).find(
+      (el) => el.textContent?.trim() === text,
+    );
     if (!found) throw new Error(`Botão ausente: ${text}`);
     return found;
   }
@@ -64,10 +78,15 @@ describe.each(["novo", "edição"] as const)("Modal de contato (%s), descarte", 
   function fillValidContact() {
     const values = ["Pessoa sintética editada", contact.telefone];
     act(() => {
-      Array.from(container.querySelectorAll<HTMLInputElement>("input")).slice(0, 2).forEach((input, index) => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, values[index]);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
+      Array.from(container.querySelectorAll<HTMLInputElement>("input"))
+        .slice(0, 2)
+        .forEach((input, index) => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+            input,
+            values[index],
+          );
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
     });
   }
 
@@ -86,8 +105,12 @@ describe.each(["novo", "edição"] as const)("Modal de contato (%s), descarte", 
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
-    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
-    expect(container.querySelector<HTMLInputElement>("input")!.value).toBe("Pessoa sintética editada");
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(
+      true,
+    );
+    expect(container.querySelector<HTMLInputElement>("input")!.value).toBe(
+      "Pessoa sintética editada",
+    );
   });
 
   it("bloqueia descarte e submit se uma escrita está pendente", () => {
@@ -129,9 +152,17 @@ describe.each(["novo", "edição"] as const)("Modal de contato (%s), descarte", 
 
     submitForm();
 
-    expect(onSubmit).toHaveBeenCalledExactlyOnceWith(mode === "novo"
-      ? { nome: "Pessoa sintética editada", telefone: contact.telefone, email: null, genero: null, tipo: "contato" }
-      : { nome: "Pessoa sintética editada" });
+    expect(onSubmit).toHaveBeenCalledExactlyOnceWith(
+      mode === "novo"
+        ? {
+            nome: "Pessoa sintética editada",
+            telefone: contact.telefone,
+            email: null,
+            genero: null,
+            tipo: "contato",
+          }
+        : { nome: "Pessoa sintética editada" },
+    );
     expect(onClose).not.toHaveBeenCalled();
   });
 

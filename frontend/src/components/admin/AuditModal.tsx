@@ -10,11 +10,7 @@ import "@/components/config/administration-ux-v2.css";
 import { useCallback, useEffect, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import {
-  AdminSessionExpiredError,
-  fetchAudit,
-  type AdminAuditEntry,
-} from "@/lib/admin-api";
+import { AdminSessionExpiredError, fetchAudit, type AdminAuditEntry } from "@/lib/admin-api";
 import { DsButton } from "@/components/ds/Button";
 
 const ACAO_LABEL: Record<string, string> = {
@@ -54,7 +50,7 @@ function resumoDetalhe(d: Record<string, unknown> | null): string {
     return partes.join(" · ");
   }
   return Object.entries(d)
-    .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v ?? "—"}`)
+    .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : (v ?? "—")}`)
     .join(" · ");
 }
 
@@ -69,21 +65,24 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async (refresh = false) => {
-    if (refresh) setRefreshing(true);
-    setError(null);
-    try {
-      setRows(await fetchAudit(token, 100));
-    } catch (err) {
-      if (err instanceof AdminSessionExpiredError) {
-        onExpired();
-        return;
+  const load = useCallback(
+    async (refresh = false) => {
+      if (refresh) setRefreshing(true);
+      setError(null);
+      try {
+        setRows(await fetchAudit(token, 100));
+      } catch (err) {
+        if (err instanceof AdminSessionExpiredError) {
+          onExpired();
+          return;
+        }
+        setError("Não foi possível carregar a auditoria.");
+      } finally {
+        if (refresh) setRefreshing(false);
       }
-      setError("Não foi possível carregar a auditoria.");
-    } finally {
-      if (refresh) setRefreshing(false);
-    }
-  }, [token, onExpired]);
+    },
+    [token, onExpired],
+  );
 
   useEffect(() => {
     void load();
@@ -103,11 +102,7 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
           <DsButton variant="secondary" onClick={onClose}>
             Fechar
           </DsButton>
-          <DsButton
-            variant="tertiary"
-            loading={refreshing}
-            onClick={() => void load(true)}
-          >
+          <DsButton variant="tertiary" loading={refreshing} onClick={() => void load(true)}>
             {refreshing ? "Atualizando…" : "Atualizar"}
           </DsButton>
         </>

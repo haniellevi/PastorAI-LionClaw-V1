@@ -25,9 +25,7 @@ describe("fluxos públicos de ativação e recuperação", () => {
   );
 
   it("prioriza ativação sobre uma sessão autenticada de outro tenant", () => {
-    expect(
-      resolveRootSurface("authenticated", "ativar/header.payload.signature"),
-    ).toBe("login");
+    expect(resolveRootSurface("authenticated", "ativar/header.payload.signature")).toBe("login");
     expect(resolveRootSurface("authenticated", "dashboard")).toBe("app");
   });
 
@@ -38,9 +36,7 @@ describe("fluxos públicos de ativação e recuperação", () => {
       "header.payload.signature",
     );
 
-    expect(destination.href).toBe(
-      "https://app.igreja12.com.br/#ativar/header.payload.signature",
-    );
+    expect(destination.href).toBe("https://app.igreja12.com.br/#ativar/header.payload.signature");
   });
 
   it("protege a resposta contra cache, referer e indexação", () => {

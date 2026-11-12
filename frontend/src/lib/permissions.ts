@@ -137,20 +137,8 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "calendario",
     "celulas",
   ],
-  lider_mult: [
-    "dashboard",
-    "g12",
-    "minha-celula",
-    "enviar",
-    "calendario",
-    "celulas",
-  ],
-  operador: [
-    "dashboard",
-    "inbox",
-    "ganhar",
-    "celulas",
-  ],
+  lider_mult: ["dashboard", "g12", "minha-celula", "enviar", "calendario", "celulas"],
+  operador: ["dashboard", "inbox", "ganhar", "celulas"],
   membro: ["dashboard", "minha-celula", "calendario"],
 };
 
@@ -189,14 +177,16 @@ export function allowedScreens(
     for (const screen of perms[role] ?? []) {
       // Só o papel `pastor` pode contribuir com uma tela Central-only.
       if (!isCentral && CENTRAL_ONLY_SET.has(screen)) continue;
-      if (["universidade-vida", "capacitacao"].includes(screen) && !["pastor", "lider_consol"].includes(role)) continue;
+      if (
+        ["universidade-vida", "capacitacao"].includes(screen) &&
+        !["pastor", "lider_consol"].includes(role)
+      )
+        continue;
       set.add(screen);
     }
   }
 
-  return ALL_SCREENS.filter(
-    (screen) => set.has(screen) && !ADMIN_ONLY_SET.has(screen),
-  );
+  return ALL_SCREENS.filter((screen) => set.has(screen) && !ADMIN_ONLY_SET.has(screen));
 }
 
 /** Indica se o usuário pode acessar uma tela específica (inclui legadas/admin). */

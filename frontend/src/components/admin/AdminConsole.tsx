@@ -29,12 +29,27 @@ import { formatAiCostUsd } from "@/lib/ai-cost";
 import dynamic from "next/dynamic";
 
 // Keep the console and its focused opener mounted while a tool chunk loads.
-const AuditModal = dynamic(() => import("./AuditModal").then((module) => module.AuditModal), { loading: () => null });
-const ChurchPage = dynamic(() => import("./ChurchPage").then((module) => module.ChurchPage), { loading: () => null });
-const CreateIgrejaModal = dynamic(() => import("./CreateIgrejaModal").then((module) => module.CreateIgrejaModal), { loading: () => null });
-const JevModal = dynamic(() => import("./JevModal").then((module) => module.JevModal), { loading: () => null });
-const OrquestradorModal = dynamic(() => import("./OrquestradorModal").then((module) => module.OrquestradorModal), { loading: () => null });
-const PlanosManagerModal = dynamic(() => import("./PlanosManagerModal").then((module) => module.PlanosManagerModal), { loading: () => null });
+const AuditModal = dynamic(() => import("./AuditModal").then((module) => module.AuditModal), {
+  loading: () => null,
+});
+const ChurchPage = dynamic(() => import("./ChurchPage").then((module) => module.ChurchPage), {
+  loading: () => null,
+});
+const CreateIgrejaModal = dynamic(
+  () => import("./CreateIgrejaModal").then((module) => module.CreateIgrejaModal),
+  { loading: () => null },
+);
+const JevModal = dynamic(() => import("./JevModal").then((module) => module.JevModal), {
+  loading: () => null,
+});
+const OrquestradorModal = dynamic(
+  () => import("./OrquestradorModal").then((module) => module.OrquestradorModal),
+  { loading: () => null },
+);
+const PlanosManagerModal = dynamic(
+  () => import("./PlanosManagerModal").then((module) => module.PlanosManagerModal),
+  { loading: () => null },
+);
 
 const STATUS_LABEL: Record<string, string> = {
   ativa: "Ativa",
@@ -49,21 +64,14 @@ const PLANO_LABEL: Record<string, string> = {
   acima_201: "201+",
 };
 
-const brl = (v: number) =>
-  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 function MetricCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="platform-metric">
-      <div className="sub ds-muted">
-        {label}
-      </div>
+      <div className="sub ds-muted">{label}</div>
       <div className="platform-metric-value">{value}</div>
-      {hint ? (
-        <div className="sub ds-muted">
-          {hint}
-        </div>
-      ) : null}
+      {hint ? <div className="sub ds-muted">{hint}</div> : null}
     </div>
   );
 }
@@ -105,13 +113,15 @@ export function AdminConsole() {
     setLoading(true);
     setError(undefined);
     setMetricsError(false);
-    void fetchMetrics(token).then((metrics) => {
-      if (generation === loadGeneration.current) setMetrics(metrics);
-    }).catch((err) => {
-      if (generation !== loadGeneration.current) return;
-      if (err instanceof AdminSessionExpiredError) logout();
-      else setMetricsError(true);
-    });
+    void fetchMetrics(token)
+      .then((metrics) => {
+        if (generation === loadGeneration.current) setMetrics(metrics);
+      })
+      .catch((err) => {
+        if (generation !== loadGeneration.current) return;
+        if (err instanceof AdminSessionExpiredError) logout();
+        else setMetricsError(true);
+      });
     try {
       const list = await listIgrejas(token);
       if (generation !== loadGeneration.current) return;
@@ -130,7 +140,9 @@ export function AdminConsole() {
 
   useEffect(() => {
     void load();
-    return () => { loadGeneration.current += 1; };
+    return () => {
+      loadGeneration.current += 1;
+    };
   }, [load]);
 
   useEffect(() => {
@@ -175,13 +187,24 @@ export function AdminConsole() {
   const columns: Array<Column<AdminIgreja>> = [
     { header: "Igreja", cell: (r) => <strong>{r.nome}</strong> },
     { header: "Status", cell: (r) => STATUS_LABEL[r.status] ?? r.status },
-    { header: "Plano", cell: (r) => (r.plano ? PLANO_LABEL[r.plano] ?? r.plano : "—") },
+    { header: "Plano", cell: (r) => (r.plano ? (PLANO_LABEL[r.plano] ?? r.plano) : "—") },
     { header: "Membros", numeric: true, cell: (r) => r.membros },
     { header: "Pessoas", numeric: true, cell: (r) => r.pessoas },
-    { header: "Ações", cell: (r) => <DsButton variant="tertiary"
-      aria-label={`Abrir igreja: ${r.nome}`} onClick={() => { setModalError(null); setViewing(r); }}>
-      Abrir igreja
-    </DsButton> },
+    {
+      header: "Ações",
+      cell: (r) => (
+        <DsButton
+          variant="tertiary"
+          aria-label={`Abrir igreja: ${r.nome}`}
+          onClick={() => {
+            setModalError(null);
+            setViewing(r);
+          }}
+        >
+          Abrir igreja
+        </DsButton>
+      ),
+    },
   ];
 
   // Igreja aberta → página dedicada em tela cheia (substitui o antigo modal).
@@ -227,10 +250,7 @@ export function AdminConsole() {
           <DsButton variant="tertiary" onClick={() => setAuditOpen(true)}>
             Auditoria
           </DsButton>
-          <DsButton
-            variant="tertiary"
-            onClick={() => void logout({ revokeServer: true })}
-          >
+          <DsButton variant="tertiary" onClick={() => void logout({ revokeServer: true })}>
             Sair
           </DsButton>
         </nav>
@@ -250,7 +270,12 @@ export function AdminConsole() {
         </div>
       ) : null}
 
-      {metricsError ? <p className="error-banner" role="alert">Indicadores indisponíveis. A lista de igrejas continua disponível; use Atualizar para tentar novamente.</p> : null}
+      {metricsError ? (
+        <p className="error-banner" role="alert">
+          Indicadores indisponíveis. A lista de igrejas continua disponível; use Atualizar para
+          tentar novamente.
+        </p>
+      ) : null}
       {metrics ? (
         <section className="platform-summary" aria-label="Estados das igrejas">
           <MetricCard label="Igrejas" value={String(metrics.totalIgrejas)} />
@@ -274,11 +299,7 @@ export function AdminConsole() {
         <div className="platform-list-head">
           <h2>Igrejas{igrejas ? ` (${igrejas.length})` : ""}</h2>
           <div className="platform-tools">
-            <DsButton
-              variant="tertiary"
-              onClick={() => void load()}
-              loading={loading}
-            >
+            <DsButton variant="tertiary" onClick={() => void load()} loading={loading}>
               {loading ? "Atualizando…" : "Atualizar"}
             </DsButton>
             <DsButton
@@ -326,7 +347,11 @@ export function AdminConsole() {
           <summary>Financeiro da plataforma</summary>
           <div className="platform-finance">
             <MetricCard label="MRR" value={brl(metrics.mrr)} hint="igrejas ativas" />
-            <MetricCard label="Custo de IA" value={formatAiCostUsd(metrics.custoIaTotal)} hint="acumulado, em dólar" />
+            <MetricCard
+              label="Custo de IA"
+              value={formatAiCostUsd(metrics.custoIaTotal)}
+              hint="acumulado, em dólar"
+            />
           </div>
         </details>
       ) : null}

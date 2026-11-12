@@ -284,7 +284,17 @@
   border-color: var(--border-emphasis);
   min-height: 44px;
 }
-.people-ux-dialog :is(.sub, .modal-sub, .ds-dialog-desc, .cs, .flow-note, .lock-note, .preserve-note, .people-stage-status) {
+.people-ux-dialog
+  :is(
+    .sub,
+    .modal-sub,
+    .ds-dialog-desc,
+    .cs,
+    .flow-note,
+    .lock-note,
+    .preserve-note,
+    .people-stage-status
+  ) {
   color: var(--text-secondary);
   font: 500 14px/1.5 var(--font);
   overflow-wrap: anywhere;

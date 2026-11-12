@@ -89,7 +89,7 @@ export function AgenteScreen() {
   const [tab, setTab] = useState<Tab>("behavior");
   const [supportError, setSupportError] = useState<string | null>(null);
   const [supportAttempt, setSupportAttempt] = useState(0);
-  const [requestsLoading,setRequestsLoading] = useState(true);
+  const [requestsLoading, setRequestsLoading] = useState(true);
   const [cronsLoading, setCronsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [configLoaded, setConfigLoaded] = useState(false);
@@ -218,20 +218,23 @@ export function AgenteScreen() {
           if (active) setRequests(requests);
         }
       } catch (error) {
-        if (active && !handleSessionError(error)) setSupportError("Não foi possível carregar esta seção do assistente.");
-      } finally { if (active && tab === "crons") setCronsLoading(false); if (active && tab === "behavior") setRequestsLoading(false); }
+        if (active && !handleSessionError(error))
+          setSupportError("Não foi possível carregar esta seção do assistente.");
+      } finally {
+        if (active && tab === "crons") setCronsLoading(false);
+        if (active && tab === "behavior") setRequestsLoading(false);
+      }
     };
     void load();
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [token, tab, supportAttempt, handleSessionError]);
 
   // ── Salvar credencial (a chave nunca volta após salvar) ──────────────────
   const submitCredential = useCallback(async () => {
     const newKey = apiKey.trim();
-    const useSavedKey =
-      newKey.length === 0 &&
-      credentialState === "active" &&
-      modelo.length > 0;
+    const useSavedKey = newKey.length === 0 && credentialState === "active" && modelo.length > 0;
     if (!token || savingCred || !modelo || (newKey.length === 0 && !useSavedKey)) return;
     setSavingCred(true);
     setCredError(null);
@@ -243,9 +246,7 @@ export function AgenteScreen() {
         setSavedModelo(result.modelo);
         flashToast({
           kind: "ok",
-          text: changed
-            ? "Modelo validado e atualizado."
-            : "Credencial e modelo revalidados.",
+          text: changed ? "Modelo validado e atualizado." : "Credencial e modelo revalidados.",
         });
         return;
       }
@@ -265,7 +266,9 @@ export function AgenteScreen() {
       } else {
         // Chave inválida NÃO ativa a credencial.
         setCredentialState("invalid");
-        setCredError("A chave informada é inválida e não foi ativada. Verifique e tente novamente.");
+        setCredError(
+          "A chave informada é inválida e não foi ativada. Verifique e tente novamente.",
+        );
       }
     } catch (err) {
       if (handleSessionError(err)) return;
@@ -288,7 +291,8 @@ export function AgenteScreen() {
 
   // ── Enviar requisição de mudança ao master ───────────────────────────────
   const submitRequest = useCallback(async () => {
-    if (!token || !configLoaded || requestsLoading || sendingReq || reqMensagem.trim().length === 0) return;
+    if (!token || !configLoaded || requestsLoading || sendingReq || reqMensagem.trim().length === 0)
+      return;
     setSendingReq(true);
     setReqError(null);
     try {
@@ -298,13 +302,19 @@ export function AgenteScreen() {
       flashToast({ kind: "ok", text: "Requisição enviada ao master." });
     } catch (err) {
       if (handleSessionError(err)) return;
-      setReqError(
-        err instanceof ApiError ? err.message : "Não foi possível enviar a requisição.",
-      );
+      setReqError(err instanceof ApiError ? err.message : "Não foi possível enviar a requisição.");
     } finally {
       setSendingReq(false);
     }
-  }, [token, configLoaded, requestsLoading, sendingReq, reqMensagem, flashToast, handleSessionError]);
+  }, [
+    token,
+    configLoaded,
+    requestsLoading,
+    sendingReq,
+    reqMensagem,
+    flashToast,
+    handleSessionError,
+  ]);
 
   // ── Resetar o formulário de cron (sai do modo edição) ────────────────────
   const resetCronForm = useCallback(() => {
@@ -333,7 +343,8 @@ export function AgenteScreen() {
 
   // ── Criar/editar cron (gatilho de estado validado antes de salvar) ───────
   const submitCron = useCallback(async () => {
-    if (!token || !configLoaded || cronsLoading || savingCron || cronNome.trim().length === 0) return;
+    if (!token || !configLoaded || cronsLoading || savingCron || cronNome.trim().length === 0)
+      return;
     setSavingCron(true);
     setCronError(null);
     const payload = {
@@ -365,7 +376,21 @@ export function AgenteScreen() {
     } finally {
       setSavingCron(false);
     }
-  }, [token, configLoaded, cronsLoading, savingCron, cronNome, cronFrequencia, cronGatilho, cronAcao, cronAtivo, editingId, resetCronForm, flashToast, handleSessionError]);
+  }, [
+    token,
+    configLoaded,
+    cronsLoading,
+    savingCron,
+    cronNome,
+    cronFrequencia,
+    cronGatilho,
+    cronAcao,
+    cronAtivo,
+    editingId,
+    resetCronForm,
+    flashToast,
+    handleSessionError,
+  ]);
 
   // ── Ativar/desativar um cron (soft-disable via toggle de `ativo`) ────────
   const toggleCron = useCallback(
@@ -402,8 +427,7 @@ export function AgenteScreen() {
     [token, configLoaded, togglingId, editingId, flashToast, handleSessionError],
   );
 
-  const modelChanged =
-    credentialState === "active" && modelo.length > 0 && modelo !== savedModelo;
+  const modelChanged = credentialState === "active" && modelo.length > 0 && modelo !== savedModelo;
   const canUseSavedKey = credentialState === "active" && modelo.length > 0;
   const credReady = modelo.length > 0 && (apiKey.trim().length > 0 || canUseSavedKey);
   const selectedModel = modelOptions.find((item) => item.modelo === modelo);
@@ -418,16 +442,42 @@ export function AgenteScreen() {
         </div>
         <div className="actions">
           <StatusPill tone={loading || !configLoaded ? "muted" : credentialTone(credentialState)}>
-            {loading ? "Carregando…" : configLoaded ? credentialLabel(credentialState) : "Credencial indisponível"}
+            {loading
+              ? "Carregando…"
+              : configLoaded
+                ? credentialLabel(credentialState)
+                : "Credencial indisponível"}
           </StatusPill>
         </div>
       </div>
 
-      {supportError ? <div className="error-banner" role="alert">{supportError}<DsButton variant="secondary" onClick={() => setSupportAttempt((value) => value + 1)}>Tentar novamente</DsButton></div> : null}
-      {loadError ? <div className="error-banner" role="alert"><span>{loadError}</span></div> : null}
+      {supportError ? (
+        <div className="error-banner" role="alert">
+          {supportError}
+          <DsButton variant="secondary" onClick={() => setSupportAttempt((value) => value + 1)}>
+            Tentar novamente
+          </DsButton>
+        </div>
+      ) : null}
+      {loadError ? (
+        <div className="error-banner" role="alert">
+          <span>{loadError}</span>
+        </div>
+      ) : null}
       <div className="admin-context">
-        <strong>{loading ? "Carregando estado do assistente…" : !configLoaded ? "Estado do assistente indisponível" : ativo ? "Assistente ativo" : "Assistente desativado"}</strong>
-        <p>Credencial e conexão são pré-requisitos. Salvar a chave ou o modelo não altera o estado do assistente.</p>
+        <strong>
+          {loading
+            ? "Carregando estado do assistente…"
+            : !configLoaded
+              ? "Estado do assistente indisponível"
+              : ativo
+                ? "Assistente ativo"
+                : "Assistente desativado"}
+        </strong>
+        <p>
+          Credencial e conexão são pré-requisitos. Salvar a chave ou o modelo não altera o estado do
+          assistente.
+        </p>
       </div>
       <div className="tabs admin-tabs ds-mb-4">
         <button
@@ -459,108 +509,117 @@ export function AgenteScreen() {
       {/* ── Tab: Comportamento (read-only — definido pela plataforma) ───── */}
       {tab === "behavior" ? (
         <>
-        <div className="card card-pad">
-          <div
-            className="error-banner ds-mb-3"
-            role="status"
+          <div className="card card-pad">
+            <div className="error-banner ds-mb-3" role="status">
+              <Icon name="lock" />
+              <span>
+                O comportamento do agente é definido pela <strong>plataforma Igreja 12</strong>.
+                Para ajustes, envie uma requisição ao master abaixo.
+              </span>
+            </div>
+            <div className="row ds-mb-3">
+              <div className="field ds-m-0">
+                <label>Nome do agente</label>
+                <div className="val">
+                  {loading ? "Carregando…" : !configLoaded ? "Indisponível" : nome || "—"}
+                </div>
+              </div>
+              <div className="field ds-m-0">
+                <label>Tom de voz</label>
+                <div className="val">
+                  {loading ? "Carregando…" : !configLoaded ? "Indisponível" : tom || "—"}
+                </div>
+              </div>
+            </div>
+            <div className="field ds-mb-3">
+              <label>Comportamento e instruções</label>
+              <div className="val ds-prewrap">
+                {loading
+                  ? "Carregando…"
+                  : !configLoaded
+                    ? "Indisponível"
+                    : comportamento || "Ainda não configurado pela plataforma."}
+              </div>
+            </div>
+            <div className="seg-toggle-row">
+              <span>Status do agente</span>
+              <StatusPill tone={configLoaded && ativo ? "ok" : "muted"}>
+                {loading
+                  ? "Carregando…"
+                  : !configLoaded
+                    ? "Indisponível"
+                    : ativo
+                      ? "Ativo"
+                      : "Desativado"}
+              </StatusPill>
+            </div>
+          </div>
+
+          {/* ── Requisição de mudança ao master ──────────────────────────── */}
+          <form
+            className="card card-pad ds-mt-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitRequest();
+            }}
           >
-            <Icon name="lock" />
-            <span>
-              O comportamento do agente é definido pela{" "}
-              <strong>plataforma Igreja 12</strong>. Para ajustes, envie uma
-              requisição ao master abaixo.
-            </span>
-          </div>
-          <div className="row ds-mb-3">
-            <div className="field ds-m-0">
-              <label>Nome do agente</label>
-              <div className="val">{loading ? "Carregando…" : !configLoaded ? "Indisponível" : nome || "—"}</div>
+            <div className="panel-title">Solicitar mudança ao master</div>
+            {reqError ? (
+              <div className="error-banner ds-mb-3" role="alert">
+                <Icon name="alert" />
+                <span>{reqError}</span>
+              </div>
+            ) : null}
+            <div className="field ds-mb-3">
+              <label htmlFor="agReq">O que você gostaria de ajustar?</label>
+              <textarea
+                id="agReq"
+                rows={3}
+                value={reqMensagem}
+                onChange={(e) => setReqMensagem(e.target.value)}
+                placeholder="Ex.: deixar o tom mais formal e citar o nome da igreja na saudação."
+              />
             </div>
-            <div className="field ds-m-0">
-              <label>Tom de voz</label>
-              <div className="val">{loading ? "Carregando…" : !configLoaded ? "Indisponível" : tom || "—"}</div>
+            <div className="ds-flex ds-gap-2">
+              <DsButton
+                type="submit"
+                disabled={
+                  !configLoaded || requestsLoading || reqMensagem.trim().length === 0 || sendingReq
+                }
+                loading={sendingReq}
+              >
+                {sendingReq ? "Enviando…" : "Enviar requisição"}
+              </DsButton>
             </div>
-          </div>
-          <div className="field ds-mb-3">
-            <label>Comportamento e instruções</label>
-            <div className="val ds-prewrap">
-              {loading ? "Carregando…" : !configLoaded ? "Indisponível" : comportamento || "Ainda não configurado pela plataforma."}
-            </div>
-          </div>
-          <div className="seg-toggle-row">
-            <span>Status do agente</span>
-            <StatusPill tone={configLoaded && ativo ? "ok" : "muted"}>
-              {loading ? "Carregando…" : !configLoaded ? "Indisponível" : ativo ? "Ativo" : "Desativado"}
-            </StatusPill>
-          </div>
-        </div>
 
-
-        {/* ── Requisição de mudança ao master ──────────────────────────── */}
-        <form
-          className="card card-pad ds-mt-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submitRequest();
-          }}
-        >
-          <div className="panel-title">Solicitar mudança ao master</div>
-          {reqError ? (
-            <div className="error-banner ds-mb-3" role="alert">
-              <Icon name="alert" />
-              <span>{reqError}</span>
-            </div>
-          ) : null}
-          <div className="field ds-mb-3">
-            <label htmlFor="agReq">O que você gostaria de ajustar?</label>
-            <textarea
-              id="agReq"
-              rows={3}
-              value={reqMensagem}
-              onChange={(e) => setReqMensagem(e.target.value)}
-              placeholder="Ex.: deixar o tom mais formal e citar o nome da igreja na saudação."
-            />
-          </div>
-          <div className="ds-flex ds-gap-2">
-            <DsButton
-              type="submit"
-              disabled={!configLoaded || requestsLoading || reqMensagem.trim().length === 0 || sendingReq}
-              loading={sendingReq}
-            >
-              {sendingReq ? "Enviando…" : "Enviar requisição"}
-            </DsButton>
-          </div>
-
-          {requests.length > 0 ? (
-            <div className="ds-mt-4">
-              <div className="panel-title">Minhas requisições</div>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Mensagem</th>
-                    <th>Status</th>
-                    <th>Resposta do master</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {requests.map((r) => (
-                    <tr key={r.id}>
-                      <td className="nm ds-prewrap">{r.mensagem}</td>
-                      <td>
-                        <StatusPill tone={REQUEST_TONE[r.status]}>
-                          {REQUEST_LABEL[r.status]}
-                        </StatusPill>
-                      </td>
-                      <td className="sub ds-prewrap">
-                        {r.resposta ?? "—"}
-                      </td>
+            {requests.length > 0 ? (
+              <div className="ds-mt-4">
+                <div className="panel-title">Minhas requisições</div>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Mensagem</th>
+                      <th>Status</th>
+                      <th>Resposta do master</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </form>
+                  </thead>
+                  <tbody>
+                    {requests.map((r) => (
+                      <tr key={r.id}>
+                        <td className="nm ds-prewrap">{r.mensagem}</td>
+                        <td>
+                          <StatusPill tone={REQUEST_TONE[r.status]}>
+                            {REQUEST_LABEL[r.status]}
+                          </StatusPill>
+                        </td>
+                        <td className="sub ds-prewrap">{r.resposta ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </form>
         </>
       ) : null}
 
@@ -581,7 +640,10 @@ export function AgenteScreen() {
           ) : null}
           <div className="field ds-mb-3">
             <h3>Credencial e modelo</h3>
-            <p className="sub ds-mb-3">Confira o resultado da validação. A chave permanece protegida e salvar não ativa o assistente.</p>
+            <p className="sub ds-mb-3">
+              Confira o resultado da validação. A chave permanece protegida e salvar não ativa o
+              assistente.
+            </p>
             <label htmlFor="agProvider">Provedor</label>
             <select
               id="agProvider"
@@ -615,18 +677,19 @@ export function AgenteScreen() {
               <div className="sub ds-muted ds-mt-2">
                 <div>{selectedModel.perfil}</div>
                 <div>
-                  Entrada: US$ {selectedModel.precoEntradaUsdMilhao.toFixed(2)} · Saída:
-                  {" "}US$ {selectedModel.precoSaidaUsdMilhao.toFixed(2)} por 1 milhão de tokens.
+                  Entrada: US$ {selectedModel.precoEntradaUsdMilhao.toFixed(2)} · Saída: US${" "}
+                  {selectedModel.precoSaidaUsdMilhao.toFixed(2)} por 1 milhão de tokens.
                 </div>
                 {modelPricingDate ? (
                   <div>
-                    Referência de preços públicos: {modelPricingDate.split("-").reverse().join("/")}.
+                    Referência de preços públicos: {modelPricingDate.split("-").reverse().join("/")}
+                    .
                   </div>
                 ) : null}
                 {selectedModel.fallback.length > 0 ? (
                   <div>
-                    Se ficar indisponível, o sistema tenta somente modelos mais baratos:
-                    {" "}{selectedModel.fallback.join(" → ")}.
+                    Se ficar indisponível, o sistema tenta somente modelos mais baratos:{" "}
+                    {selectedModel.fallback.join(" → ")}.
                   </div>
                 ) : null}
               </div>
@@ -641,22 +704,16 @@ export function AgenteScreen() {
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={
-                credentialState === "none"
-                  ? "sk-…"
-                  : "•••••••• — deixe em branco para manter"
+                credentialState === "none" ? "sk-…" : "•••••••• — deixe em branco para manter"
               }
             />
             {credentialState === "active" ? (
-              <p
-                className="sub ds-text-ok ds-mt-2 ds-flex ds-items-center ds-gap-2"
-              >
+              <p className="sub ds-text-ok ds-mt-2 ds-flex ds-items-center ds-gap-2">
                 <Icon name="check" />
                 <span>Chave configurada — preencha só se quiser trocá-la.</span>
               </p>
             ) : credentialState === "invalid" ? (
-              <p
-                className="sub ds-text-danger ds-mt-2 ds-flex ds-items-center ds-gap-2"
-              >
+              <p className="sub ds-text-danger ds-mt-2 ds-flex ds-items-center ds-gap-2">
                 <Icon name="alert" />
                 <span>Há uma chave salva, mas inválida — informe uma nova.</span>
               </p>
@@ -666,11 +723,7 @@ export function AgenteScreen() {
             </p>
           </div>
           <div className="ds-flex ds-gap-2">
-            <DsButton
-              type="submit"
-              disabled={!credReady || savingCred}
-              loading={savingCred}
-            >
+            <DsButton type="submit" disabled={!credReady || savingCred} loading={savingCred}>
               {savingCred
                 ? "Validando…"
                 : apiKey.trim().length > 0
@@ -753,7 +806,13 @@ export function AgenteScreen() {
               />
             </div>
             <div className="seg-toggle-row ds-mb-3">
-              <span>{!configLoaded ? "Configuração indisponível" : cronAtivo ? "Agendamento ativo" : "Agendamento pausado"}</span>
+              <span>
+                {!configLoaded
+                  ? "Configuração indisponível"
+                  : cronAtivo
+                    ? "Agendamento ativo"
+                    : "Agendamento pausado"}
+              </span>
               <Toggle
                 checked={cronAtivo}
                 onChange={setCronAtivo}
@@ -767,18 +826,10 @@ export function AgenteScreen() {
                 disabled={!configLoaded || cronsLoading || !cronReady || savingCron}
                 loading={savingCron}
               >
-                {savingCron
-                  ? "Salvando…"
-                  : editingId
-                    ? "Salvar alterações"
-                    : "Criar agendamento"}
+                {savingCron ? "Salvando…" : editingId ? "Salvar alterações" : "Criar agendamento"}
               </DsButton>
               {editingId ? (
-                <DsButton
-                  variant="secondary"
-                  onClick={resetCronForm}
-                  disabled={savingCron}
-                >
+                <DsButton variant="secondary" onClick={resetCronForm} disabled={savingCron}>
                   Cancelar
                 </DsButton>
               ) : null}
@@ -787,12 +838,14 @@ export function AgenteScreen() {
 
           <div className="card">
             <div className="panel-title">Agendamentos configurados</div>
-            {cronsLoading ? <p role="status">Carregando agendamentos…</p> : crons.length === 0 ? (
+            {cronsLoading ? (
+              <p role="status">Carregando agendamentos…</p>
+            ) : crons.length === 0 ? (
               <div className="empty-state ds-p-6">
                 <Icon name="clock" />
                 <p>
-                  <strong>Nenhum agendamento ainda.</strong> Crie o primeiro acima
-                  para automatizar tarefas por gatilho.
+                  <strong>Nenhum agendamento ainda.</strong> Crie o primeiro acima para automatizar
+                  tarefas por gatilho.
                 </p>
               </div>
             ) : (

@@ -36,6 +36,8 @@ export interface BrowserSafety {
   consoleErrors: string[];
   pageErrors: string[];
   externalRequests: string[];
+  /** Violações da CSP, inclusive do modo de teste (Report-Only). */
+  cspViolations: string[];
 }
 
 export interface LoginMetrics {
@@ -45,14 +47,15 @@ export interface LoginMetrics {
 
 const browserSafetyByPage = new WeakMap<Page, BrowserSafety>();
 
-export async function resetHarness(request: APIRequestContext, options?: {performance?:boolean;queueSize?:number}): Promise<void> {
-  const response = await request.post(`${API_URL}/__e2e/reset`, {data:options});
+export async function resetHarness(
+  request: APIRequestContext,
+  options?: { performance?: boolean; queueSize?: number },
+): Promise<void> {
+  const response = await request.post(`${API_URL}/__e2e/reset`, { data: options });
   expect(response.ok()).toBeTruthy();
 }
 
-export async function harnessRequests(
-  request: APIRequestContext,
-): Promise<HarnessRequest[]> {
+export async function harnessRequests(request: APIRequestContext): Promise<HarnessRequest[]> {
   const response = await request.get(`${API_URL}/__e2e/requests`);
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as { requests: HarnessRequest[] };
@@ -68,13 +71,32 @@ export async function armBrowserSafety(page: Page): Promise<BrowserSafety> {
     consoleErrors: [],
     pageErrors: [],
     externalRequests: [],
+    cspViolations: [],
   };
+
+  // A CSP ainda está em modo de teste (não bloqueia); este gate faz qualquer
+  // fluxo E2E que a violaria falhar antes de a política passar a bloquear.
+  await page.exposeFunction("__e2eCspViolation", (violation: string) => {
+    safety.cspViolations.push(violation);
+  });
+  await page.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+      const report = (window as unknown as { __e2eCspViolation?: (v: string) => void })
+        .__e2eCspViolation;
+      report?.(`${event.disposition} ${event.effectiveDirective} ${event.blockedURI}`);
+    });
+  });
 
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     // Exact missing additive routes are an exercised compatibility response.
     const location = message.location().url;
-    const additive404 = message.text().includes("404") && location.startsWith(API_URL) && /\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary|conversations\/[^/]+\/messages\/media-urls)(?:\?|$)/.test(location);
+    const additive404 =
+      message.text().includes("404") &&
+      location.startsWith(API_URL) &&
+      /\/(?:auth\/bootstrap|work-queue\/snapshot|cells\/(?:lookup|summary|me\/led-today)|contacts\/lookup|pipeline\/summary|conversations\/[^/]+\/messages\/media-urls)(?:\?|$)/.test(
+        location,
+      );
     if (!additive404) safety.consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => safety.pageErrors.push(error.message));
@@ -100,6 +122,7 @@ export function expectCleanBrowser(safety: BrowserSafety): void {
   expect(safety.externalRequests, "requisições externas bloqueadas").toEqual([]);
   expect(safety.pageErrors, "erros JavaScript não tratados").toEqual([]);
   expect(safety.consoleErrors, "console.error no navegador").toEqual([]);
+  expect(safety.cspViolations, "violações da CSP").toEqual([]);
 }
 
 export async function expectDashboardContextReady(page: Page): Promise<void> {
@@ -146,19 +169,13 @@ export async function resourceTimeline(page: Page) {
           };
         })
         .filter(
-          (entry) =>
-            entry.name.includes("/_next/") ||
-            entry.name.startsWith(allowedApiOrigin),
+          (entry) => entry.name.includes("/_next/") || entry.name.startsWith(allowedApiOrigin),
         ),
     apiOrigin,
   );
 }
 
-export async function attachJson(
-  testInfo: TestInfo,
-  name: string,
-  value: unknown,
-): Promise<void> {
+export async function attachJson(testInfo: TestInfo, name: string, value: unknown): Promise<void> {
   const evidence = {
     sourceSha: SOURCE_SHA,
     generatedAt: new Date().toISOString(),

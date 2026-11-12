@@ -51,7 +51,13 @@ function preflight(over: Partial<OffboardingPreflight> = {}): OffboardingPreflig
     bloqueadores: [],
     automaticos: [],
     preservados: [
-      { tipo: "conversas_mensagens", rotulo: "Conversas e mensagens do WhatsApp", recurso_id: null, recurso_nome: null, acao_recomendada: null },
+      {
+        tipo: "conversas_mensagens",
+        rotulo: "Conversas e mensagens do WhatsApp",
+        recurso_id: null,
+        recurso_nome: null,
+        acao_recomendada: null,
+      },
     ],
     ...over,
   };
@@ -85,7 +91,10 @@ function findButton(label: string): HTMLButtonElement | undefined {
 
 function setTextarea(value: string) {
   const textarea = container.querySelector("textarea")!;
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
   act(() => {
     setter.call(textarea, value);
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
@@ -126,9 +135,7 @@ describe("ArchiveContactModal — M7B-W3.2B", () => {
       findButton("Arquivar pessoa")!.click();
     });
     expect(onConfirm).not.toHaveBeenCalled();
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-      "Informe o motivo",
-    );
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Informe o motivo");
   });
 
   it("bloqueadores presentes: pode_arquivar=false não renderiza o botão de confirmar", () => {

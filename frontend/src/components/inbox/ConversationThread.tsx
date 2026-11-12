@@ -21,7 +21,12 @@ import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { DsIconButton } from "@/components/ds/IconButton";
-import { isPastoralProtected, PASTORAL_PROTECTED, type ChatMessage, type Conversation } from "@/lib/conversations-api";
+import {
+  isPastoralProtected,
+  PASTORAL_PROTECTED,
+  type ChatMessage,
+  type Conversation,
+} from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import {
@@ -50,8 +55,7 @@ function threadCopy(
   if (estado === "humano") {
     return {
       bannerClass: "human",
-      bannerText:
-        "Atendimento sob controle humano. A IA está pausada nesta conversa.",
+      bannerText: "Atendimento sob controle humano. A IA está pausada nesta conversa.",
     };
   }
   // "Sem interesse": a IA já está suspensa no backend para este contato.
@@ -65,8 +69,7 @@ function threadCopy(
   if (estado === "ia" && agentAvailability === "paused_by_church") {
     return {
       bannerClass: "human",
-      bannerText:
-        "O agente está pausado pela igreja. Nenhuma resposta automática será enviada.",
+      bannerText: "O agente está pausado pela igreja. Nenhuma resposta automática será enviada.",
     };
   }
   if (estado === "ia" && agentAvailability === "unknown") {
@@ -99,12 +102,7 @@ function attachIcon(mime: string): "image" | "document" | "mic" {
 /** Escolhe um mimetype de áudio suportado pelo MediaRecorder (ou undefined). */
 function pickAudioMime(): string | undefined {
   if (typeof MediaRecorder === "undefined") return undefined;
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/ogg;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-  ];
+  const candidates = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
   for (const c of candidates) {
     if (MediaRecorder.isTypeSupported?.(c)) return c;
   }
@@ -127,25 +125,32 @@ function fmtSecs(total: number): string {
 
 /** Corpo de uma mensagem: texto puro ou mídia (imagem/arquivo/áudio). */
 function MessageBody({ m }: { m: ChatMessage }) {
-  if (isPastoralProtected(m)) return (
-    <div role="note" aria-label={PASTORAL_PROTECTED}>
-      <strong>{PASTORAL_PROTECTED}</strong>
-      <p>O conteúdo está restrito aos destinatários autorizados. Encaminhe o atendimento ao pastor.</p>
-    </div>
-  );
+  if (isPastoralProtected(m))
+    return (
+      <div role="note" aria-label={PASTORAL_PROTECTED}>
+        <strong>{PASTORAL_PROTECTED}</strong>
+        <p>
+          O conteúdo está restrito aos destinatários autorizados. Encaminhe o atendimento ao pastor.
+        </p>
+      </div>
+    );
   if (m.mediaPending) return <span className="msg-media-na">Carregando mídia…</span>;
   if (m.tipo === "imagem") {
     return (
       <>
         {m.mediaUrl ? (
-          <a
-            href={m.mediaUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="msg-img-link"
-          >
+          <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="msg-img-link">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={m.mediaUrl} alt={m.texto ?? "Imagem"} className="msg-img" loading="lazy" decoding="async" width={320} height={240} style={{ objectFit: "contain" }} />
+            <img
+              src={m.mediaUrl}
+              alt={m.texto ?? "Imagem"}
+              className="msg-img"
+              loading="lazy"
+              decoding="async"
+              width={320}
+              height={240}
+              style={{ objectFit: "contain" }}
+            />
           </a>
         ) : (
           <span className="msg-media-na">
@@ -304,7 +309,9 @@ export function ConversationThread({
   const recordingGenerationRef = useRef(0);
   const recordingCycleRef = useRef<AudioRecordingCycle | null>(null);
   const recordingScopeRef = useRef({
-    conversationId: conversation.id, context: recordingContext, canCompose: false,
+    conversationId: conversation.id,
+    context: recordingContext,
+    canCompose: false,
   });
 
   const invalidateRecording = useCallback(() => {
@@ -323,8 +330,7 @@ export function ConversationThread({
   const pill = conversationPill(conversation, agentAvailability);
   const copy = threadCopy(estado, paused, agentAvailability);
   const marker = tipoMarker(conversation);
-  const automaticAgentUnavailable =
-    conversation.semInteresse || agentAvailability !== "active";
+  const automaticAgentUnavailable = conversation.semInteresse || agentAvailability !== "active";
 
   const holder = conversation.assumidoPor;
   const isMine = estado === "humano" && holder === selfId;
@@ -334,7 +340,9 @@ export function ConversationThread({
   // Invalidate before painting another conversation or authorization context.
   useLayoutEffect(() => {
     recordingScopeRef.current = {
-      conversationId: conversation.id, context: recordingContext, canCompose,
+      conversationId: conversation.id,
+      context: recordingContext,
+      canCompose,
     };
     setPendingFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -352,7 +360,8 @@ export function ConversationThread({
       const saved = olderScroll.current;
       el.scrollTop = saved.top + el.scrollHeight - saved.height;
       olderScroll.current = null;
-    } else if (el && followLatestRef.current && !olderScroll.current) el.scrollTop = el.scrollHeight;
+    } else if (el && followLatestRef.current && !olderScroll.current)
+      el.scrollTop = el.scrollHeight;
   }, [conversation.id, messages.length, olderMessagesLoading]);
 
   useEffect(() => {
@@ -376,10 +385,18 @@ export function ConversationThread({
     // Initial history and older pages stay silent. Polls announce only newer inbound IDs.
     if (previous) {
       const previousIndex = messages.findIndex((message) => message.id === previous.id);
-      const added = messages.filter((message, index) => message.direcao === "in" &&
-        (previous.id === null || (previousIndex >= 0 ? index > previousIndex :
-          Boolean(previous.time && message.criadoEm && message.criadoEm > previous.time))));
-      if (added.length) setAnnouncement(`${added.length} ${added.length === 1 ? "nova mensagem recebida" : "novas mensagens recebidas"}.`);
+      const added = messages.filter(
+        (message, index) =>
+          message.direcao === "in" &&
+          (previous.id === null ||
+            (previousIndex >= 0
+              ? index > previousIndex
+              : Boolean(previous.time && message.criadoEm && message.criadoEm > previous.time))),
+      );
+      if (added.length)
+        setAnnouncement(
+          `${added.length} ${added.length === 1 ? "nova mensagem recebida" : "novas mensagens recebidas"}.`,
+        );
     }
     latestMessages.current = { id: last.id, time: last.criadoEm };
   }, [messages, messagesLoading, messagesInitialized, messagesError, setAnnouncement]);
@@ -392,20 +409,26 @@ export function ConversationThread({
   // ---- gravação de áudio (Etapa 3) --------------------------------------
   function isCurrentRecording(cycle: AudioRecordingCycle) {
     const scope = recordingScopeRef.current;
-    return recordingCycleRef.current === cycle &&
+    return (
+      recordingCycleRef.current === cycle &&
       recordingGenerationRef.current === cycle.generation &&
       scope.conversationId === cycle.conversationId &&
-      scope.context === cycle.context && scope.canCompose;
+      scope.context === cycle.context &&
+      scope.canCompose
+    );
   }
-
 
   async function startRecording() {
     if (!canCompose || sending || recording || pendingFile || recordingCycleRef.current) return;
     if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) return;
     const cycle: AudioRecordingCycle = {
       generation: ++recordingGenerationRef.current,
-      conversationId: conversation.id, context: recordingContext,
-      stream: null, recorder: null, timer: null, chunks: [],
+      conversationId: conversation.id,
+      context: recordingContext,
+      stream: null,
+      recorder: null,
+      timer: null,
+      chunks: [],
     };
     recordingCycleRef.current = cycle;
     try {
@@ -416,9 +439,7 @@ export function ConversationThread({
       }
       cycle.stream = stream;
       const mime = pickAudioMime();
-      const rec = mime
-        ? new MediaRecorder(stream, { mimeType: mime })
-        : new MediaRecorder(stream);
+      const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
       cycle.recorder = rec;
       rec.ondataavailable = (e) => {
         if (isCurrentRecording(cycle) && e.data.size > 0) cycle.chunks.push(e.data);
@@ -480,7 +501,9 @@ export function ConversationThread({
       setSending(true);
       try {
         const ok = await onSendMedia(conversation, pendingFile, draft.trim() || undefined);
-        setAnnouncement(ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.");
+        setAnnouncement(
+          ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.",
+        );
         if (ok && recordingGenerationRef.current === submissionGeneration) {
           clearAttachment();
         }
@@ -498,7 +521,9 @@ export function ConversationThread({
     setAnnouncement("Enviando mensagem…");
     try {
       const ok = await onSend(conversation, value);
-      setAnnouncement(ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.");
+      setAnnouncement(
+        ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.",
+      );
       if (ok) {
         followLatestRef.current = true;
         const el = bodyRef.current;
@@ -512,7 +537,9 @@ export function ConversationThread({
   return (
     <div className="conv-thread">
       <div className="thread-head">
-        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true"><span key={announcement.sequence}>{announcement.text}</span></p>
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          <span key={announcement.sequence}>{announcement.text}</span>
+        </p>
         {showBack && onBack ? (
           <button
             type="button"
@@ -533,19 +560,21 @@ export function ConversationThread({
           )}
         </span>
         <div className="who">
-          <h2 ref={headingRef} tabIndex={-1} className="ib-conversation-heading">{displayName(conversation)}</h2>
+          <h2 ref={headingRef} tabIndex={-1} className="ib-conversation-heading">
+            {displayName(conversation)}
+          </h2>
           {marker ? (
             <span className={`who-tipo${marker.csim ? " csim" : ""}`}>{marker.label}</span>
           ) : null}
           <span className="mono">
-            {conversation.nome
-              ? maskPhone(conversation.telefone)
-              : "Contato do WhatsApp oficial"}
+            {conversation.nome ? maskPhone(conversation.telefone) : "Contato do WhatsApp oficial"}
           </span>
           <span className="ib-thread-state">
             <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
             {estado === "humano" ? (
-              <span>{isMine ? "Responsável: você" : `Responsável: ${holderName ?? "não informado"}`}</span>
+              <span>
+                {isMine ? "Responsável: você" : `Responsável: ${holderName ?? "não informado"}`}
+              </span>
             ) : null}
           </span>
         </div>
@@ -557,9 +586,7 @@ export function ConversationThread({
               variant="secondary"
               onClick={() => onReturn(conversation)}
               disabled={busy}
-              aria-label={
-                automaticAgentUnavailable ? "Encerrar atendimento" : "Devolver para a IA"
-              }
+              aria-label={automaticAgentUnavailable ? "Encerrar atendimento" : "Devolver para a IA"}
               title={
                 conversation.semInteresse
                   ? "Encerrar o atendimento (a IA segue pausada para este contato)"
@@ -581,9 +608,7 @@ export function ConversationThread({
             <DsButton
               onClick={() => onAssume(conversation)}
               disabled={busy || heldByOther}
-              aria-label={
-                "Assumir atendimento"
-              }
+              aria-label={"Assumir atendimento"}
               title={
                 heldByOther
                   ? "Conversa já assumida por outro líder"
@@ -597,9 +622,7 @@ export function ConversationThread({
               }
             >
               <Icon name="user" />
-              <span>
-                Assumir atendimento
-              </span>
+              <span>Assumir atendimento</span>
             </DsButton>
           )}
           {isMine || isAdmin ? (
@@ -645,14 +668,21 @@ export function ConversationThread({
           1px completa, texto no tom do estado. Mesmos textos e condições. */}
       <div className="ib-banners">
         {messagesError ? (
-          <DsBanner kind="error" action={
-            <DsButton variant="secondary" onClick={onRetryMessages} disabled={messagesLoading}>
-              Tentar novamente
-            </DsButton>
-          }>{messagesError}</DsBanner>
+          <DsBanner
+            kind="error"
+            action={
+              <DsButton variant="secondary" onClick={onRetryMessages} disabled={messagesLoading}>
+                Tentar novamente
+              </DsButton>
+            }
+          >
+            {messagesError}
+          </DsBanner>
         ) : null}
         {outsideFilter ? <DsBanner kind="info">Conversa aberta fora deste filtro.</DsBanner> : null}
-        <DsBanner kind="info">{isMine ? "Em atendimento por você. A IA está pausada nesta conversa." : copy.bannerText}</DsBanner>
+        <DsBanner kind="info">
+          {isMine ? "Em atendimento por você. A IA está pausada nesta conversa." : copy.bannerText}
+        </DsBanner>
         {heldByOther ? (
           <DsBanner kind="warning">
             {conflict ??
@@ -661,22 +691,37 @@ export function ConversationThread({
         ) : null}
         {degraded ? (
           <DsBanner kind="degraded">
-            WhatsApp indisponível (offline ou reconectando). O envio de respostas está
-            desabilitado até a conexão ser restabelecida.
+            WhatsApp indisponível (offline ou reconectando). O envio de respostas está desabilitado
+            até a conexão ser restabelecida.
           </DsBanner>
         ) : null}
       </div>
 
-      <div className="thread-body" role="region" aria-label="Histórico da conversa" tabIndex={0} ref={bodyRef} onScroll={(event) => {
-        const el = event.currentTarget;
-        followLatestRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
-      }}>
-        {hasOlderMessages ? <DsButton variant="secondary" disabled={olderMessagesLoading} onClick={() => {
-          const el = bodyRef.current;
-          if (el) olderScroll.current = { height: el.scrollHeight, top: el.scrollTop };
-          followLatestRef.current = false;
-          onLoadOlderMessages?.();
-        }}>{olderMessagesLoading ? "Carregando histórico…" : "Carregar mensagens anteriores"}</DsButton> : null}
+      <div
+        className="thread-body"
+        role="region"
+        aria-label="Histórico da conversa"
+        tabIndex={0}
+        ref={bodyRef}
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          followLatestRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+        }}
+      >
+        {hasOlderMessages ? (
+          <DsButton
+            variant="secondary"
+            disabled={olderMessagesLoading}
+            onClick={() => {
+              const el = bodyRef.current;
+              if (el) olderScroll.current = { height: el.scrollHeight, top: el.scrollTop };
+              followLatestRef.current = false;
+              onLoadOlderMessages?.();
+            }}
+          >
+            {olderMessagesLoading ? "Carregando histórico…" : "Carregar mensagens anteriores"}
+          </DsButton>
+        ) : null}
         {messagesLoading && messages.length === 0 ? (
           <p
             className="sub"
@@ -787,9 +832,7 @@ export function ConversationThread({
               type="submit"
               aria-label="Enviar mensagem"
               title="Enviar mensagem"
-              disabled={
-                !canCompose || sending || (!pendingFile && draft.trim().length === 0)
-              }
+              disabled={!canCompose || sending || (!pendingFile && draft.trim().length === 0)}
             >
               <Icon name="send" />
               <span>{sending || sendingText ? "Enviando…" : "Enviar"}</span>

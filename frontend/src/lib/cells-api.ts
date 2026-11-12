@@ -13,12 +13,7 @@
  * papel de liderança pastoral. cobertura_espiritual é obrigatória (422/edge).
  */
 
-import {
-  ApiError,
-  authedFetch,
-  readDetail,
-  type Page,
-} from "./dashboard-api";
+import { ApiError, authedFetch, readDetail, type Page } from "./dashboard-api";
 
 export type { Page } from "./dashboard-api";
 
@@ -71,10 +66,7 @@ export interface UpsertCellInput {
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
-export async function fetchCellsFull(
-  token: string,
-  pageSize = 200,
-): Promise<Page<CellSummary>> {
+export async function fetchCellsFull(token: string, pageSize = 200): Promise<Page<CellSummary>> {
   const size = Math.min(200, Math.max(1, Math.trunc(pageSize)));
   const items: CellSummary[] = [];
   let total = 0;
@@ -85,15 +77,16 @@ export async function fetchCellsFull(
     items.push(...batch.items);
     total = batch.total;
     if (items.length >= total) break;
-    if (batch.items.length === 0) throw new ApiError(502, "A lista de células mudou. Atualize para confirmar todos os registros.");
+    if (batch.items.length === 0)
+      throw new ApiError(
+        502,
+        "A lista de células mudou. Atualize para confirmar todos os registros.",
+      );
   }
   return { items, total, page: 1, pageSize: size };
 }
 
-export async function fetchCellDetail(
-  token: string,
-  cellId: string,
-): Promise<CellDetail> {
+export async function fetchCellDetail(token: string, cellId: string): Promise<CellDetail> {
   const res = await authedFetch(token, `/cells/${cellId}`);
   if (!res.ok) {
     const detail = await readDetail(res);
@@ -116,10 +109,7 @@ export interface CellMembro {
  * getCellMembers (/members), exclusiva do líder da própria célula. Não traz o
  * nome; resolva o pessoaId contra os contatos já carregados.
  */
-export async function fetchCellMembros(
-  token: string,
-  cellId: string,
-): Promise<CellMembro[]> {
+export async function fetchCellMembros(token: string, cellId: string): Promise<CellMembro[]> {
   const res = await authedFetch(token, `/cells/${cellId}/membros`);
   if (!res.ok) {
     const detail = await readDetail(res);
@@ -208,10 +198,7 @@ export async function removeCellMember(
  * Cria ou edita uma célula. cobertura_espiritual é obrigatória. Editar uma
  * célula existente exige líder-ou-superior na hierarquia (403 com motivo).
  */
-export async function upsertCell(
-  token: string,
-  input: UpsertCellInput,
-): Promise<CellSummary> {
+export async function upsertCell(token: string, input: UpsertCellInput): Promise<CellSummary> {
   const res = await authedFetch(token, `/cells`, {
     method: "POST",
     body: JSON.stringify({
@@ -239,11 +226,10 @@ export async function baixarAlert(
   cellId: string,
   alertId: string,
 ): Promise<CellAlert> {
-  const res = await authedFetch(
-    token,
-    `/cells/${cellId}/alerts/${alertId}/baixar`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
+  const res = await authedFetch(token, `/cells/${cellId}/alerts/${alertId}/baixar`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível tratar o alerta.");
@@ -282,11 +268,7 @@ export interface NextMeetingResponse {
  * Rótulo da própria presença numa reunião passada (E5):
  * `participou` | `faltou` | `confirmou` | `nao_confirmou`.
  */
-export type MinhaPresenca =
-  | "participou"
-  | "faltou"
-  | "confirmou"
-  | "nao_confirmou";
+export type MinhaPresenca = "participou" | "faltou" | "confirmou" | "nao_confirmou";
 
 /** Item MINIMIZADO do histórico (só dados do próprio membro). */
 export interface HistoryItem {
@@ -321,9 +303,7 @@ export interface CellMembersOut {
  * Próxima reunião FUTURA da célula do discípulo. "Sem célula" ou "sem ocorrência
  * futura" são estados válidos e retornam `{ meeting: null }` (não erro).
  */
-export async function getNextMeeting(
-  token: string,
-): Promise<NextMeetingResponse> {
+export async function getNextMeeting(token: string): Promise<NextMeetingResponse> {
   const res = await authedFetch(token, `/cells/me/next-meeting`);
   if (!res.ok) {
     const detail = await readDetail(res);
@@ -376,12 +356,12 @@ export async function getLedCellsTodayContext(
 ): Promise<LedCellsTodayContext> {
   const context = await authedFetch(token, "/cells/me/led-today");
   if (context.ok) return (await context.json()) as LedCellsTodayContext;
-  if (context.status !== 404) throw new ApiError(context.status, "Não foi possível resolver suas próximas reuniões.");
+  if (context.status !== 404)
+    throw new ApiError(context.status, "Não foi possível resolver suas próximas reuniões.");
   // Backend anterior: mantém a leitura completa, com a mesma autoridade.
   const cells = [...(await getMyLedCells(token))].sort(
     (a, b) =>
-      a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }) ||
-      a.id.localeCompare(b.id),
+      a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }) || a.id.localeCompare(b.id),
   );
   if (cells.length === 0) return { cells, meeting: null };
 
@@ -423,11 +403,7 @@ export async function getLedCellsTodayContext(
  * Histórico paginado das reuniões PASSADAS do membro (projeção mínima).
  * Mais recentes primeiro. Sem célula → página vazia (não erro).
  */
-export async function getMyHistory(
-  token: string,
-  page = 1,
-  pageSize = 20,
-): Promise<HistoryPage> {
+export async function getMyHistory(token: string, page = 1, pageSize = 20): Promise<HistoryPage> {
   const query = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -441,10 +417,7 @@ export async function getMyHistory(
 }
 
 /** Lista os membros de uma célula (reuso do endpoint do líder — leitura). */
-export async function getCellMembers(
-  token: string,
-  cellId: string,
-): Promise<CellMembersOut> {
+export async function getCellMembers(token: string, cellId: string): Promise<CellMembersOut> {
   const res = await authedFetch(token, `/cells/${cellId}/members`);
   if (!res.ok) {
     const detail = await readDetail(res);
@@ -472,10 +445,7 @@ export interface Reuniao {
  * Lista TODAS as reuniões (passadas e futuras) de uma célula — base do painel
  * do líder para escolher a reunião a relatar. Sem paginação (BK-DEC-02).
  */
-export async function listReunioes(
-  token: string,
-  cellId: string,
-): Promise<Reuniao[]> {
+export async function listReunioes(token: string, cellId: string): Promise<Reuniao[]> {
   const res = await authedFetch(token, `/cells/${cellId}/reunioes`);
   if (!res.ok) {
     const detail = await readDetail(res);

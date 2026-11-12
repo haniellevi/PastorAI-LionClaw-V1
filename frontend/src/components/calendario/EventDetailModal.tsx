@@ -93,7 +93,8 @@ export function EventDetailModal({
   const showPills = Boolean(status || event.tipo || event.origem || event.recorrencia);
 
   return (
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -125,11 +126,7 @@ export function EventDetailModal({
                 {busy ? "Excluindo…" : "Confirmar exclusão"}
               </DsButton>
             ) : (
-              <DsButton
-                variant="danger"
-                onClick={() => setConfirmingDelete(true)}
-                disabled={busy}
-              >
+              <DsButton variant="danger" onClick={() => setConfirmingDelete(true)} disabled={busy}>
                 <Icon name="trash" /> Excluir
               </DsButton>
             )}
@@ -177,8 +174,8 @@ export function EventDetailModal({
 
         {!canManage && event.status === "a_confirmar" ? (
           <p className="sub ds-m-0">
-            Este evento ainda será confirmado pela liderança. Você será avisado
-            quando estiver definido.
+            Este evento ainda será confirmado pela liderança. Você será avisado quando estiver
+            definido.
           </p>
         ) : null}
       </div>

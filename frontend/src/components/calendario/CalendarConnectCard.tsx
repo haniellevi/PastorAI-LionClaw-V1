@@ -190,9 +190,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   /** Formulário de conta aberto sobre uma conexão existente (trocar/registrar). */
   const [changing, setChanging] = useState(false);
   /** Quem autorizou não é quem foi declarado. Estado terminal e acionável. */
-  const [mismatch, setMismatch] = useState<
-    { expected: string; verified: string } | null
-  >(null);
+  const [mismatch, setMismatch] = useState<{ expected: string; verified: string } | null>(null);
   /** Mesmo e-mail, mas outra identidade Google. A conexão anterior fica válida
    * e os controles dela precisam permanecer acessíveis para a desconexão. */
   const [reidentified, setReidentified] = useState<string | null>(null);
@@ -223,36 +221,39 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     [expireSession],
   );
 
-  const applyCalendars = useCallback(async (epoch: number, adoptVersion = true) => {
-    if (!token) return;
-    try {
-      const list = await fetchCalendarList(token);
-      if (epoch !== mutationEpochRef.current) return;
-      setCalendars(list.calendars);
-      if (list.connection) {
-        // Lista + identidade vêm da mesma linha bloqueada no backend. Aplicar o
-        // snapshot inteiro impede combinar conta A de um /status antigo com a
-        // revisão/lista da conta B após reconexão concorrente.
-        setConnected(list.connection.connected);
-        setCalendarId(list.connection.calendarId);
-        setGoogleAccountEmail(list.connection.googleAccountEmail);
-        setCalendarConnectionVersion(list.connection.connectionVersion);
-        return;
+  const applyCalendars = useCallback(
+    async (epoch: number, adoptVersion = true) => {
+      if (!token) return;
+      try {
+        const list = await fetchCalendarList(token);
+        if (epoch !== mutationEpochRef.current) return;
+        setCalendars(list.calendars);
+        if (list.connection) {
+          // Lista + identidade vêm da mesma linha bloqueada no backend. Aplicar o
+          // snapshot inteiro impede combinar conta A de um /status antigo com a
+          // revisão/lista da conta B após reconexão concorrente.
+          setConnected(list.connection.connected);
+          setCalendarId(list.connection.calendarId);
+          setGoogleAccountEmail(list.connection.googleAccountEmail);
+          setCalendarConnectionVersion(list.connection.connectionVersion);
+          return;
+        }
+        // Listar pode ter renovado o access token e, numa conexão legada, isso
+        // avança a própria revisão. Adote a que veio COM a lista: a de
+        // `/calendar/status` já nasceu velha nesse caso, e a seleção seguinte
+        // tomaria 409 sem troca de identidade. Backend antigo devolve `null` —
+        // aí a revisão anterior continua valendo em vez de ser apagada.
+        // O reload pós-importação NÃO adota: a revisão devolvida pela
+        // importação é mais fresca que qualquer lista gerada antes dela.
+        if (adoptVersion && list.connectionVersion) {
+          setCalendarConnectionVersion(list.connectionVersion);
+        }
+      } catch {
+        /* a lista é best-effort: a conexão segue válida sem ela */
       }
-      // Listar pode ter renovado o access token e, numa conexão legada, isso
-      // avança a própria revisão. Adote a que veio COM a lista: a de
-      // `/calendar/status` já nasceu velha nesse caso, e a seleção seguinte
-      // tomaria 409 sem troca de identidade. Backend antigo devolve `null` —
-      // aí a revisão anterior continua valendo em vez de ser apagada.
-      // O reload pós-importação NÃO adota: a revisão devolvida pela
-      // importação é mais fresca que qualquer lista gerada antes dela.
-      if (adoptVersion && list.connectionVersion) {
-        setCalendarConnectionVersion(list.connectionVersion);
-      }
-    } catch {
-      /* a lista é best-effort: a conexão segue válida sem ela */
-    }
-  }, [token]);
+    },
+    [token],
+  );
 
   /** Só LÊ estado. Nunca conclui fluxo — é o que separa carregar de consentir. */
   const loadStatus = useCallback(async () => {
@@ -294,28 +295,27 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
    * Se o servidor recusar o fluxo, porém, a conexão anterior continua válida;
    * uma leitura NOVA precisa restaurá-la sem apagar o erro/mismatch exibido.
    */
-  const restoreStatusAfterUnsuccessfulFinish = useCallback(async (): Promise<
-    CalendarStatus | null
-  > => {
-    if (!token) return null;
-    const epoch = mutationEpochRef.current;
-    try {
-      const s = await fetchCalendarStatus(token);
-      if (epoch !== mutationEpochRef.current) return null;
-      setConnected(s.connected);
-      setCalendarId(s.calendarId);
-      setGoogleAccountEmail(s.googleAccountEmail);
-      setCalendarConnectionVersion(s.connectionVersion);
-      if (s.connected) await applyCalendars(epoch);
-      else setCalendars([]);
-      return s;
-    } catch (e) {
-      // O erro original do finish continua sendo a mensagem acionável. Só uma
-      // expiração de sessão precisa furar esse best-effort silencioso.
-      if (e instanceof SessionExpiredError) expireSession();
-      return null;
-    }
-  }, [token, applyCalendars, expireSession]);
+  const restoreStatusAfterUnsuccessfulFinish =
+    useCallback(async (): Promise<CalendarStatus | null> => {
+      if (!token) return null;
+      const epoch = mutationEpochRef.current;
+      try {
+        const s = await fetchCalendarStatus(token);
+        if (epoch !== mutationEpochRef.current) return null;
+        setConnected(s.connected);
+        setCalendarId(s.calendarId);
+        setGoogleAccountEmail(s.googleAccountEmail);
+        setCalendarConnectionVersion(s.connectionVersion);
+        if (s.connected) await applyCalendars(epoch);
+        else setCalendars([]);
+        return s;
+      } catch (e) {
+        // O erro original do finish continua sendo a mensagem acionável. Só uma
+        // expiração de sessão precisa furar esse best-effort silencioso.
+        if (e instanceof SessionExpiredError) expireSession();
+        return null;
+      }
+    }, [token, applyCalendars, expireSession]);
 
   useEffect(() => {
     if (isAdmin) void loadStatus();
@@ -420,14 +420,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         setBusy(false);
       }
     },
-    [
-      token,
-      appUserId,
-      navigate,
-      applyCalendars,
-      onErr,
-      restoreStatusAfterUnsuccessfulFinish,
-    ],
+    [token, appUserId, navigate, applyCalendars, onErr, restoreStatusAfterUnsuccessfulFinish],
   );
 
   /** Única porta para o `finish`: relê o storage e desiste se não houver segredo
@@ -507,10 +500,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     clearFlow(appUserId);
     setPending(false);
     try {
-      const { authUrl, flowSecret, expiresAt } = await fetchConnectUrl(
-        token,
-        declaredEmail,
-      );
+      const { authUrl, flowSecret, expiresAt } = await fetchConnectUrl(token, declaredEmail);
       // Grava ANTES de sair da página: é a única chance.
       if (!writeFlow(appUserId, { secret: flowSecret, expiresAt })) {
         setError(
@@ -651,10 +641,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         </p>
       ) : null}
 
-      <DsButton className="ds-mt-3"
-        onClick={() => void connect()}
-        disabled={busy || !emailValid}
-      >
+      <DsButton className="ds-mt-3" onClick={() => void connect()} disabled={busy || !emailValid}>
         <Icon name="calendar" />
         <span>{redirecting ? "Abrindo o Google…" : cta}</span>
       </DsButton>
@@ -693,13 +680,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           </p>
           <p className="sub ds-muted ds-mt-2">
             Você informou <strong>{mismatch.expected}</strong> e quem autorizou foi{" "}
-            <strong>{mismatch.verified}</strong>. Nada foi alterado — a conexão da
-            igreja continua exatamente como estava.
+            <strong>{mismatch.verified}</strong>. Nada foi alterado — a conexão da igreja continua
+            exatamente como estava.
           </p>
-          <DsButton className="ds-mt-3"
-            onClick={restart}
-            disabled={busy}
-          >
+          <DsButton className="ds-mt-3" onClick={restart} disabled={busy}>
             <Icon name="calendar" />
             <span>Tentar novamente</span>
           </DsButton>
@@ -720,10 +704,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
               Sem segredo, o caminho é declarar a conta e começar um fluxo. */}
           {canFinishPending ? (
             <div className="ds-flex ds-wrap ds-gap-2">
-              <DsButton
-                onClick={() => void finishFromStorage()}
-                disabled={busy}
-              >
+              <DsButton onClick={() => void finishFromStorage()} disabled={busy}>
                 <Icon name="calendar" />
                 <span>
                   {redirecting
@@ -733,11 +714,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
                       : "Concluir conexão com o Google"}
                 </span>
               </DsButton>
-              <DsButton
-                variant="secondary"
-                onClick={restart}
-                disabled={busy}
-              >
+              <DsButton variant="secondary" onClick={restart} disabled={busy}>
                 <span>Começar de novo</span>
               </DsButton>
             </div>
@@ -754,12 +731,8 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
               `null` = conexão legada, anterior ao binding — segue válida, mas o
               admin pode registrar a conta sem desconectar nada. */}
           <div className="conn-row ds-mt-2">
-            <span className="ds-muted">
-              {googleAccountEmail ? "Conectado como" : MSG_LEGACY}
-            </span>
-            {googleAccountEmail ? (
-              <span className="pill accent">{googleAccountEmail}</span>
-            ) : null}
+            <span className="ds-muted">{googleAccountEmail ? "Conectado como" : MSG_LEGACY}</span>
+            {googleAccountEmail ? <span className="pill accent">{googleAccountEmail}</span> : null}
           </div>
 
           {changing ? (
@@ -779,9 +752,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
               disabled={busy || importing}
               className="ds-mt-2"
             >
-              <span>
-                {googleAccountEmail ? "Trocar conta Google" : "Registrar conta Google"}
-              </span>
+              <span>{googleAccountEmail ? "Trocar conta Google" : "Registrar conta Google"}</span>
             </DsButton>
           ) : null}
 
@@ -815,10 +786,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
               min-content do par (a palavra "Desconectar" não quebra) passa
               21,9px da borda do card mesmo sem o nowrap global do .btn. */}
           <div className="ds-flex ds-wrap ds-gap-2 ds-mt-4">
-            <DsButton
-              onClick={() => void runImport()}
-              disabled={busy || importing}
-            >
+            <DsButton onClick={() => void runImport()} disabled={busy || importing}>
               <Icon name="download" />
               <span>{importing ? "Importando…" : "Importar eventos do Google"}</span>
             </DsButton>

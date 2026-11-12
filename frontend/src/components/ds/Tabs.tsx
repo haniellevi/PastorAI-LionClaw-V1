@@ -65,7 +65,13 @@ export function Tabs({ tabs, active, onChange, label, children }: TabsProps) {
   return (
     <div className="ds-tabs-wrap" ref={wrapRef}>
       <div className="ds-tabs-scroll">
-        <div ref={listRef} role="tablist" aria-label={label} className="ds-tabs" onKeyDown={onKeyDown}>
+        <div
+          ref={listRef}
+          role="tablist"
+          aria-label={label}
+          className="ds-tabs"
+          onKeyDown={onKeyDown}
+        >
           {tabs.map((t) => {
             const selected = t.id === active;
             const ids = tabDomIds(prefix, t.id);
@@ -85,7 +91,9 @@ export function Tabs({ tabs, active, onChange, label, children }: TabsProps) {
                 onClick={() => onChange(t.id)}
               >
                 {t.label}
-                {typeof t.badge === "number" ? <span className="ds-tab-badge">{t.badge}</span> : null}
+                {typeof t.badge === "number" ? (
+                  <span className="ds-tab-badge">{t.badge}</span>
+                ) : null}
               </button>
             );
           })}
@@ -95,7 +103,13 @@ export function Tabs({ tabs, active, onChange, label, children }: TabsProps) {
         ›
       </span>
       {hasPanel ? (
-        <div role="tabpanel" tabIndex={0} id={activeIds.panel} aria-labelledby={activeIds.tab} className="ds-tabpanel">
+        <div
+          role="tabpanel"
+          tabIndex={0}
+          id={activeIds.panel}
+          aria-labelledby={activeIds.tab}
+          className="ds-tabpanel"
+        >
           {children}
         </div>
       ) : null}

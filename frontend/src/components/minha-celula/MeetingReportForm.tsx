@@ -139,9 +139,7 @@ export function MeetingReportForm({
         setExpectations(expRes.expectations);
         setLoaded(true);
       } catch (err) {
-        setError(
-          err instanceof ApiError ? err.message : "Não foi possível carregar o relatório.",
-        );
+        setError(err instanceof ApiError ? err.message : "Não foi possível carregar o relatório.");
       } finally {
         setLoading(false);
       }
@@ -173,11 +171,7 @@ export function MeetingReportForm({
       <div className="error-banner" role="alert">
         <Icon name="alert" />
         <span>{error}</span>
-        <DsButton
-          variant="secondary"
-          onClick={() => void load("initial")}
-          disabled={loading}
-        >
+        <DsButton variant="secondary" onClick={() => void load("initial")} disabled={loading}>
           Tentar novamente
         </DsButton>
       </div>
@@ -196,7 +190,10 @@ export function MeetingReportForm({
             <h2>{formatMeetingDate(report.data)}</h2>
             {report.tema ? <p>Tema: {report.tema}</p> : null}
           </div>
-          <span className="mc-report-status is-sent"><span aria-hidden="true" />Enviado</span>
+          <span className="mc-report-status is-sent">
+            <span aria-hidden="true" />
+            Enviado
+          </span>
         </header>
         <div className="mc-report-locked" role="status">
           <Icon name="lock" />
@@ -206,15 +203,43 @@ export function MeetingReportForm({
           <h3>Resumo do relatório</h3>
           <p>Os totais foram informados sem identificação individual.</p>
           <ul className="mc-report-summary-list">
-            {([
-              ["Presença", `${totals.presentes} ${totals.presentes === 1 ? "presente" : "presentes"}`, "team"],
-              ["Visitantes", `${totals.visitantes} ${totals.visitantes === 1 ? "visitante" : "visitantes"}`, "user"],
-              ["Decisões", `${totals.decisoes} ${totals.decisoes === 1 ? "decisão" : "decisões"}`, "document"],
-              ["Oferta", report.oferta_valor == null ? "Oferta não informada" : report.oferta_valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }), "send"],
-            ] as const).map(([label, value, icon]) => (
+            {(
+              [
+                [
+                  "Presença",
+                  `${totals.presentes} ${totals.presentes === 1 ? "presente" : "presentes"}`,
+                  "team",
+                ],
+                [
+                  "Visitantes",
+                  `${totals.visitantes} ${totals.visitantes === 1 ? "visitante" : "visitantes"}`,
+                  "user",
+                ],
+                [
+                  "Decisões",
+                  `${totals.decisoes} ${totals.decisoes === 1 ? "decisão" : "decisões"}`,
+                  "document",
+                ],
+                [
+                  "Oferta",
+                  report.oferta_valor == null
+                    ? "Oferta não informada"
+                    : report.oferta_valor.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL",
+                      }),
+                  "send",
+                ],
+              ] as const
+            ).map(([label, value, icon]) => (
               <li key={label}>
-                <span className="mc-report-summary-icon" aria-hidden="true"><Icon name={icon} /></span>
-                <span><strong>{label}</strong><small>{value}</small></span>
+                <span className="mc-report-summary-icon" aria-hidden="true">
+                  <Icon name={icon} />
+                </span>
+                <span>
+                  <strong>{label}</strong>
+                  <small>{value}</small>
+                </span>
               </li>
             ))}
           </ul>
@@ -226,9 +251,7 @@ export function MeetingReportForm({
   const present = report.presencas.filter((presence) => presence.estado === "compareceu").length;
   const attendanceSaved = members.length > 0 && report.presencas.length >= members.length;
   const summaries = [
-    members.length
-      ? `${present} de ${members.length} presentes`
-      : "Nenhum membro cadastrado",
+    members.length ? `${present} de ${members.length} presentes` : "Nenhum membro cadastrado",
     report.visitantes.length
       ? `${report.visitantes.length} ${report.visitantes.length === 1 ? "registrado" : "registrados"}`
       : "Sem visitantes registrados",
@@ -390,7 +413,17 @@ export function MeetingReportForm({
             {["Presença", "Visitantes", "Registros", "Fechamento"].map((label, index) => (
               <li key={label} className={index === activeStep ? "is-current" : undefined}>
                 <span className="mc-report-summary-icon" aria-hidden="true">
-                  <Icon name={index === 0 ? "team" : index === 1 ? "user" : index === 2 ? "document" : "send"} />
+                  <Icon
+                    name={
+                      index === 0
+                        ? "team"
+                        : index === 1
+                          ? "user"
+                          : index === 2
+                            ? "document"
+                            : "send"
+                    }
+                  />
                 </span>
                 <span>
                   <strong>{label}</strong>

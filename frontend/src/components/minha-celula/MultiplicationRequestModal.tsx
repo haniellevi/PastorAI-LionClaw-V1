@@ -17,10 +17,7 @@ import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
-import {
-  createRequest,
-  CellRequestConflictError,
-} from "@/lib/cell-requests-api";
+import { createRequest, CellRequestConflictError } from "@/lib/cell-requests-api";
 import { fetchContacts, type Contact } from "@/lib/contacts-api";
 import type { CellMember } from "@/lib/cells-api";
 import type { FlashToast } from "./types";
@@ -137,7 +134,8 @@ export function MultiplicationRequestModal({
   return (
     // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
     // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -146,9 +144,7 @@ export function MultiplicationRequestModal({
       description="A multiplicação não acontece na hora: esta solicitação vai para a Central aprovar. A nova célula só é criada após a aprovação."
     >
       <>
-
-
-      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
+        {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
           className="modal-form ops-dialog"
@@ -179,11 +175,7 @@ export function MultiplicationRequestModal({
               {members.map((m) => {
                 const reason = leaderBlockReason(m.pessoa_id);
                 return (
-                  <option
-                    key={m.pessoa_id}
-                    value={m.pessoa_id}
-                    disabled={reason !== null}
-                  >
+                  <option key={m.pessoa_id} value={m.pessoa_id} disabled={reason !== null}>
                     {m.nome}
                     {reason ? ` — ${reason}` : ""}
                   </option>

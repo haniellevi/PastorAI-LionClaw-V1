@@ -67,7 +67,9 @@ export function AppShell() {
   const permitted =
     ownerOk &&
     !ADMIN_ONLY_SET.has(base) &&
-    (base === "pedidos-oracao" ? prayerAccess === true : (ALWAYS_ALLOWED.has(base) || (user ? canSee(base, user.roles, matrix) : false)));
+    (base === "pedidos-oracao"
+      ? prayerAccess === true
+      : ALWAYS_ALLOWED.has(base) || (user ? canSee(base, user.roles, matrix) : false));
   const allowed = known && permitted && !LOCKED_SCREENS.has(base);
   const resolvedBase = allowed ? base : "dashboard";
   const resolvedRoute = allowed ? route : "dashboard";
@@ -77,20 +79,20 @@ export function AppShell() {
   const warmRoute = useCallback(
     (target: string) => {
       if (!user || document.visibilityState === "hidden") return;
-      const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
-      if (connection?.saveData || ["slow-2g", "2g"].includes(connection?.effectiveType ?? "")) return;
+      const connection = (
+        navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }
+      ).connection;
+      if (connection?.saveData || ["slow-2g", "2g"].includes(connection?.effectiveType ?? ""))
+        return;
       const targetBase = target.split("/", 1)[0] ?? target;
-      const targetOwnerOk =
-        !OWNER_ONLY.has(targetBase) || (user.isOwner ?? false);
+      const targetOwnerOk = !OWNER_ONLY.has(targetBase) || (user.isOwner ?? false);
       const targetPermitted =
         targetOwnerOk &&
         !ADMIN_ONLY_SET.has(targetBase) &&
-        (targetBase === "pedidos-oracao" ? prayerAccess === true : (ALWAYS_ALLOWED.has(targetBase) || canSee(targetBase, user.roles, matrix)));
-      if (
-        !(targetBase in SCREEN_META) ||
-        !targetPermitted ||
-        LOCKED_SCREENS.has(targetBase)
-      ) {
+        (targetBase === "pedidos-oracao"
+          ? prayerAccess === true
+          : ALWAYS_ALLOWED.has(targetBase) || canSee(targetBase, user.roles, matrix));
+      if (!(targetBase in SCREEN_META) || !targetPermitted || LOCKED_SCREENS.has(targetBase)) {
         return;
       }
 

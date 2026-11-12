@@ -65,11 +65,7 @@ export function selectUpcomingEvents(
 ): EventItem[] {
   const today = localDateKey(now);
   return events
-    .filter(
-      (event) =>
-        event.data != null &&
-        event.data >= today,
-    )
+    .filter((event) => event.data != null && event.data >= today)
     .sort((a, b) => {
       const aKey = `${a.data ?? ""}T${a.hora ?? "23:59"}:${a.id}`;
       const bKey = `${b.data ?? ""}T${b.hora ?? "23:59"}:${b.id}`;
@@ -105,13 +101,7 @@ function activateHashLink(
   // Preserve native link behavior for new-tab/window gestures and context menu.
   // Plain activation still goes through the shell navigator so its local route
   // state updates immediately and remains consistent with the rest of the app.
-  if (
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  ) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
     return;
   }
   event.preventDefault();
@@ -152,39 +142,40 @@ export function TodayContext({
   const upcoming = selectUpcomingEvents(events, now);
   const recentNotices = notices.slice(0, 2);
 
-  const shortcutsSection = shortcuts.length > 0 ? (
-    <nav
-      className={`dh-context-section dh-shortcuts-section${
-        prioritizeShortcuts ? " is-priority" : ""
-      }`}
-      aria-labelledby="dh-shortcuts-title"
-    >
-      <h4 id="dh-shortcuts-title" className="dh-context-title">
-        Seus espaços
-      </h4>
-      <div className="dh-shortcuts">
-        {shortcuts.map((target) => {
-          const meta = SHORTCUT_META[target];
-          return (
-            <a
-              href={`#${target}`}
-              className="dh-shortcut"
-              key={target}
-              onClick={(click) => activateHashLink(click, target, onNavigate)}
-            >
-              <span className="dh-shortcut-icon" aria-hidden="true">
-                <Icon name={meta.icon} />
-              </span>
-              <span className="dh-context-copy">
-                <span className="dh-context-name">{meta.label}</span>
-                <span className="dh-context-meta">{meta.description}</span>
-              </span>
-            </a>
-          );
-        })}
-      </div>
-    </nav>
-  ) : null;
+  const shortcutsSection =
+    shortcuts.length > 0 ? (
+      <nav
+        className={`dh-context-section dh-shortcuts-section${
+          prioritizeShortcuts ? " is-priority" : ""
+        }`}
+        aria-labelledby="dh-shortcuts-title"
+      >
+        <h4 id="dh-shortcuts-title" className="dh-context-title">
+          Seus espaços
+        </h4>
+        <div className="dh-shortcuts">
+          {shortcuts.map((target) => {
+            const meta = SHORTCUT_META[target];
+            return (
+              <a
+                href={`#${target}`}
+                className="dh-shortcut"
+                key={target}
+                onClick={(click) => activateHashLink(click, target, onNavigate)}
+              >
+                <span className="dh-shortcut-icon" aria-hidden="true">
+                  <Icon name={meta.icon} />
+                </span>
+                <span className="dh-context-copy">
+                  <span className="dh-context-name">{meta.label}</span>
+                  <span className="dh-context-meta">{meta.description}</span>
+                </span>
+              </a>
+            );
+          })}
+        </div>
+      </nav>
+    ) : null;
 
   const meetingSection = showMeeting ? (
     <section className="dh-context-section" aria-labelledby="dh-meeting-title">
@@ -249,9 +240,7 @@ export function TodayContext({
                   dateTime={`${event.data}T${event.hora ?? "00:00"}`}
                 >
                   {whenLabel(event.data!, event.hora, now)}
-                  {event.status === "a_confirmar"
-                    ? " · Pendente de confirmação"
-                    : ""}
+                  {event.status === "a_confirmar" ? " · Pendente de confirmação" : ""}
                 </time>
               </span>
             </a>

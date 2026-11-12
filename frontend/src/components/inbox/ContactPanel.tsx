@@ -72,12 +72,12 @@ function Row({ label, value }: { label: string; value: string | null | undefined
 function hasJornadaData(d: ContactDetail): boolean {
   return Boolean(
     d.etapa ||
-      d.subetapa ||
-      d.acompanhamento ||
-      d.presencasCelula > 0 ||
-      d.aceitouJesus ||
-      d.celulaNome ||
-      d.liderNome,
+    d.subetapa ||
+    d.acompanhamento ||
+    d.presencasCelula > 0 ||
+    d.aceitouJesus ||
+    d.celulaNome ||
+    d.liderNome,
   );
 }
 
@@ -200,9 +200,7 @@ export function ContactPanel({
         expireSession();
         return;
       }
-      setError(
-        err instanceof ApiError ? err.message : "Não foi possível carregar os dados.",
-      );
+      setError(err instanceof ApiError ? err.message : "Não foi possível carregar os dados.");
     } finally {
       setLoading(false);
     }
@@ -257,9 +255,7 @@ export function ContactPanel({
         return;
       }
       setReactivateError(
-        err instanceof ApiError
-          ? err.message
-          : "Não foi possível reativar as comunicações.",
+        err instanceof ApiError ? err.message : "Não foi possível reativar as comunicações.",
       );
     } finally {
       setReactivateBusy(false);
@@ -270,12 +266,7 @@ export function ContactPanel({
     // W5A: painel lateral (drawer), não é modal — sem role de dialog nem
     // aria-modal. O aria-label permanece nomeando a landmark <aside>; o
     // tabIndex sustenta o fallback de foco da lógica de teclado acima.
-    <aside
-      ref={rootRef}
-      className="conv-panel"
-      aria-label="Dados do contato"
-      tabIndex={-1}
-    >
+    <aside ref={rootRef} className="conv-panel" aria-label="Dados do contato" tabIndex={-1}>
       <div className="panel-head">
         <strong>Dados do contato</strong>
         <button
@@ -296,8 +287,8 @@ export function ContactPanel({
             <strong>Contato ainda não cadastrado.</strong>
           </p>
           <p className="sub">
-            Este número ({telefone}) não está vinculado a uma pessoa na base. Cadastre
-            o contato em <em>Ganhar</em> para acompanhar a jornada dele.
+            Este número ({telefone}) não está vinculado a uma pessoa na base. Cadastre o contato em{" "}
+            <em>Ganhar</em> para acompanhar a jornada dele.
           </p>
         </div>
       ) : loading && !detail ? (
@@ -340,11 +331,21 @@ export function ContactPanel({
             </DsButton>
           ) : null}
 
-          {canEdit && token && pessoaId && detail.id === pessoaId && onResetPrivateContent ? <section className="panel-section">
-            <h4>Conteúdo privado</h4>
-            <DsButton variant="danger" onClick={onResetPrivateContent}>Excluir conteúdo privado da pessoa</DsButton>
-          </section> : null}
-          {canEdit && token ? <PrivateErasureRequests token={token} personId={detail.id} expireSession={expireSession} /> : null}
+          {canEdit && token && pessoaId && detail.id === pessoaId && onResetPrivateContent ? (
+            <section className="panel-section">
+              <h4>Conteúdo privado</h4>
+              <DsButton variant="danger" onClick={onResetPrivateContent}>
+                Excluir conteúdo privado da pessoa
+              </DsButton>
+            </section>
+          ) : null}
+          {canEdit && token ? (
+            <PrivateErasureRequests
+              token={token}
+              personId={detail.id}
+              expireSession={expireSession}
+            />
+          ) : null}
 
           <section className="panel-section">
             <h4>Contato</h4>
@@ -360,7 +361,10 @@ export function ContactPanel({
             <section className="panel-section">
               <h4>Jornada G12</h4>
               <dl>
-                <Row label="Etapa" value={detail.etapa ? ETAPA_LABEL[detail.etapa] ?? detail.etapa : null} />
+                <Row
+                  label="Etapa"
+                  value={detail.etapa ? (ETAPA_LABEL[detail.etapa] ?? detail.etapa) : null}
+                />
                 <Row label="Subetapa" value={detail.subetapa} />
                 <Row label="Acompanhamento" value={detail.acompanhamento} />
                 <Row
@@ -393,7 +397,7 @@ export function ContactPanel({
               />
               <Row
                 label="Gênero"
-                value={detail.genero ? GENERO_LABEL[detail.genero] ?? detail.genero : null}
+                value={detail.genero ? (GENERO_LABEL[detail.genero] ?? detail.genero) : null}
               />
               <Row label="Faixa etária" value={detail.faixaEtaria} />
               <Row label="Origem" value={detail.origem} />
@@ -401,10 +405,7 @@ export function ContactPanel({
                 label="Consentimento (LGPD)"
                 value={detail.consentimento ? "Concedido" : "Pendente"}
               />
-              <Row
-                label="Comunicações"
-                value={detail.optout ? "Opt-out (pausadas)" : null}
-              />
+              <Row label="Comunicações" value={detail.optout ? "Opt-out (pausadas)" : null} />
               <Row label="Primeiro contato" value={fmtDate(detail.primeiroContato)} />
               <Row label="Cadastrado em" value={fmtDate(detail.criadoEm)} />
             </dl>
@@ -458,10 +459,9 @@ export function ContactPanel({
           }
         >
           <p>
-            Esta pessoa pediu para não receber comunicações (opt-out). Ao
-            confirmar, o opt-out é removido e um novo registro de consentimento
-            de reativação é gravado — a retirada anterior permanece no
-            histórico (LGPD).
+            Esta pessoa pediu para não receber comunicações (opt-out). Ao confirmar, o opt-out é
+            removido e um novo registro de consentimento de reativação é gravado — a retirada
+            anterior permanece no histórico (LGPD).
           </p>
           {reactivateError ? (
             <div className="error-banner" role="alert">

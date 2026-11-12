@@ -13,19 +13,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Conversation, InboxAgentStatus } from "@/lib/conversations-api";
 
 const auth = vi.hoisted(() => ({
-  token: "token-sintetico", status: "authenticated",
+  token: "token-sintetico",
+  status: "authenticated",
   user: { roles: ["pastor"], appUserId: "operador-sintetico", churchId: "igreja-sintetica-a" },
   expireSession: vi.fn(),
 }));
 const api = vi.hoisted(() => ({
-  fetchConversations: vi.fn(), fetchInboxAgentStatus: vi.fn(),
-  fetchMessages: vi.fn(), fetchConversationPhoto: vi.fn(),
+  fetchConversations: vi.fn(),
+  fetchInboxAgentStatus: vi.fn(),
+  fetchMessages: vi.fn(),
+  fetchConversationPhoto: vi.fn(),
   markConversationRead: vi.fn(),
 }));
 vi.mock("@/lib/auth-context", () => ({ useAuth: () => auth }));
 vi.mock("@/lib/conversations-api", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/conversations-api")>(), ...api,
-  fetchMessageWindow: async (token: string, convId: string, _options: unknown, signal: AbortSignal) => ({ items: await api.fetchMessages(token, convId, 200, signal), cursorSupported: false }),
+  ...(await importOriginal<typeof import("@/lib/conversations-api")>()),
+  ...api,
+  fetchMessageWindow: async (
+    token: string,
+    convId: string,
+    _options: unknown,
+    signal: AbortSignal,
+  ) => ({ items: await api.fetchMessages(token, convId, 200, signal), cursorSupported: false }),
   fetchMessageMediaUrls: async () => ({}),
 }));
 const { InboxScreen } = await import("./InboxScreen");
@@ -34,15 +43,27 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const active: InboxAgentStatus = { configured: true, ativo: true, pausedByChurch: false };
 const paused: InboxAgentStatus = { configured: true, ativo: false, pausedByChurch: true };
 const conversation = (id: string): Conversation => ({
-  id, nome: `Contato sintético ${id}`, telefone: `55119000000${id.slice(-1)}`, pessoaId: null,
-  estado: "ia", ultimaMensagem: "Texto sintético", naoLidas: 0,
-  assumidoPor: null, assumidoPorNome: null, assumidoEm: null, esperaDesde: null,
-  atualizadoEm: null, tipo: null, semInteresse: false,
+  id,
+  nome: `Contato sintético ${id}`,
+  telefone: `55119000000${id.slice(-1)}`,
+  pessoaId: null,
+  estado: "ia",
+  ultimaMensagem: "Texto sintético",
+  naoLidas: 0,
+  assumidoPor: null,
+  assumidoPorNome: null,
+  assumidoEm: null,
+  esperaDesde: null,
+  atualizadoEm: null,
+  tipo: null,
+  semInteresse: false,
 });
 const page = { items: [conversation("a"), conversation("b")], page: 1, pageSize: 100, total: 2 };
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 let container: HTMLDivElement;
@@ -58,10 +79,20 @@ beforeEach(() => {
   api.fetchMessages.mockResolvedValue([]);
   api.fetchConversationPhoto.mockResolvedValue(null);
   api.markConversationRead.mockResolvedValue(undefined);
-  vi.stubGlobal("fetch", vi.fn(() => { throw new Error("Rede proibida no probe AUD01"); }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => {
+      throw new Error("Rede proibida no probe AUD01");
+    }),
+  );
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: false, media: query, onchange: null,
-    addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener() {},
+    removeEventListener() {},
+    addListener() {},
+    removeListener() {},
     dispatchEvent: () => false,
   }));
   container = document.createElement("div");
@@ -75,10 +106,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
-async function renderInbox() { await act(async () => root.render(h(InboxScreen))); }
+async function renderInbox() {
+  await act(async () => root.render(h(InboxScreen)));
+}
 async function click(text: string) {
-  const button = [...container.querySelectorAll<HTMLButtonElement>("button")]
-    .find((item) => item.textContent?.trim() === text);
+  const button = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+    (item) => item.textContent?.trim() === text,
+  );
   expect(button, `Botão real ${text}`).toBeDefined();
   expect(button!.disabled).toBe(false);
   await act(async () => button!.click());
@@ -87,7 +121,9 @@ function expectPaused() {
   expect(container.textContent).toContain("IA pausada pela igreja");
   expect(container.textContent).toContain("O agente está pausado pela igreja.");
   expect(container.textContent).not.toContain("IA ativa");
-  expect(container.textContent).not.toContain("A IA está conduzindo este atendimento automaticamente.");
+  expect(container.textContent).not.toContain(
+    "A IA está conduzindo este atendimento automaticamente.",
+  );
 }
 function expectActive() {
   expect(container.textContent).toContain("IA ativa");
@@ -172,8 +208,9 @@ describe("AUD01 reprodução delimitada no Inbox real", () => {
     const list = deferred<typeof page>();
     api.fetchConversations.mockImplementationOnce(() => list.promise);
     await click("Atualizar");
-    const button = [...container.querySelectorAll<HTMLButtonElement>("button.conv")]
-      .find((item) => item.textContent?.includes("Contato sintético b"));
+    const button = [...container.querySelectorAll<HTMLButtonElement>("button.conv")].find((item) =>
+      item.textContent?.includes("Contato sintético b"),
+    );
     expect(button).toBeDefined();
     await act(async () => button!.click());
     await act(async () => list.resolve(page));
@@ -199,7 +236,6 @@ describe("AUD01 reprodução delimitada no Inbox real", () => {
     expect(api.fetchInboxAgentStatus).toHaveBeenCalledTimes(2);
   });
 });
-
 
 // Regressões adicionais do candidato; os nove casos originais permanecem intactos.
 describe("AUD01 frescor e ciclo de vida da consulta posterior", () => {

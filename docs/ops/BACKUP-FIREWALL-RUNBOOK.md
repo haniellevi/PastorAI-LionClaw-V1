@@ -57,8 +57,13 @@ Agendamento diário, às 06:15 UTC (03:15 em Brasília):
 ```
 
 Os pacotes ficam em `/root/pastorai-backups`, modo `600`, com checksum SHA-256
-e retenção de 14 dias. O script usa lock para impedir execuções simultâneas. A
-`DATABASE_URL` é convertida em arquivos libpq efêmeros (`pg_service.conf` e
+e retenção de 14 dias. O script prepara a raiz sem seguir symlinks antes de
+abrir o lock, que pode ficar dentro dela. Os diretórios ancestrais devem
+pertencer a `root:root` e impedir escrita por grupo e outros. A raiz deve ter
+modo `0700`. Se faltar somente a raiz, o script a cria sob o ancestral validado.
+Após adquirir o lock, cria um diretório exclusivo para a execução. Um diretório
+ou artefato já existente para o mesmo timestamp faz a execução parar antes de
+criar credenciais ou contatar serviços. A `DATABASE_URL` é convertida em arquivos libpq efêmeros (`pg_service.conf` e
 `pgpass`) dentro de diretório `0700`; ambos ficam em modo `600`, são montados
 somente-leitura no container e removidos por trap em sucesso, erro ou sinal.
 Nem a URL nem a senha chegam ao argv ou ao ambiente de Python, Docker,

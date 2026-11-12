@@ -15,12 +15,7 @@
  * (`todos` + pessoa.tipo).
  */
 
-import {
-  ApiError,
-  authedFetch,
-  readDetail,
-  type Page,
-} from "./dashboard-api";
+import { ApiError, authedFetch, readDetail, type Page } from "./dashboard-api";
 import type { Contact } from "./contacts-api";
 
 export type { Page } from "./dashboard-api";
@@ -86,23 +81,15 @@ export interface BroadcastResultFeedback {
   text: string;
 }
 
-export type BroadcastConnectionStatus =
-  | "online"
-  | "offline"
-  | "reconectando"
-  | "unknown";
+export type BroadcastConnectionStatus = "online" | "offline" | "reconectando" | "unknown";
 
 /** Explicitly unavailable states; unknown still falls back to backend validation. */
-export function isSendNowConnectionUnavailable(
-  status: BroadcastConnectionStatus,
-): boolean {
+export function isSendNowConnectionUnavailable(status: BroadcastConnectionStatus): boolean {
   return status === "offline" || status === "reconectando";
 }
 
 /** Human feedback that never presents an adverse ledger result as success. */
-export function broadcastResultFeedback(
-  result: BroadcastResult,
-): BroadcastResultFeedback {
+export function broadcastResultFeedback(result: BroadcastResult): BroadcastResultFeedback {
   switch (result.status) {
     case "agendado":
       return {
@@ -125,15 +112,27 @@ export function broadcastResultFeedback(
         text: `Comunicado concluído parcialmente: ${result.enviados} envio(s) aceito(s). Consulte o histórico.`,
       };
     case "falhou":
-      return { kind: "err", text: "O comunicado falhou. Consulte o histórico antes de tentar novamente." };
+      return {
+        kind: "err",
+        text: "O comunicado falhou. Consulte o histórico antes de tentar novamente.",
+      };
     case "desconhecido":
-      return { kind: "err", text: "O resultado do comunicado é desconhecido. Não reenvie antes de conferir o histórico." };
+      return {
+        kind: "err",
+        text: "O resultado do comunicado é desconhecido. Não reenvie antes de conferir o histórico.",
+      };
     case "suprimido":
-      return { kind: "err", text: "O comunicado foi suprimido pelas travas de segurança e não foi enviado." };
+      return {
+        kind: "err",
+        text: "O comunicado foi suprimido pelas travas de segurança e não foi enviado.",
+      };
     case "concluido_sem_destinatarios":
       return { kind: "err", text: "O comunicado foi concluído sem destinatários elegíveis." };
     default:
-      return { kind: "err", text: "O comunicado terminou com um resultado inesperado. Consulte o histórico." };
+      return {
+        kind: "err",
+        text: "O comunicado terminou com um resultado inesperado. Consulte o histórico.",
+      };
   }
 }
 
@@ -185,9 +184,7 @@ export function broadcastStatusLabel(broadcast: BroadcastItem): string {
   }
   if (status === "parcial") {
     const notDelivered =
-      broadcast.entregasFalhas +
-      broadcast.entregasDesconhecidas +
-      broadcast.entregasSuprimidas;
+      broadcast.entregasFalhas + broadcast.entregasDesconhecidas + broadcast.entregasSuprimidas;
     return `Parcial · ${broadcast.entregasAceitas} aceito(s), ${notDelivered} não entregue(s)`;
   }
   if (status === "desconhecido") {
@@ -227,10 +224,7 @@ export function countSegment(contacts: Contact[], token: string): number {
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
-export async function fetchBroadcasts(
-  token: string,
-  pageSize = 100,
-): Promise<Page<BroadcastItem>> {
+export async function fetchBroadcasts(token: string, pageSize = 100): Promise<Page<BroadcastItem>> {
   const res = await authedFetch(token, `/broadcasts?page=1&pageSize=${pageSize}`);
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito à comunicação da igreja.");
@@ -241,18 +235,13 @@ export async function fetchBroadcasts(
   return (await res.json()) as Page<BroadcastItem>;
 }
 
-export async function fetchBroadcastCapabilities(
-  token: string,
-): Promise<BroadcastCapabilities> {
+export async function fetchBroadcastCapabilities(token: string): Promise<BroadcastCapabilities> {
   const res = await authedFetch(token, `/broadcasts/capabilities`);
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito à comunicação da igreja.");
   }
   if (!res.ok) {
-    throw new ApiError(
-      res.status,
-      "Não foi possível confirmar a disponibilidade dos envios.",
-    );
+    throw new ApiError(res.status, "Não foi possível confirmar a disponibilidade dos envios.");
   }
   return (await res.json()) as BroadcastCapabilities;
 }

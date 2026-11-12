@@ -90,10 +90,7 @@ function seedFlow(
   expiresAt = Date.now() + 3_600_000,
   appUserId = authValue.user.appUserId,
 ): void {
-  window.localStorage.setItem(
-    flowKey(appUserId),
-    JSON.stringify({ secret, expiresAt }),
-  );
+  window.localStorage.setItem(flowKey(appUserId), JSON.stringify({ secret, expiresAt }));
 }
 
 function storedFlow(appUserId = authValue.user.appUserId): StoredFlow | null {
@@ -134,10 +131,7 @@ function emailField(): HTMLInputElement | null {
 async function typeEmail(value: string) {
   const el = emailField();
   if (!el) throw new Error("campo de e-mail não está na tela");
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLInputElement.prototype,
-    "value",
-  )!.set!;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setter.call(el, value);
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -153,10 +147,7 @@ async function click(el: HTMLElement) {
 async function chooseCalendar(value: string) {
   const el = container.querySelector("select");
   if (!el) throw new Error("seletor de agenda não está na tela");
-  const setter = Object.getOwnPropertyDescriptor(
-    window.HTMLSelectElement.prototype,
-    "value",
-  )!.set!;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value")!.set!;
   await act(async () => {
     setter.call(el, value);
     el.dispatchEvent(new Event("change", { bubbles: true }));
@@ -299,9 +290,7 @@ describe("conta Google declarada", () => {
   it("fail-closed: armazenamento indisponível NÃO redireciona ao Google", async () => {
     setHash("#integracoes");
     fetchConnectUrl.mockResolvedValue(START);
-    const setItem = vi
-      .spyOn(Storage.prototype, "setItem")
-      .mockImplementationOnce(() => undefined);
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => undefined);
 
     await render();
     await typeEmail(EMAIL);
@@ -398,12 +387,18 @@ describe("seleção de agenda", () => {
       connectionVersion: CONNECTION_VERSION,
     });
 
-    let resolveImport!: (result: { created: number; skipped: number; connectionVersion: string }) => void;
-    const importResult = new Promise<{ created: number; skipped: number; connectionVersion: string }>(
-      (resolve) => {
-        resolveImport = resolve;
-      },
-    );
+    let resolveImport!: (result: {
+      created: number;
+      skipped: number;
+      connectionVersion: string;
+    }) => void;
+    const importResult = new Promise<{
+      created: number;
+      skipped: number;
+      connectionVersion: string;
+    }>((resolve) => {
+      resolveImport = resolve;
+    });
     importEvents.mockReturnValue(importResult);
     selectCalendar.mockResolvedValue({
       connected: true,
@@ -492,9 +487,7 @@ describe("seleção de agenda", () => {
           }),
       )
       .mockResolvedValue({
-        calendars: [
-          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
-        ],
+        calendars: [{ id: "calendar@igreja", summary: "Agenda da igreja", primary: true }],
         connectionVersion: REFRESHED_CONNECTION_VERSION,
       });
     importEvents.mockResolvedValue({
@@ -516,9 +509,7 @@ describe("seleção de agenda", () => {
     // A resposta atrasada da época anterior continua descartada.
     await act(async () => {
       resolveStaleList({
-        calendars: [
-          { id: "agenda-velha@x", summary: "Agenda velha", primary: true },
-        ],
+        calendars: [{ id: "agenda-velha@x", summary: "Agenda velha", primary: true }],
         connectionVersion: CONNECTION_VERSION,
       });
     });
@@ -536,15 +527,11 @@ describe("seleção de agenda", () => {
     });
     fetchCalendarList
       .mockResolvedValueOnce({
-        calendars: [
-          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
-        ],
+        calendars: [{ id: "calendar@igreja", summary: "Agenda da igreja", primary: true }],
         connectionVersion: CONNECTION_VERSION,
       })
       .mockResolvedValueOnce({
-        calendars: [
-          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
-        ],
+        calendars: [{ id: "calendar@igreja", summary: "Agenda da igreja", primary: true }],
         connectionVersion: REFRESHED_CONNECTION_VERSION,
       });
     importEvents.mockRejectedValue(new Error("falha de importação"));
@@ -597,11 +584,7 @@ describe("seleção de agenda", () => {
     expect(text()).not.toContain(EMAIL);
     await chooseCalendar("agenda-b");
 
-    expect(selectCalendar).toHaveBeenCalledWith(
-      "tok",
-      "agenda-b",
-      REFRESHED_CONNECTION_VERSION,
-    );
+    expect(selectCalendar).toHaveBeenCalledWith("tok", "agenda-b", REFRESHED_CONNECTION_VERSION);
   });
 });
 
@@ -711,9 +694,7 @@ describe("conta divergente", () => {
     setHash("#integracoes/callback/ready");
     seedFlow("segredo");
     const { GoogleAccountMismatchError } = await import("@/lib/calendar-api");
-    finishConnection.mockRejectedValue(
-      new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL),
-    );
+    finishConnection.mockRejectedValue(new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL));
 
     await render();
 
@@ -729,9 +710,7 @@ describe("conta divergente", () => {
     setHash("#integracoes/callback/ready");
     seedFlow("segredo");
     const { GoogleAccountMismatchError } = await import("@/lib/calendar-api");
-    finishConnection.mockRejectedValue(
-      new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL),
-    );
+    finishConnection.mockRejectedValue(new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL));
 
     await render();
     await click(button(CTA_RESTART)!);
@@ -758,9 +737,7 @@ describe("conta divergente", () => {
         calendarId: "agenda-antiga@x",
         googleAccountEmail: EMAIL,
       });
-    finishConnection.mockRejectedValue(
-      new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL),
-    );
+    finishConnection.mockRejectedValue(new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL));
 
     await render();
 
@@ -862,9 +839,7 @@ describe("marcador ready", () => {
     });
     fetchCalendarList
       .mockResolvedValueOnce({
-        calendars: [
-          { id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true },
-        ],
+        calendars: [{ id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true }],
         connectionVersion: null,
       })
       .mockRejectedValueOnce(new Error("Google indisponível"));
@@ -911,9 +886,7 @@ describe("marcador ready", () => {
           }),
       )
       .mockResolvedValueOnce({
-        calendars: [
-          { id: "agenda-nova@x", summary: "Agenda da conta B", primary: true },
-        ],
+        calendars: [{ id: "agenda-nova@x", summary: "Agenda da conta B", primary: true }],
         connectionVersion: null,
       });
 
@@ -937,9 +910,7 @@ describe("marcador ready", () => {
 
     await act(async () => {
       resolveOldList({
-        calendars: [
-          { id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true },
-        ],
+        calendars: [{ id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true }],
         connectionVersion: null,
       });
     });

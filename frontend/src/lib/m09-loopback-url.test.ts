@@ -3,10 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
-import {
-  assertM09LoopbackUrl,
-  resolveM09Urls,
-} from "../../e2e/support/loopback-url.mjs";
+import { assertM09LoopbackUrl, resolveM09Urls } from "../../e2e/support/loopback-url.mjs";
 
 const FRONTEND_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 

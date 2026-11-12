@@ -13,6 +13,7 @@ VERSAO_REGRAS: Final = "enviar-v1-20261018"
 STATUS_REGRAS: Final = "aprovada em 18/10/2026"
 Criterio = Literal["uv", "cd", "reencontro"]
 CRITERIOS_PROVISORIOS: Final[tuple[Criterio, ...]] = ("uv", "cd", "reencontro")
+MotivoBloqueio = Literal["pessoa_arquivada", "csim", "evidencia_revogada"]
 AVISO_LEGADO: Final = "origem legada, comprovação pendente"
 
 
@@ -53,7 +54,7 @@ class PendenciaEnviar:
 class ResultadoEnviar:
     situacao: SituacaoEnviar
     pendencias: tuple[PendenciaEnviar, ...] = ()
-    motivo: Literal["pessoa_arquivada", "csim", "evidencia_revogada"] | None = None
+    motivo: MotivoBloqueio | None = None
     aviso_legado: str | None = None
     revisao_pastoral_lideranca: bool = False
     decisao_humana_exigida: Literal[True] = True
@@ -81,7 +82,7 @@ def avaliar_aptidao(evidencias: EvidenciasEnviar) -> ResultadoEnviar:
         if estado != EstadoEvidencia.COMPROVADA
     )
     revogada = EstadoEvidencia.REVOGADA in estados
-    motivo = None
+    motivo: MotivoBloqueio | None = None
     if evidencias.arquivada:
         motivo = "pessoa_arquivada"
     elif evidencias.csim:

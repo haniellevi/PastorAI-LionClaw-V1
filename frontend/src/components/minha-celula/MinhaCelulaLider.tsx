@@ -62,13 +62,7 @@ type CellContext = {
   coberturaEspiritual: string | null;
 };
 
-type LeaderArea =
-  | "relatorio"
-  | "pessoas"
-  | "avisos"
-  | "materiais"
-  | "solicitacoes"
-  | "dados";
+type LeaderArea = "relatorio" | "pessoas" | "avisos" | "materiais" | "solicitacoes" | "dados";
 
 /** Campos sensíveis da célula (viram Solicitação, RF-14). */
 const CELL_SENSITIVE: { tipo: SensitiveCellRequestType; label: string }[] = [
@@ -159,16 +153,28 @@ export function MinhaCelulaLider() {
         ]);
         setMembers(membersRes.members);
         setReunioes(reunioesRes);
-        setCellCtx({nome: resolved.nome ?? "Sua célula",diaReuniao:null,horario:null,coberturaEspiritual:null});
-        void fetchCellDetail(token, resolved.id).then(detail => setCellCtx({nome: detail.nome,diaReuniao:detail.diaReuniao,horario:detail.horario,coberturaEspiritual:detail.coberturaEspiritual})).catch(handleSessionError);
+        setCellCtx({
+          nome: resolved.nome ?? "Sua célula",
+          diaReuniao: null,
+          horario: null,
+          coberturaEspiritual: null,
+        });
+        void fetchCellDetail(token, resolved.id)
+          .then((detail) =>
+            setCellCtx({
+              nome: detail.nome,
+              diaReuniao: detail.diaReuniao,
+              horario: detail.horario,
+              coberturaEspiritual: detail.coberturaEspiritual,
+            }),
+          )
+          .catch(handleSessionError);
         setSelectedReuniaoId((prev) => prev || reunioesRes[0]?.id || "");
 
         setLoaded(true);
       } catch (err) {
         if (handleSessionError(err)) return;
-        setError(
-          err instanceof ApiError ? err.message : "Não foi possível carregar sua célula.",
-        );
+        setError(err instanceof ApiError ? err.message : "Não foi possível carregar sua célula.");
       } finally {
         setLoading(false);
       }
@@ -184,8 +190,19 @@ export function MinhaCelulaLider() {
     if (!token || activeArea !== "materiais") return;
     let active = true;
     setMaterialsState("loading");
-    void listMaterials(token).then(result => { if (active) { setMaterials(result.items); setMaterialsState("ready"); } }).catch(error => { if (active && !handleSessionError(error)) setMaterialsState("error"); });
-    return () => { active = false; };
+    void listMaterials(token)
+      .then((result) => {
+        if (active) {
+          setMaterials(result.items);
+          setMaterialsState("ready");
+        }
+      })
+      .catch((error) => {
+        if (active && !handleSessionError(error)) setMaterialsState("error");
+      });
+    return () => {
+      active = false;
+    };
   }, [token, activeArea, materialsAttempt, handleSessionError]);
 
   const activeMembers = useMemo(() => members.filter((m) => m.ativo), [members]);
@@ -257,11 +274,7 @@ export function MinhaCelulaLider() {
           <DsBanner
             kind="error"
             action={
-              <DsButton
-                variant="secondary"
-                onClick={() => void load("retry")}
-                disabled={loading}
-              >
+              <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
                 Tentar novamente
               </DsButton>
             }
@@ -285,8 +298,8 @@ export function MinhaCelulaLider() {
               <Icon name="team" className="scaffold-ic" />
               <h2>Nenhuma célula vinculada</h2>
               <p>
-                Você ainda não tem uma célula sob sua liderança com dados carregáveis.
-                Assim que a Central vincular ou houver uma reunião, o painel aparece aqui.
+                Você ainda não tem uma célula sob sua liderança com dados carregáveis. Assim que a
+                Central vincular ou houver uma reunião, o painel aparece aqui.
               </p>
             </div>
           </div>
@@ -301,7 +314,10 @@ export function MinhaCelulaLider() {
                   <h2 id="mc-cell-name">{cellCtx.nome}</h2>
                   {heroMeta ? <p>{heroMeta}</p> : null}
                 </div>
-                <div className="mc-cell-count" aria-label={`${activeMembers.length} ${activeMembers.length === 1 ? "membro" : "membros"}`}>
+                <div
+                  className="mc-cell-count"
+                  aria-label={`${activeMembers.length} ${activeMembers.length === 1 ? "membro" : "membros"}`}
+                >
                   <strong>{activeMembers.length}</strong>
                   <span>{activeMembers.length === 1 ? "membro" : "membros"}</span>
                 </div>
@@ -319,7 +335,10 @@ export function MinhaCelulaLider() {
                   <section className="mc-report-picker" aria-labelledby="mc-report-picker-title">
                     <div className="mc-report-picker-copy">
                       <h2 id="mc-report-picker-title">Relatório da reunião</h2>
-                      <p>Escolha a reunião que deseja registrar. Confira a data antes de salvar presenças ou enviar.</p>
+                      <p>
+                        Escolha a reunião que deseja registrar. Confira a data antes de salvar
+                        presenças ou enviar.
+                      </p>
                     </div>
                     {reunioes.length === 0 ? (
                       <p className="muted-note">
@@ -380,13 +399,33 @@ export function MinhaCelulaLider() {
 
               {activeArea === "materiais" ? (
                 <div className="mc-area-panel">
-                  {materialsState === "loading" ? <p role="status">Carregando materiais…</p> : materialsState === "error" ? <div role="alert">Não foi possível carregar os materiais. <DsButton variant="secondary" onClick={() => setMaterialsAttempt(value => value + 1)}>Tentar novamente</DsButton></div> : <MaterialsFeed materials={materials} />}
+                  {materialsState === "loading" ? (
+                    <p role="status">Carregando materiais…</p>
+                  ) : materialsState === "error" ? (
+                    <div role="alert">
+                      Não foi possível carregar os materiais.{" "}
+                      <DsButton
+                        variant="secondary"
+                        onClick={() => setMaterialsAttempt((value) => value + 1)}
+                      >
+                        Tentar novamente
+                      </DsButton>
+                    </div>
+                  ) : (
+                    <MaterialsFeed materials={materials} />
+                  )}
                 </div>
               ) : null}
 
               {activeArea === "solicitacoes" ? (
                 <div className="mc-area-panel">
-                  {token && cellId ? <NomeacaoForm token={token} cellId={cellId} onCreated={() => setRequestsReload(n => n + 1)} /> : null}
+                  {token && cellId ? (
+                    <NomeacaoForm
+                      token={token}
+                      cellId={cellId}
+                      onCreated={() => setRequestsReload((n) => n + 1)}
+                    />
+                  ) : null}
                   <MyRequestsList
                     token={token!}
                     reloadToken={requestsReload}
@@ -416,10 +455,7 @@ export function MinhaCelulaLider() {
                             <span>{f.label}</span>
                           </DsButton>
                         ))}
-                        <DsButton
-                          variant="secondary"
-                          onClick={() => setShowMult(true)}
-                        >
+                        <DsButton variant="secondary" onClick={() => setShowMult(true)}>
                           <Icon name="send" />
                           <span>Solicitar multiplicação</span>
                         </DsButton>
@@ -431,7 +467,7 @@ export function MinhaCelulaLider() {
             </Tabs>
           </div>
         )}
-        </div>
+      </div>
 
       {showPlan && token && cellId ? (
         <PlanMeetingModal
@@ -471,12 +507,7 @@ export function MinhaCelulaLider() {
       <DsToastRegion>
         {toast ? (
           toast.kind === "ok" ? (
-            <DsToast
-              kind="ok"
-              text={toast.text}
-              duration={3600}
-              onDismiss={() => setToast(null)}
-            />
+            <DsToast kind="ok" text={toast.text} duration={3600} onDismiss={() => setToast(null)} />
           ) : (
             <DsToast kind="err" text={toast.text} onDismiss={() => setToast(null)} />
           )

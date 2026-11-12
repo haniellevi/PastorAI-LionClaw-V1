@@ -146,7 +146,7 @@ export async function fetchEventWindowPage(
   status?: string,
   signal?: AbortSignal,
   includeUndated = false,
-): Promise<Page<EventItem> & {includeUndatedSupported?:boolean}> {
+): Promise<Page<EventItem> & { includeUndatedSupported?: boolean }> {
   const query = new URLSearchParams({
     page: String(page),
     pageSize: String(pageSize),
@@ -154,7 +154,7 @@ export async function fetchEventWindowPage(
   if (fromDate) query.set("fromDate", fromDate);
   if (toDate) query.set("toDate", toDate);
   if (status) query.set("status", status);
-  if (includeUndated) query.set("includeUndated","true");
+  if (includeUndated) query.set("includeUndated", "true");
 
   const res = await authedFetch(token, `/events?${query.toString()}`, { signal });
   if (!res.ok) {
@@ -164,11 +164,24 @@ export async function fetchEventWindowPage(
 }
 
 /** Inclusive window matching the calendar currently displayed, with local dates. */
-export function eventWindow(view: "semana" | "mes" | "ano", cursor: Date): { fromDate: string; toDate: string } {
+export function eventWindow(
+  view: "semana" | "mes" | "ano",
+  cursor: Date,
+): { fromDate: string; toDate: string } {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
-  const from = view === "ano" ? new Date(year, 0, 1) : view === "mes" ? new Date(year, month, 1) : new Date(year, month, cursor.getDate() - cursor.getDay());
-  const to = view === "ano" ? new Date(year, 11, 31) : view === "mes" ? new Date(year, month + 1, 0) : new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6);
+  const from =
+    view === "ano"
+      ? new Date(year, 0, 1)
+      : view === "mes"
+        ? new Date(year, month, 1)
+        : new Date(year, month, cursor.getDate() - cursor.getDay());
+  const to =
+    view === "ano"
+      ? new Date(year, 11, 31)
+      : view === "mes"
+        ? new Date(year, month + 1, 0)
+        : new Date(from.getFullYear(), from.getMonth(), from.getDate() + 6);
   return { fromDate: localIsoDate(from), toDate: localIsoDate(to) };
 }
 
@@ -177,22 +190,42 @@ export function eventWindow(view: "semana" | "mes" | "ano", cursor: Date): { fro
  * existente, que ainda precisa de passado, futuro e recorrências para montar as
  * visões de semana/mês/ano.
  */
-export async function fetchEvents(token: string, pageSize = 200, window?: { fromDate?: string; toDate?: string; status?: string; includeUndated?:boolean }, signal?: AbortSignal): Promise<Page<EventItem>> {
+export async function fetchEvents(
+  token: string,
+  pageSize = 200,
+  window?: { fromDate?: string; toDate?: string; status?: string; includeUndated?: boolean },
+  signal?: AbortSignal,
+): Promise<Page<EventItem>> {
   const items: EventItem[] = [];
   let page = 1;
   let total = 0;
   let maxPages = 1;
 
   do {
-    const chunk = await fetchEventWindowPage(token, page, pageSize, window?.fromDate, window?.toDate, window?.status, signal,window?.includeUndated);
+    const chunk = await fetchEventWindowPage(
+      token,
+      page,
+      pageSize,
+      window?.fromDate,
+      window?.toDate,
+      window?.status,
+      signal,
+      window?.includeUndated,
+    );
     // Only Calendar asks for undated recurrence. Older servers already filter it
     // out on fromDate, so absence of this explicit capability requires the full legacy read.
-    if (window?.includeUndated && chunk.includeUndatedSupported !== true) return fetchEvents(token,pageSize,undefined,signal);
+    if (window?.includeUndated && chunk.includeUndatedSupported !== true)
+      return fetchEvents(token, pageSize, undefined, signal);
     total = chunk.total;
-    if (page === 1) maxPages = Math.ceil(total / Math.max(1,pageSize)) + 2;
-    if (page > maxPages) throw new ApiError(502,"A agenda mudou enquanto era carregada. Atualize para confirmar os registros.");
+    if (page === 1) maxPages = Math.ceil(total / Math.max(1, pageSize)) + 2;
+    if (page > maxPages)
+      throw new ApiError(
+        502,
+        "A agenda mudou enquanto era carregada. Atualize para confirmar os registros.",
+      );
     items.push(...chunk.items);
-    if (chunk.items.length === 0 && items.length < total) throw new ApiError(502,"A agenda recebida está incompleta. Tente novamente.");
+    if (chunk.items.length === 0 && items.length < total)
+      throw new ApiError(502, "A agenda recebida está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 
@@ -217,10 +250,7 @@ export async function fetchUpcomingEvents(
 // ---------------------------------------------------------------------------
 // Escrita
 // ---------------------------------------------------------------------------
-export async function createEvent(
-  token: string,
-  input: CreateEventInput,
-): Promise<EventItem> {
+export async function createEvent(token: string, input: CreateEventInput): Promise<EventItem> {
   const res = await authedFetch(token, `/events`, {
     method: "POST",
     body: JSON.stringify({
@@ -366,8 +396,18 @@ const MONTH_NAMES = [
 ];
 
 const MONTH_SHORT = [
-  "jan", "fev", "mar", "abr", "mai", "jun",
-  "jul", "ago", "set", "out", "nov", "dez",
+  "jan",
+  "fev",
+  "mar",
+  "abr",
+  "mai",
+  "jun",
+  "jul",
+  "ago",
+  "set",
+  "out",
+  "nov",
+  "dez",
 ];
 
 export function monthLabel(year: number, month: number): string {

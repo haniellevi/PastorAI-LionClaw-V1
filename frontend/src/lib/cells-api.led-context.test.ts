@@ -48,7 +48,11 @@ describe("getLedCellsTodayContext", () => {
           },
         ]),
       );
-    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/cells/me/led-today") ? Promise.resolve(new Response(null, {status:404})) : fetchMock(input, init));
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/cells/me/led-today")
+        ? Promise.resolve(new Response(null, { status: 404 }))
+        : fetchMock(input, init),
+    );
 
     const result = await getLedCellsTodayContext(
       "tok-led-multiple",
@@ -92,12 +96,13 @@ describe("getLedCellsTodayContext", () => {
       )
       .mockResolvedValueOnce(Response.json([sameSlot("meeting-a", "cell-a", "A")]))
       .mockResolvedValueOnce(Response.json([sameSlot("meeting-b", "cell-b", "B")]));
-    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/cells/me/led-today") ? Promise.resolve(new Response(null, {status:404})) : fetchMock(input, init));
-
-    const result = await getLedCellsTodayContext(
-      "tok-led-tie",
-      new Date("2026-08-11T12:00:00"),
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/cells/me/led-today")
+        ? Promise.resolve(new Response(null, { status: 404 }))
+        : fetchMock(input, init),
     );
+
+    const result = await getLedCellsTodayContext("tok-led-tie", new Date("2026-08-11T12:00:00"));
 
     expect(result.meeting?.id).toBe("meeting-a");
     expect(result.meeting?.celula_id).toBe("cell-a");

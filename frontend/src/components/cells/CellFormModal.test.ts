@@ -96,9 +96,15 @@ describe("CellFormModal: liderança e ativação", () => {
     render(false, { cell: currentCell });
 
     expect((container.querySelector("#cf-lider") as HTMLSelectElement).disabled).toBe(true);
-    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(true);
-    expect(container.textContent).toContain("Liderança é gerida exclusivamente na Central de Células");
-    expect(container.textContent).toContain("Ativação e desativação são geridas exclusivamente na Central de Células");
+    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect(container.textContent).toContain(
+      "Liderança é gerida exclusivamente na Central de Células",
+    );
+    expect(container.textContent).toContain(
+      "Ativação e desativação são geridas exclusivamente na Central de Células",
+    );
   });
 
   it("na Central habilita os controles e mostra por que um candidato está bloqueado", () => {
@@ -109,7 +115,9 @@ describe("CellFormModal: liderança e ativação", () => {
     expect(select.disabled).toBe(false);
     expect(blocked.disabled).toBe(true);
     expect(container.textContent).toContain("Bia Convidada: Acesso ainda não ativado");
-    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(false);
+    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).disabled).toBe(
+      false,
+    );
   });
 
   it("salvar fora da Central preserva líder e status atuais", () => {
@@ -160,17 +168,11 @@ describe("CellFormModal: liderança e ativação", () => {
     ) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     expect(save.getAttribute("aria-describedby")).toBe("cf-leader-status");
-    expect(container.querySelector("#cf-leader-status")?.getAttribute("role")).toBe(
-      "alert",
-    );
-    expect(container.textContent).toContain(
-      "Regularize o acesso ou escolha outro líder",
-    );
+    expect(container.querySelector("#cf-leader-status")?.getAttribute("role")).toBe("alert");
+    expect(container.textContent).toContain("Regularize o acesso ou escolha outro líder");
 
     const form = container.querySelector("form") as HTMLFormElement;
-    act(() =>
-      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-    );
+    act(() => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(onSubmit).not.toHaveBeenCalled();
   });
 });
@@ -184,25 +186,54 @@ describe("CellFormModal: cadastro público S2b", () => {
   ])("normaliza o dia único %s ao publicar", (dia, esperado) => {
     const onSubmit = vi.fn();
     render(true, {
-      cell: { ...currentCell, ativo: true, bairro: "Centro", diaReuniao: dia, divulgarWhatsapp: false },
-      publicDataEnabled: true, canPublish: true, onSubmit,
+      cell: {
+        ...currentCell,
+        ativo: true,
+        bairro: "Centro",
+        diaReuniao: dia,
+        divulgarWhatsapp: false,
+      },
+      publicDataEnabled: true,
+      canPublish: true,
+      onSubmit,
     });
     act(() => container.querySelector<HTMLInputElement>("#cf-divulgar")?.click());
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ diaReuniao: esperado, divulgarWhatsapp: true });
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+      diaReuniao: esperado,
+      divulgarWhatsapp: true,
+    });
   });
 
   it("recusa dia composto ao publicar e anuncia o erro no campo", () => {
     const onSubmit = vi.fn();
     render(true, {
-      cell: { ...currentCell, ativo: true, bairro: "Centro", diaReuniao: "Quarta e Sábado", divulgarWhatsapp: false },
-      publicDataEnabled: true, canPublish: true, onSubmit,
+      cell: {
+        ...currentCell,
+        ativo: true,
+        bairro: "Centro",
+        diaReuniao: "Quarta e Sábado",
+        divulgarWhatsapp: false,
+      },
+      publicDataEnabled: true,
+      canPublish: true,
+      onSubmit,
     });
     act(() => container.querySelector<HTMLInputElement>("#cf-divulgar")?.click());
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     expect(onSubmit).not.toHaveBeenCalled();
     expect(container.querySelector("#cf-dia")?.getAttribute("aria-invalid")).toBe("true");
-    expect(container.querySelector("#cf-dia")?.getAttribute("aria-describedby")).toBe("cf-dia-error");
+    expect(container.querySelector("#cf-dia")?.getAttribute("aria-describedby")).toBe(
+      "cf-dia-error",
+    );
     expect(container.querySelector("#cf-dia-error")?.getAttribute("role")).toBe("alert");
     expect(container.querySelector("#cf-dia-error")?.textContent).toMatch(/dia fora do padrão/i);
   });
@@ -212,11 +243,23 @@ describe("CellFormModal: cadastro público S2b", () => {
     (dia) => {
       const onSubmit = vi.fn();
       render(true, {
-        cell: { ...currentCell, ativo: true, bairro: "Centro", diaReuniao: dia, divulgarWhatsapp: false },
-        publicDataEnabled: true, canPublish: true, onSubmit,
+        cell: {
+          ...currentCell,
+          ativo: true,
+          bairro: "Centro",
+          diaReuniao: dia,
+          divulgarWhatsapp: false,
+        },
+        publicDataEnabled: true,
+        canPublish: true,
+        onSubmit,
       });
       act(() => container.querySelector<HTMLInputElement>("#cf-divulgar")?.click());
-      act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      act(() =>
+        container
+          .querySelector("form")
+          ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+      );
       expect(onSubmit).not.toHaveBeenCalled();
       expect(container.querySelector("#cf-dia-error")?.textContent).toMatch(/dia fora do padrão/i);
     },
@@ -225,8 +268,16 @@ describe("CellFormModal: cadastro público S2b", () => {
   it("não bloqueia despublicação após alterar um dia legado inválido", () => {
     const onSubmit = vi.fn();
     render(true, {
-      cell: { ...currentCell, ativo: true, bairro: "Centro", diaReuniao: "Quarta e Sábado", divulgarWhatsapp: true },
-      publicDataEnabled: true, canPublish: true, onSubmit,
+      cell: {
+        ...currentCell,
+        ativo: true,
+        bairro: "Centro",
+        diaReuniao: "Quarta e Sábado",
+        divulgarWhatsapp: true,
+      },
+      publicDataEnabled: true,
+      canPublish: true,
+      onSubmit,
     });
     const dia = container.querySelector<HTMLSelectElement>("#cf-dia");
     act(() => {
@@ -242,34 +293,71 @@ describe("CellFormModal: cadastro público S2b", () => {
       }
     });
     act(() => container.querySelector<HTMLInputElement>("#cf-divulgar")?.click());
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ diaReuniao: "Quarta e Sábado", divulgarWhatsapp: false });
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+      diaReuniao: "Quarta e Sábado",
+      divulgarWhatsapp: false,
+    });
   });
 
   it("permite publicar sem dia definido", () => {
     const onSubmit = vi.fn();
     render(true, {
-      cell: { ...currentCell, ativo: true, bairro: "Centro", diaReuniao: null, divulgarWhatsapp: false },
-      publicDataEnabled: true, canPublish: true, onSubmit,
+      cell: {
+        ...currentCell,
+        ativo: true,
+        bairro: "Centro",
+        diaReuniao: null,
+        divulgarWhatsapp: false,
+      },
+      publicDataEnabled: true,
+      canPublish: true,
+      onSubmit,
     });
     act(() => container.querySelector<HTMLInputElement>("#cf-divulgar")?.click());
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ diaReuniao: null, divulgarWhatsapp: true });
   });
 
   it("preserva dia legado inválido sem publicar e permite ao líder editar bairro", () => {
     const onSubmit = vi.fn();
     render(false, {
-      cell: { ...currentCell, ativo: true, bairro: "Centro", diaReuniao: "Quarta e Sábado", divulgarWhatsapp: true },
-      publicDataEnabled: true, canPublish: false, onSubmit,
+      cell: {
+        ...currentCell,
+        ativo: true,
+        bairro: "Centro",
+        diaReuniao: "Quarta e Sábado",
+        divulgarWhatsapp: true,
+      },
+      publicDataEnabled: true,
+      canPublish: false,
+      onSubmit,
     });
     const bairro = container.querySelector<HTMLInputElement>("#cf-bairro");
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(bairro, "Novo Centro");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        bairro,
+        "Novo Centro",
+      );
       bairro?.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ diaReuniao: "Quarta e Sábado", bairro: "Novo Centro" });
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
+    expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+      diaReuniao: "Quarta e Sábado",
+      bairro: "Novo Centro",
+    });
     expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("divulgarWhatsapp");
   });
 
@@ -278,10 +366,17 @@ describe("CellFormModal: cadastro público S2b", () => {
     render(true, { cell: currentCell, publicDataEnabled: true, canPublish: true, onSubmit });
     const nome = container.querySelector<HTMLInputElement>('input[placeholder="Ex.: Boas Novas"]');
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(nome, "Célula Renovada");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        nome,
+        "Célula Renovada",
+      );
       nome?.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     const input = onSubmit.mock.calls[0]?.[0];
     expect(input?.nome).toBe("Célula Renovada");
     expect(input).not.toHaveProperty("bairro");
@@ -300,7 +395,11 @@ describe("CellFormModal: cadastro público S2b", () => {
         publish.dispatchEvent(new Event("change", { bubbles: true }));
       }
     });
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     expect(onSubmit.mock.calls[0]?.[0]).toHaveProperty("divulgarWhatsapp", false);
     expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("bairro");
   });
@@ -309,7 +408,9 @@ describe("CellFormModal: cadastro público S2b", () => {
     const onSubmit = vi.fn();
     render(true, {
       cell: { ...currentCell, bairro: "Centro" },
-      publicDataEnabled: true, canPublish: true, onSubmit,
+      publicDataEnabled: true,
+      canPublish: true,
+      onSubmit,
     });
     const publish = container.querySelector<HTMLSelectElement>("#cf-divulgar");
     act(() => {
@@ -318,7 +419,11 @@ describe("CellFormModal: cadastro público S2b", () => {
         publish.dispatchEvent(new Event("change", { bubbles: true }));
       }
     });
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     expect(onSubmit).not.toHaveBeenCalled();
     expect(publish?.getAttribute("aria-invalid")).toBe("true");
     expect(publish?.getAttribute("aria-describedby")).toBe("cf-divulgar-error");
@@ -331,7 +436,11 @@ describe("CellFormModal: cadastro público S2b", () => {
     render(false, { cell: { ...currentCell, bairro: "Centro", divulgarWhatsapp: true }, onSubmit });
     expect(container.querySelector("#cf-bairro")).toBeNull();
     expect(container.querySelector("#cf-divulgar")).toBeNull();
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     const input = onSubmit.mock.calls[0]?.[0];
     expect(input).not.toHaveProperty("bairro");
     expect(input).not.toHaveProperty("divulgarWhatsapp");
@@ -344,10 +453,17 @@ describe("CellFormModal: cadastro público S2b", () => {
     expect(bairro).not.toBeNull();
     expect(container.querySelector("#cf-divulgar")).toBeNull();
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(bairro, "Centro");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+        bairro,
+        "Centro",
+      );
       bairro?.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     expect(onSubmit.mock.calls[0]?.[0]).toHaveProperty("bairro", "Centro");
     expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("divulgarWhatsapp");
   });
@@ -358,7 +474,11 @@ describe("CellFormModal: cadastro público S2b", () => {
     const publish = container.querySelector<HTMLInputElement>("#cf-divulgar");
     expect(publish?.checked).toBe(false);
     act(() => publish?.click());
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     expect(onSubmit).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Informe o bairro antes de divulgar");
   });
@@ -367,10 +487,16 @@ describe("CellFormModal: cadastro público S2b", () => {
     const onSubmit = vi.fn();
     render(true, {
       cell: { ...currentCell, ativo: true, bairro: "Centro", divulgarWhatsapp: false },
-      publicDataEnabled: true, canPublish: true, onSubmit,
+      publicDataEnabled: true,
+      canPublish: true,
+      onSubmit,
     });
     act(() => container.querySelector<HTMLInputElement>("#cf-divulgar")?.click());
-    act(() => container.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    act(() =>
+      container
+        .querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
     expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ divulgarWhatsapp: true, ativo: true });
     expect(onSubmit.mock.calls[0]?.[0]).not.toHaveProperty("bairro");
   });

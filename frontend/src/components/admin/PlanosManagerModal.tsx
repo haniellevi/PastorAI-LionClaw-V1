@@ -27,8 +27,7 @@ import {
 } from "@/lib/admin-api";
 import { DsButton } from "@/components/ds/Button";
 
-const brl = (v: number) =>
-  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 interface FormState {
   codigo: string;
@@ -183,11 +182,7 @@ export function PlanosManagerModal({
   };
 
   const remove = async (p: AdminPlano) => {
-    if (
-      !window.confirm(
-        `Excluir o plano "${p.nome}"? Esta ação é irreversível.`,
-      )
-    ) {
+    if (!window.confirm(`Excluir o plano "${p.nome}"? Esta ação é irreversível.`)) {
       return;
     }
     setBusy(true);
@@ -236,213 +231,210 @@ export function PlanosManagerModal({
       open
       onClose={onClose}
       title={isForm ? (editing === "new" ? "Novo plano" : "Editar plano") : "Planos"}
-      description={isForm ? "Confira preço, limite e disponibilidade antes de salvar." : "Catálogo da plataforma. Taxa inicial e mensalidade são configurações distintas."}
+      description={
+        isForm
+          ? "Confira preço, limite e disponibilidade antes de salvar."
+          : "Catálogo da plataforma. Taxa inicial e mensalidade são configurações distintas."
+      }
     >
-        {isForm ? (
-          <form
-            className="modal-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void save();
-            }}
-          >
-            {formError ? (
-              <div className="error-banner" role="alert">
-                <span>{formError}</span>
-              </div>
-            ) : null}
+      {isForm ? (
+        <form
+          className="modal-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          {formError ? (
+            <div className="error-banner" role="alert">
+              <span>{formError}</span>
+            </div>
+          ) : null}
 
-            <Field
-              label="Código"
-              value={form.codigo}
-              onChange={(e) => setForm({ ...form, codigo: e.target.value })}
-              placeholder="ex.: premium"
-              helper={
-                editing === "new"
-                  ? "Identificador estável do plano (não muda depois)."
-                  : "O código não pode ser alterado."
-              }
-              disabled={editing !== "new"}
-            />
-            <Field
-              label="Nome"
-              value={form.nome}
-              onChange={(e) => setForm({ ...form, nome: e.target.value })}
-              placeholder="Ex.: Até 100 membros"
-              autoFocus={editing !== "new"}
-            />
-            <Field
-              label="Preço mensal (R$)"
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.preco}
-              onChange={(e) => setForm({ ...form, preco: e.target.value })}
-              placeholder="199"
-              helper="R$ 0,00 cria um plano de cortesia, disponível somente para atribuição pelo master."
-            />
-            <Field
-              label="Limite de membros"
-              type="number"
-              min={1}
-              value={form.limite}
-              onChange={(e) => setForm({ ...form, limite: e.target.value })}
-              placeholder="Deixe vazio para ilimitado"
-              helper="Vazio = ilimitado."
-            />
-            <Field
-              label="Ordem de exibição"
-              type="number"
-              min={0}
-              value={form.ordem}
-              onChange={(e) => setForm({ ...form, ordem: e.target.value })}
-            />
-            {editing !== "new" ? (
-              <label
+          <Field
+            label="Código"
+            value={form.codigo}
+            onChange={(e) => setForm({ ...form, codigo: e.target.value })}
+            placeholder="ex.: premium"
+            helper={
+              editing === "new"
+                ? "Identificador estável do plano (não muda depois)."
+                : "O código não pode ser alterado."
+            }
+            disabled={editing !== "new"}
+          />
+          <Field
+            label="Nome"
+            value={form.nome}
+            onChange={(e) => setForm({ ...form, nome: e.target.value })}
+            placeholder="Ex.: Até 100 membros"
+            autoFocus={editing !== "new"}
+          />
+          <Field
+            label="Preço mensal (R$)"
+            type="number"
+            min={0}
+            step="0.01"
+            value={form.preco}
+            onChange={(e) => setForm({ ...form, preco: e.target.value })}
+            placeholder="199"
+            helper="R$ 0,00 cria um plano de cortesia, disponível somente para atribuição pelo master."
+          />
+          <Field
+            label="Limite de membros"
+            type="number"
+            min={1}
+            value={form.limite}
+            onChange={(e) => setForm({ ...form, limite: e.target.value })}
+            placeholder="Deixe vazio para ilimitado"
+            helper="Vazio = ilimitado."
+          />
+          <Field
+            label="Ordem de exibição"
+            type="number"
+            min={0}
+            value={form.ordem}
+            onChange={(e) => setForm({ ...form, ordem: e.target.value })}
+          />
+          {editing !== "new" ? (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--s2)",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={form.ativo}
+                onChange={(e) => setForm({ ...form, ativo: e.target.checked })}
+              />
+              <span>Plano ativo (visível para as igrejas)</span>
+            </label>
+          ) : null}
+
+          <div className="modal-foot">
+            <DsButton variant="secondary" onClick={cancel} disabled={busy}>
+              Voltar
+            </DsButton>
+            <DsButton type="submit" loading={busy}>
+              {busy ? "Salvando…" : "Salvar plano"}
+            </DsButton>
+          </div>
+        </form>
+      ) : (
+        <div className="modal-form">
+          {error ? (
+            <div className="error-banner" role="alert">
+              <span>{error}</span>
+            </div>
+          ) : null}
+
+          {planos === null ? (
+            <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
+              <span className="spinner" aria-hidden="true" />
+              <div className="sub ds-mt-2">Carregando os planos…</div>
+            </div>
+          ) : (
+            <>
+              <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--s2)",
-                  cursor: "pointer",
+                  borderBottom: "1px solid var(--border)",
+                  marginBottom: "var(--s4)",
+                  paddingBottom: "var(--s3)",
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={form.ativo}
-                  onChange={(e) => setForm({ ...form, ativo: e.target.checked })}
+                <Field
+                  label="Taxa padrão de setup (R$)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={setupFeeInput}
+                  onChange={(event) => setSetupFeeInput(event.target.value)}
+                  helper="Vale para igrejas sem taxa personalizada."
+                  disabled={busy}
                 />
-                <span>Plano ativo (visível para as igrejas)</span>
-              </label>
-            ) : null}
-
-            <div className="modal-foot">
-              <DsButton
-                variant="secondary"
-                onClick={cancel}
-                disabled={busy}
-              >
-                Voltar
-              </DsButton>
-              <DsButton
-                type="submit"
-                loading={busy}
-              >
-                {busy ? "Salvando…" : "Salvar plano"}
-              </DsButton>
-            </div>
-          </form>
-        ) : (
-          <div className="modal-form">
-            {error ? (
-              <div className="error-banner" role="alert">
-                <span>{error}</span>
-              </div>
-            ) : null}
-
-            {planos === null ? (
-              <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
-                <span className="spinner" aria-hidden="true" />
-                <div className="sub ds-mt-2">
-                  Carregando os planos…
+                <div className="ds-flex ds-justify-end ds-mt-2">
+                  <DsButton variant="tertiary" onClick={() => void saveSetupFee()} disabled={busy}>
+                    Salvar taxa padrão
+                  </DsButton>
                 </div>
               </div>
-            ) : (
-              <>
-                <div
-                  style={{
-                    borderBottom: "1px solid var(--border)",
-                    marginBottom: "var(--s4)",
-                    paddingBottom: "var(--s3)",
-                  }}
-                >
-                  <Field
-                    label="Taxa padrão de setup (R$)"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={setupFeeInput}
-                    onChange={(event) => setSetupFeeInput(event.target.value)}
-                    helper="Vale para igrejas sem taxa personalizada."
-                    disabled={busy}
-                  />
-                  <div className="ds-flex ds-justify-end ds-mt-2">
-                    <DsButton variant="tertiary" onClick={() => void saveSetupFee()} disabled={busy}>
-                      Salvar taxa padrão
-                    </DsButton>
-                  </div>
-                </div>
-                {planos.length === 0 ? (
-                  <p className="sub ds-muted">
-                    Nenhum plano cadastrado.
-                  </p>
-                ) : (
-                  <table className="data-table ux-stack-table">
-                    <thead>
-                      <tr>
-                        <th>Plano</th>
-                        <th className="num">Limite</th>
-                        <th className="num">Mensalidade</th>
-                        <th className="num">Em uso</th>
-                        <th />
+              {planos.length === 0 ? (
+                <p className="sub ds-muted">Nenhum plano cadastrado.</p>
+              ) : (
+                <table className="data-table ux-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Plano</th>
+                      <th className="num">Limite</th>
+                      <th className="num">Mensalidade</th>
+                      <th className="num">Em uso</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {planos.map((p) => (
+                      <tr key={p.id}>
+                        <td className="nm" data-label="Plano">
+                          {p.nome}
+                          <div className="sub ds-muted">
+                            {p.codigo}
+                            {p.precoMensal === 0 ? " · cortesia (somente master)" : ""}
+                            {p.ativo ? "" : " · inativo"}
+                          </div>
+                        </td>
+                        <td className="num" data-label="Limite">
+                          {p.limitePessoas == null ? "Ilimitado" : p.limitePessoas}
+                        </td>
+                        <td className="num" data-label="Mensalidade">
+                          {brl(p.precoMensal)}
+                        </td>
+                        <td className="num" data-label="Em uso">
+                          {p.emUso}
+                        </td>
+                        <td data-label="Ações">
+                          <div className="ds-flex ds-gap-2 ds-justify-end">
+                            <DsButton
+                              variant="tertiary"
+                              onClick={() => startEdit(p)}
+                              disabled={busy}
+                            >
+                              Editar
+                            </DsButton>
+                            <DsButton
+                              variant="danger"
+                              onClick={() => void remove(p)}
+                              disabled={busy || p.emUso > 0}
+                              title={
+                                p.emUso > 0
+                                  ? "Há igrejas neste plano — desative em vez de excluir."
+                                  : undefined
+                              }
+                            >
+                              Excluir
+                            </DsButton>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {planos.map((p) => (
-                        <tr key={p.id}>
-                          <td className="nm" data-label="Plano">
-                            {p.nome}
-                            <div className="sub ds-muted">
-                              {p.codigo}
-                              {p.precoMensal === 0 ? " · cortesia (somente master)" : ""}
-                              {p.ativo ? "" : " · inativo"}
-                            </div>
-                          </td>
-                          <td className="num" data-label="Limite">
-                            {p.limitePessoas == null ? "Ilimitado" : p.limitePessoas}
-                          </td>
-                          <td className="num" data-label="Mensalidade">{brl(p.precoMensal)}</td>
-                          <td className="num" data-label="Em uso">{p.emUso}</td>
-                          <td data-label="Ações">
-                            <div className="ds-flex ds-gap-2 ds-justify-end">
-                              <DsButton
-                                variant="tertiary"
-                                onClick={() => startEdit(p)}
-                                disabled={busy}
-                              >
-                                Editar
-                              </DsButton>
-                              <DsButton
-                                variant="danger"
-                                onClick={() => void remove(p)}
-                                disabled={busy || p.emUso > 0}
-                                title={
-                                  p.emUso > 0
-                                    ? "Há igrejas neste plano — desative em vez de excluir."
-                                    : undefined
-                                }
-                              >
-                                Excluir
-                              </DsButton>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </>
-            )}
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
 
-            <div className="modal-foot">
-              <DsButton variant="secondary" onClick={onClose}>
-                Fechar
-              </DsButton>
-              <DsButton onClick={startNew} disabled={busy}>
-                Novo plano
-              </DsButton>
-            </div>
+          <div className="modal-foot">
+            <DsButton variant="secondary" onClick={onClose}>
+              Fechar
+            </DsButton>
+            <DsButton onClick={startNew} disabled={busy}>
+              Novo plano
+            </DsButton>
           </div>
-        )}
+        </div>
+      )}
     </DsDialog>
   );
 }

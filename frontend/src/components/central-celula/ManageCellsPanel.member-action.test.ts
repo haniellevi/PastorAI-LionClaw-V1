@@ -19,9 +19,7 @@ vi.mock("@/lib/auth-context", () => ({
 }));
 
 vi.mock("@/lib/cells-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/cells-api")>(
-    "@/lib/cells-api",
-  );
+  const actual = await vi.importActual<typeof import("@/lib/cells-api")>("@/lib/cells-api");
   return {
     ...actual,
     fetchCellsFull: mocks.fetchCellsFull,
@@ -31,28 +29,32 @@ vi.mock("@/lib/cells-api", async () => {
 });
 
 vi.mock("@/lib/contacts-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/contacts-api")>(
-    "@/lib/contacts-api",
-  );
-  return { ...actual, fetchContacts: mocks.fetchContacts,
+  const actual = await vi.importActual<typeof import("@/lib/contacts-api")>("@/lib/contacts-api");
+  return {
+    ...actual,
+    fetchContacts: mocks.fetchContacts,
     fetchContactDetail: async (_token: string, id: string) => {
       const page = await mocks.fetchContacts();
-      return page.items.find((person: { id: string }) => person.id === id) ?? { id, nome: "Líder", aptoLider: true };
+      return (
+        page.items.find((person: { id: string }) => person.id === id) ?? {
+          id,
+          nome: "Líder",
+          aptoLider: true,
+        }
+      );
     },
   };
 });
 
 vi.mock("@/lib/lookup-api", async () => ({
-  ...await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api"),
+  ...(await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api")),
   fetchCellListPage: mocks.fetchCellsFull,
   fetchCellLookupPage: mocks.fetchCellsFull,
   fetchContactLookupPage: mocks.fetchContacts,
 }));
 
 vi.mock("@/lib/dashboard-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>(
-    "@/lib/dashboard-api",
-  );
+  const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>("@/lib/dashboard-api");
   return { ...actual, fetchTeam: mocks.fetchTeam };
 });
 
@@ -162,9 +164,7 @@ describe("ManageCellsPanel: adicionar Pessoa", () => {
     ) as HTMLParagraphElement;
 
     expect(add.disabled).toBe(true);
-    expect(add.getAttribute("aria-describedby")).toBe(
-      "central-add-member-block-reason",
-    );
+    expect(add.getAttribute("aria-describedby")).toBe("central-add-member-block-reason");
     expect(reasonNode.getAttribute("role")).toBe("status");
     expect(reasonNode.textContent).toBe(reason);
   });

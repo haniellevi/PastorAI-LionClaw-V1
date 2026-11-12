@@ -15,7 +15,7 @@ import { fetchWithDeadline } from "./request-with-deadline";
 import { parsePermissionMatrix } from "./permission-matrix";
 import type { PermissionMatrix } from "./permissions";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+import { API_BASE } from "./api-base";
 
 export interface MeResult {
   appUserId: string;
@@ -81,8 +81,7 @@ const INVALID_CREDENTIALS =
   "Não foi possível autenticar. Verifique suas credenciais e tente novamente.";
 const SERVICE_UNAVAILABLE =
   "O serviço de autenticação está temporariamente indisponível. Tente novamente em instantes.";
-const TOO_MANY_ATTEMPTS =
-  "Muitas tentativas de acesso. Aguarde um momento e tente novamente.";
+const TOO_MANY_ATTEMPTS = "Muitas tentativas de acesso. Aguarde um momento e tente novamente.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -247,12 +246,21 @@ export interface BootstrapResult {
 }
 
 /** Only an unsupported endpoint permits legacy fallback, never a denied authority. */
-export async function fetchBootstrap(token: string, signal?: AbortSignal): Promise<BootstrapResult> {
+export async function fetchBootstrap(
+  token: string,
+  signal?: AbortSignal,
+): Promise<BootstrapResult> {
   let res: Response;
   try {
-    res = await authFetch(`${API_BASE}/auth/bootstrap`, { headers: { Authorization: `Bearer ${token}` }, signal });
-  } catch { throw new AuthUnavailableError(); }
-  if ([404, 405, 501].includes(res.status)) return { user: await fetchMe(token, signal), permissions: null };
+    res = await authFetch(`${API_BASE}/auth/bootstrap`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal,
+    });
+  } catch {
+    throw new AuthUnavailableError();
+  }
+  if ([404, 405, 501].includes(res.status))
+    return { user: await fetchMe(token, signal), permissions: null };
   await ensureAuthenticatedResponse(res);
   try {
     const dto: unknown = await res.json();
@@ -261,7 +269,9 @@ export async function fetchBootstrap(token: string, signal?: AbortSignal): Promi
     const permissions = parsePermissionMatrix(dto.permissions);
     if (!user || !permissions) throw new AuthUnavailableError();
     return { user, permissions };
-  } catch { throw new AuthUnavailableError(); }
+  } catch {
+    throw new AuthUnavailableError();
+  }
 }
 
 export async function fetchMe(token: string, signal?: AbortSignal): Promise<MeResult> {

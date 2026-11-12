@@ -7,30 +7,99 @@ import { LookupPager } from "./LookupPager";
 import { DsButton } from "@/components/ds/Button";
 
 export function PaginatedLookup<T extends { id: string }>({
-  loadPage, selected, onSelect, label, inputId, getLabel, getDescription, isDisabled,
-  onSessionExpired, disabled = false, allowClear = false,
+  loadPage,
+  selected,
+  onSelect,
+  label,
+  inputId,
+  getLabel,
+  getDescription,
+  isDisabled,
+  onSessionExpired,
+  disabled = false,
+  allowClear = false,
 }: {
-  loadPage: LookupLoader<T>; selected: T | null; onSelect: (value: T | null) => void;
-  label: string; inputId: string; getLabel: (value: T) => string;
-  getDescription?: (value: T) => string | null; isDisabled?: (value: T) => boolean;
-  onSessionExpired?: () => void; disabled?: boolean; allowClear?: boolean;
+  loadPage: LookupLoader<T>;
+  selected: T | null;
+  onSelect: (value: T | null) => void;
+  label: string;
+  inputId: string;
+  getLabel: (value: T) => string;
+  getDescription?: (value: T) => string | null;
+  isDisabled?: (value: T) => boolean;
+  onSessionExpired?: () => void;
+  disabled?: boolean;
+  allowClear?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const lookup = useLookupPage(loadPage, query, !disabled);
-  useEffect(() => { if (lookup.error instanceof SessionExpiredError) onSessionExpired?.(); }, [lookup.error, onSessionExpired]);
-  return <div className="field">
-    <label htmlFor={inputId}>{label}</label>
-    <input id={inputId} type="search" value={query} onChange={(event) => setQuery(event.target.value)} disabled={disabled} placeholder="Buscar por nome…" />
-    {selected ? <p role="status" className="sub">Selecionada: <strong>{getLabel(selected)}</strong></p> : null}
-    {allowClear && selected ? <DsButton variant="secondary" onClick={() => onSelect(null)} disabled={disabled}>Limpar seleção</DsButton> : null}
-    {lookup.error ? <div role="alert">{lookup.error instanceof Error ? lookup.error.message : "Não foi possível carregar as opções."} <DsButton variant="secondary" onClick={lookup.retry}>Tentar novamente</DsButton></div> : null}
-    {lookup.loading ? <p role="status" className="sub">Carregando opções…</p> : <div style={{ maxHeight: 220, overflowY: "auto" }}>
-      {lookup.result?.items.map((item) => <DsButton key={item.id} variant="secondary" style={{ display: "block", width: "100%", textAlign: "left", marginTop: 4, paddingBlock: 9 }}
-        disabled={disabled || isDisabled?.(item)} aria-pressed={selected?.id === item.id} onClick={() => onSelect(item)}>
-        {getLabel(item)}{getDescription?.(item) ? <span className="sub"> · {getDescription(item)}</span> : null}
-      </DsButton>)}
-      {lookup.result?.items.length === 0 ? <p className="sub">Nenhum resultado encontrado.</p> : null}
-    </div>}
-    <LookupPager result={lookup.result} loading={lookup.loading} onPage={lookup.setPage} />
-  </div>;
+  useEffect(() => {
+    if (lookup.error instanceof SessionExpiredError) onSessionExpired?.();
+  }, [lookup.error, onSessionExpired]);
+  return (
+    <div className="field">
+      <label htmlFor={inputId}>{label}</label>
+      <input
+        id={inputId}
+        type="search"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        disabled={disabled}
+        placeholder="Buscar por nome…"
+      />
+      {selected ? (
+        <p role="status" className="sub">
+          Selecionada: <strong>{getLabel(selected)}</strong>
+        </p>
+      ) : null}
+      {allowClear && selected ? (
+        <DsButton variant="secondary" onClick={() => onSelect(null)} disabled={disabled}>
+          Limpar seleção
+        </DsButton>
+      ) : null}
+      {lookup.error ? (
+        <div role="alert">
+          {lookup.error instanceof Error
+            ? lookup.error.message
+            : "Não foi possível carregar as opções."}{" "}
+          <DsButton variant="secondary" onClick={lookup.retry}>
+            Tentar novamente
+          </DsButton>
+        </div>
+      ) : null}
+      {lookup.loading ? (
+        <p role="status" className="sub">
+          Carregando opções…
+        </p>
+      ) : (
+        <div style={{ maxHeight: 220, overflowY: "auto" }}>
+          {lookup.result?.items.map((item) => (
+            <DsButton
+              key={item.id}
+              variant="secondary"
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                marginTop: 4,
+                paddingBlock: 9,
+              }}
+              disabled={disabled || isDisabled?.(item)}
+              aria-pressed={selected?.id === item.id}
+              onClick={() => onSelect(item)}
+            >
+              {getLabel(item)}
+              {getDescription?.(item) ? (
+                <span className="sub"> · {getDescription(item)}</span>
+              ) : null}
+            </DsButton>
+          ))}
+          {lookup.result?.items.length === 0 ? (
+            <p className="sub">Nenhum resultado encontrado.</p>
+          ) : null}
+        </div>
+      )}
+      <LookupPager result={lookup.result} loading={lookup.loading} onPage={lookup.setPage} />
+    </div>
+  );
 }

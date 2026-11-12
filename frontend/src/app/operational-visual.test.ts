@@ -27,9 +27,7 @@ function bodiesFor(selector: string): string[] {
 
 function bodyFor(selector: string, declaration?: string): string {
   const matches = bodiesFor(selector);
-  const match = declaration
-    ? matches.find((body) => body.includes(declaration))
-    : matches[0];
+  const match = declaration ? matches.find((body) => body.includes(declaration)) : matches[0];
   expect(match, `regra não encontrada: ${selector}`).toBeTruthy();
   return match!;
 }
@@ -128,9 +126,7 @@ describe("Agenda e Conversas — composição operacional", () => {
   it("explica o propósito das conversas antes da lista de atendimento", () => {
     expect(inbox).toContain("Conversas");
     expect(inbox).toContain("Selecione uma pessoa. Assuma o atendimento para responder.");
-    expect(bodyFor(".ib .ib-head", "align-items: flex-end")).toContain(
-      "align-items: flex-end",
-    );
+    expect(bodyFor(".ib .ib-head", "align-items: flex-end")).toContain("align-items: flex-end");
   });
 });
 
@@ -145,9 +141,7 @@ describe("Pessoas, células e Jornada — foco antes de densidade", () => {
     expect(globals).toMatch(
       /\.cc-workspace > \.ds-tabs-wrap > \.ds-tabpanel\s*\{\s*padding-top: var\(--s5\);/,
     );
-    expect(bodyFor(".cell-card:hover", "background: var(--surface-2)")).not.toContain(
-      "box-shadow",
-    );
+    expect(bodyFor(".cell-card:hover", "background: var(--surface-2)")).not.toContain("box-shadow");
     expect(bodyFor(".slot.has-team:hover", "background: var(--selection-soft)")).not.toContain(
       "box-shadow",
     );
@@ -175,7 +169,10 @@ describe("Administração e operação — contexto antes de configuração", ()
   });
 
   it("preserva alvos de toque e opções responsivas nas telas administrativas", () => {
-    const mobileStart = globals.indexOf("@media (max-width: 860px)", globals.indexOf("Administração e operação"));
+    const mobileStart = globals.indexOf(
+      "@media (max-width: 860px)",
+      globals.indexOf("Administração e operação"),
+    );
     const rules = globals.slice(mobileStart, globals.indexOf("GATE 7.2", mobileStart));
     expect(rules).toContain(".admin-screen .btn");
     expect(rules).toContain("min-height: 44px");
@@ -185,8 +182,14 @@ describe("Administração e operação — contexto antes de configuração", ()
 });
 
 describe("Estados de borda — informação antes de frustração", () => {
-  const locked = readFileSync(join(__dirname, "../components/consolidacao/LockedScreen.tsx"), "utf8");
-  const denied = readFileSync(join(__dirname, "../components/consolidacao/AccessDenied.tsx"), "utf8");
+  const locked = readFileSync(
+    join(__dirname, "../components/consolidacao/LockedScreen.tsx"),
+    "utf8",
+  );
+  const denied = readFileSync(
+    join(__dirname, "../components/consolidacao/AccessDenied.tsx"),
+    "utf8",
+  );
   const central = readFileSync(
     join(__dirname, "../components/central-celula/CentralCelulaScreen.tsx"),
     "utf8",
@@ -214,9 +217,7 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
   it("mantém a fila em uma superfície única e leva o contexto para depois", () => {
     expect(bodyFor(".dh-grid", "display: block")).toContain("display: block");
     expect(bodyFor(".dh-workboard")).toContain("background: var(--surface-raised)");
-    expect(bodyFor(".dh-support", "margin-top: var(--s5)")).toContain(
-      "margin-top: var(--s5)",
-    );
+    expect(bodyFor(".dh-support", "margin-top: var(--s5)")).toContain("margin-top: var(--s5)");
     expect(dashboard).not.toContain('className="dh-side"');
     expect(dashboard.indexOf('className="dh-main dh-workboard"')).toBeLessThan(
       dashboard.indexOf('className="dh-support"'),
@@ -224,12 +225,8 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
   });
 
   it("eleva ações e filtros desktop ao alvo interno de 40px", () => {
-    expect(bodyFor(".dh-filter-btn", "min-height: 40px")).toContain(
-      "min-height: 40px",
-    );
-    expect(bodyFor(".dh-item-actions .ds-btn", "min-height: 40px")).toContain(
-      "min-height: 40px",
-    );
+    expect(bodyFor(".dh-filter-btn", "min-height: 40px")).toContain("min-height: 40px");
+    expect(bodyFor(".dh-item-actions .ds-btn", "min-height: 40px")).toContain("min-height: 40px");
   });
 
   // Composição/tipografia v3 são medidas no navegador (ux-clarity/ux-motion).
@@ -237,10 +234,7 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
 
   it("reorganiza o farol e as ações antes de comprimir a fila no tablet", () => {
     const dashboardResponsiveStart = globals.indexOf(".dh-team-workload .dh-person-row");
-    const tabletStart = globals.indexOf(
-      "@media (max-width: 1100px)",
-      dashboardResponsiveStart,
-    );
+    const tabletStart = globals.indexOf("@media (max-width: 1100px)", dashboardResponsiveStart);
     const mobileStart = globals.indexOf("@media (max-width: 860px)", tabletStart);
     const tabletRules = globals.slice(tabletStart, mobileStart);
 
@@ -254,10 +248,7 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
 
   it("mantém todos os controles do Dashboard com ao menos 44px no tablet", () => {
     const dashboardResponsiveStart = globals.indexOf(".dh-team-workload .dh-person-row");
-    const tabletStart = globals.indexOf(
-      "@media (max-width: 860px)",
-      dashboardResponsiveStart,
-    );
+    const tabletStart = globals.indexOf("@media (max-width: 860px)", dashboardResponsiveStart);
     const mobileStart = globals.indexOf("@media (max-width: 560px)", tabletStart);
     const tabletRules = globals.slice(tabletStart, mobileStart);
 
@@ -268,9 +259,7 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
   });
 
   it("usa caminho G12 explícito e skeleton estático dentro do dashboard", () => {
-    expect(bodyFor(".dh-journey-track")).toContain(
-      "grid-template-columns: repeat(4",
-    );
+    expect(bodyFor(".dh-journey-track")).toContain("grid-template-columns: repeat(4");
     expect(bodyFor(".dh .sk-line", "background-color")).toContain(
       "background-color: var(--surface-panel)",
     );
@@ -308,7 +297,12 @@ describe("polimento transversal — leitura antes de efeito", () => {
     expect(globals).not.toContain(".login-card::before");
     expect(bodyFor(".notice-item")).toContain("border-left: 1px solid var(--border)");
 
-    for (const selector of [".conv.active", ".req-row.active", ".cc-cell-row--active", ".ib .conv.active"]) {
+    for (const selector of [
+      ".conv.active",
+      ".req-row.active",
+      ".cc-cell-row--active",
+      ".ib .conv.active",
+    ]) {
       const body = bodyFor(selector, "outline: 2px solid var(--selection-strong)");
       expect(body).not.toContain("box-shadow");
     }

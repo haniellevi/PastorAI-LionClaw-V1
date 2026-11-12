@@ -32,7 +32,13 @@ export interface EditContactModalProps {
   onSubmit: (input: UpdateContactInput) => void;
 }
 
-export function EditContactModal({ contact, busy, error, onClose, onSubmit }: EditContactModalProps) {
+export function EditContactModal({
+  contact,
+  busy,
+  error,
+  onClose,
+  onSubmit,
+}: EditContactModalProps) {
   const [nome, setNome] = useState(contact.nome);
   const [telefone, setTelefone] = useState(contact.telefone);
   const [email, setEmail] = useState(contact.email ?? "");
@@ -44,7 +50,14 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
   const [csimMotivo, setCsimMotivo] = useState(contact.semInteresseMotivo ?? "");
   const [touched, setTouched] = useState(false);
   const [discardRequested, setDiscardRequested] = useState(false);
-  const dirty = nome !== contact.nome || telefone !== contact.telefone || email !== (contact.email ?? "") || genero !== (contact.genero === "m" || contact.genero === "f" ? contact.genero : "") || tipo !== (contact.tipo ?? "") || semInteresse !== contact.semInteresse || csimMotivo !== (contact.semInteresseMotivo ?? "");
+  const dirty =
+    nome !== contact.nome ||
+    telefone !== contact.telefone ||
+    email !== (contact.email ?? "") ||
+    genero !== (contact.genero === "m" || contact.genero === "f" ? contact.genero : "") ||
+    tipo !== (contact.tipo ?? "") ||
+    semInteresse !== contact.semInteresse ||
+    csimMotivo !== (contact.semInteresseMotivo ?? "");
   const requestClose = () => {
     if (busy) return;
     if (dirty) setDiscardRequested(true);
@@ -85,119 +98,130 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
     // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
     // primitive); fechar bloqueado enquanto salva. O foco inicial vai para o
     // campo Nome via [data-autofocus].
-    <DsDialog
-      className="people-ux-dialog"
-      open
-      onClose={requestClose}
-      title="Editar pessoa"
-    >
-        <form
-          className="modal-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          {error ? (
-            <div className="error-banner" role="alert">
-              <span>{error}</span>
-            </div>
-          ) : null}
-
-          <Field
-            label="Nome"
-            value={nome}
-            onChange={(e) => setNome(e.target.value)}
-            error={nomeError}
-            data-autofocus=""
-          />
-          <Field
-            label="Telefone"
-            value={telefone}
-            onChange={(e) => setTelefone(e.target.value)}
-            error={telError}
-            inputMode="tel"
-            helper="Mudar o telefone re-verifica duplicidade na igreja."
-          />
-          <Field
-            label="E-mail"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="opcional"
-          />
-
-          <div className="row">
-            <div className="field">
-              <label htmlFor="ec-genero">Gênero</label>
-              <select
-                id="ec-genero"
-                value={genero}
-                onChange={(e) => setGenero(e.target.value as "" | "m" | "f")}
-              >
-                <option value="">Não informar</option>
-                <option value="f">Feminino</option>
-                <option value="m">Masculino</option>
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="ec-tipo">Tipo</label>
-              <select
-                id="ec-tipo"
-                value={semInteresse ? "csim" : tipo}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  // "csim" é um valor virtual do select: liga o flag
-                  // sem_interesse e mantém o tipo real por baixo.
-                  if (v === "csim") {
-                    setSemInteresse(true);
-                  } else {
-                    setSemInteresse(false);
-                    setTipo(v);
-                  }
-                }}
-              >
-                <option value="">—</option>
-                {TIPOS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-                <option value="csim">Fora da igreja</option>
-              </select>
-            </div>
+    <DsDialog className="people-ux-dialog" open onClose={requestClose} title="Editar pessoa">
+      <form
+        className="modal-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        {error ? (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
           </div>
+        ) : null}
 
-          {semInteresse ? (
-            <Field
-              label="Motivo (Fora da igreja)"
-              value={csimMotivo}
-              onChange={(e) => setCsimMotivo(e.target.value)}
-              placeholder="ex.: empresa, outra cidade"
-            />
-          ) : null}
+        <Field
+          label="Nome"
+          value={nome}
+          onChange={(e) => setNome(e.target.value)}
+          error={nomeError}
+          data-autofocus=""
+        />
+        <Field
+          label="Telefone"
+          value={telefone}
+          onChange={(e) => setTelefone(e.target.value)}
+          error={telError}
+          inputMode="tel"
+          helper="Mudar o telefone re-verifica duplicidade na igreja."
+        />
+        <Field
+          label="E-mail"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="opcional"
+        />
 
-          <p>A aptidão à liderança é decidida pela coordenação no painel de avaliação do cadastro.</p>
-
-          <div className="modal-foot" hidden={discardRequested}>
-            <DsButton variant="secondary" onClick={requestClose} disabled={busy}>
-              Cancelar
-            </DsButton>
-            <DsButton type="submit" disabled={discardRequested} loading={busy}>
-              {busy ? "Salvando…" : "Salvar alterações"}
-            </DsButton>
+        <div className="row">
+          <div className="field">
+            <label htmlFor="ec-genero">Gênero</label>
+            <select
+              id="ec-genero"
+              value={genero}
+              onChange={(e) => setGenero(e.target.value as "" | "m" | "f")}
+            >
+              <option value="">Não informar</option>
+              <option value="f">Feminino</option>
+              <option value="m">Masculino</option>
+            </select>
           </div>
+          <div className="field">
+            <label htmlFor="ec-tipo">Tipo</label>
+            <select
+              id="ec-tipo"
+              value={semInteresse ? "csim" : tipo}
+              onChange={(e) => {
+                const v = e.target.value;
+                // "csim" é um valor virtual do select: liga o flag
+                // sem_interesse e mantém o tipo real por baixo.
+                if (v === "csim") {
+                  setSemInteresse(true);
+                } else {
+                  setSemInteresse(false);
+                  setTipo(v);
+                }
+              }}
+            >
+              <option value="">—</option>
+              {TIPOS.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+              <option value="csim">Fora da igreja</option>
+            </select>
+          </div>
+        </div>
+
+        {semInteresse ? (
+          <Field
+            label="Motivo (Fora da igreja)"
+            value={csimMotivo}
+            onChange={(e) => setCsimMotivo(e.target.value)}
+            placeholder="ex.: empresa, outra cidade"
+          />
+        ) : null}
+
+        <p>A aptidão à liderança é decidida pela coordenação no painel de avaliação do cadastro.</p>
+
+        <div className="modal-foot" hidden={discardRequested}>
+          <DsButton variant="secondary" onClick={requestClose} disabled={busy}>
+            Cancelar
+          </DsButton>
+          <DsButton type="submit" disabled={discardRequested} loading={busy}>
+            {busy ? "Salvando…" : "Salvar alterações"}
+          </DsButton>
+        </div>
         {discardRequested ? (
           <div className="people-discard-note" role="alert">
             <strong>Descartar alterações não salvas?</strong>
             <p>O preenchimento será perdido se você fechar agora.</p>
             <div className="people-discard-actions">
-              <DsButton variant="secondary" disabled={busy} onClick={() => { if (!busy) setDiscardRequested(false); }}>Continuar editando</DsButton>
-              <DsButton variant="danger" disabled={busy} onClick={() => { if (!busy) onClose(); }}>Descartar alterações</DsButton>
+              <DsButton
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  if (!busy) setDiscardRequested(false);
+                }}
+              >
+                Continuar editando
+              </DsButton>
+              <DsButton
+                variant="danger"
+                disabled={busy}
+                onClick={() => {
+                  if (!busy) onClose();
+                }}
+              >
+                Descartar alterações
+              </DsButton>
             </div>
           </div>
         ) : null}
-        </form>
+      </form>
     </DsDialog>
   );
 }

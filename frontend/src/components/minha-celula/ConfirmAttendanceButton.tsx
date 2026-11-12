@@ -11,11 +11,7 @@ import { useState } from "react";
 import { DsButton } from "@/components/ds/Button";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
-import {
-  confirmAttendance,
-  revertAttendance,
-  MeetingConflictError,
-} from "@/lib/cell-meetings-api";
+import { confirmAttendance, revertAttendance, MeetingConflictError } from "@/lib/cell-meetings-api";
 import type { FlashToast } from "./types";
 
 export function ConfirmAttendanceButton({

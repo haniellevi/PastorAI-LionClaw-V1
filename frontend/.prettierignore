@@ -1,0 +1,8 @@
+# O Prettier já ignora o que está no .gitignore e em node_modules.
+
+# Lockfile gerado pelo npm.
+package-lock.json
+
+# Contrato e tipos gerados do backend (PR #652): mantêm o formato do gerador.
+openapi.json
+src/lib/api-schema.gen.ts

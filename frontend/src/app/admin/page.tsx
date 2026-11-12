@@ -15,10 +15,7 @@ const AdminConsole = dynamic(
   { loading: PageLoading },
 );
 const AdminLoginScreen = dynamic(
-  () =>
-    import("@/components/admin/AdminLoginScreen").then(
-      (module) => module.AdminLoginScreen,
-    ),
+  () => import("@/components/admin/AdminLoginScreen").then((module) => module.AdminLoginScreen),
   { loading: PageLoading },
 );
 

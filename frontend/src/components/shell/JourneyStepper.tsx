@@ -17,12 +17,7 @@ import { useRef } from "react";
 
 import { useTabStrip } from "@/components/ds/useTabStrip";
 import { useAuth } from "@/lib/auth-context";
-import {
-  STAGE_ACCENT,
-  journeyStageOf,
-  journeyStages,
-  type NavStage,
-} from "@/lib/navigation";
+import { STAGE_ACCENT, journeyStageOf, journeyStages, type NavStage } from "@/lib/navigation";
 import { usePermissions } from "@/lib/permissions-context";
 import { useHashRoute } from "@/lib/use-hash-route";
 

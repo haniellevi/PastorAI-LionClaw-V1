@@ -183,13 +183,16 @@ def register(
         raise HTTPException(403, "Pedido não autorizado")
     if has_audio(db, proposal) and proposal.audience != "pastoral":
         raise HTTPException(403, "Áudio de oração é restrito aos pastores")
+    conversation = db.get(Conversation, contact.conversation_id)
+    if conversation is None:
+        raise HTTPException(403, "Pedido não autorizado")
     fresh = resolve_contact(
         db,
         igreja_id=contact.igreja_id,
         conversation_id=contact.conversation_id,
         inbound_message_id=confirmation.id,
         provider_id=confirmation.provider_message_id,
-        phone=db.get(Conversation, contact.conversation_id).telefone,
+        phone=conversation.telefone,
     )
     if (
         fresh != contact
@@ -199,7 +202,7 @@ def register(
         or proposal.term_version != contact.term_version
     ):
         raise HTTPException(403, "Pedido não autorizado")
-    if confirmation.texto.strip().casefold() != "sim":
+    if (confirmation.texto or "").strip().casefold() != "sim":
         raise HTTPException(403, "Confirmação explícita obrigatória")
     delivered = db.execute(
         select(Message).where(
@@ -213,6 +216,7 @@ def register(
     ).scalar_one_or_none()
     if (
         delivered is None
+        or proposal.authorization_text is None
         or delivered.texto != proposal.authorization_text
         or proposal.delivered_at is None
         or confirmation.criado_em <= proposal.delivered_at

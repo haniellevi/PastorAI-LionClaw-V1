@@ -3,18 +3,40 @@
   flex-direction: column;
   gap: var(--s4);
 }
-.uv-screen > *, .uv-detail > * { min-width: 0; }
-.uv-screen .card { padding: var(--s4); }
-.uv-screen h1, .uv-screen h2, .uv-screen h3 { text-wrap: balance; }
-.uv-screen p { text-wrap: pretty; }
-.uv-screen form, .uv-detail { display: grid; gap: var(--s4); }
-.uv-screen label { display: grid; gap: var(--s2); }
-.uv-screen input:not([type="checkbox"]), .uv-screen select {
+.uv-screen > *,
+.uv-detail > * {
+  min-width: 0;
+}
+.uv-screen .card {
+  padding: var(--s4);
+}
+.uv-screen h1,
+.uv-screen h2,
+.uv-screen h3 {
+  text-wrap: balance;
+}
+.uv-screen p {
+  text-wrap: pretty;
+}
+.uv-screen form,
+.uv-detail {
+  display: grid;
+  gap: var(--s4);
+}
+.uv-screen label {
+  display: grid;
+  gap: var(--s2);
+}
+.uv-screen input:not([type="checkbox"]),
+.uv-screen select {
   width: 100%;
   min-height: 44px;
   box-sizing: border-box;
 }
-.uv-screen input[type="checkbox"] { width: 20px; height: 20px; }
+.uv-screen input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+}
 .uv-screen fieldset {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
@@ -24,15 +46,41 @@
   margin: 0;
   min-width: 0;
 }
-.uv-screen legend { margin-bottom: var(--s3); }
-.uv-screen fieldset .btn, .uv-screen fieldset .ds-btn { align-self: end; }
-.uv-screen nav { display: flex; flex-wrap: wrap; gap: var(--s2); }
-.uv-screen .btn, .uv-screen .ds-btn { min-height: 44px; white-space: normal; }
+.uv-screen legend {
+  margin-bottom: var(--s3);
+}
+.uv-screen fieldset .btn,
+.uv-screen fieldset .ds-btn {
+  align-self: end;
+}
+.uv-screen nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.uv-screen .btn,
+.uv-screen .ds-btn {
+  min-height: 44px;
+  white-space: normal;
+}
 /* A base .ds-btn não tem padding vertical; o rótulo aqui pode quebrar em várias linhas. */
-.uv-screen .ds-btn { padding-block: var(--s2); }
-.uv-screen ul { overflow-wrap: anywhere; }
-.uv-screen input[type="date"] { font-variant-numeric: tabular-nums; }
+.uv-screen .ds-btn {
+  padding-block: var(--s2);
+}
+.uv-screen ul {
+  overflow-wrap: anywhere;
+}
+.uv-screen input[type="date"] {
+  font-variant-numeric: tabular-nums;
+}
 
-.uv-student { border-top: 1px solid var(--border, #ddd); padding-block: 1rem; }
-.uv-student h4 { margin-block: 0 0.5rem; }
-.uv-student li { overflow-wrap: anywhere; }
+.uv-student {
+  border-top: 1px solid var(--border, #ddd);
+  padding-block: 1rem;
+}
+.uv-student h4 {
+  margin-block: 0 0.5rem;
+}
+.uv-student li {
+  overflow-wrap: anywhere;
+}

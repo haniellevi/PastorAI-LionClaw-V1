@@ -57,12 +57,7 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
   return (
     // Fechar bloqueado enquanto salva (Esc/backdrop/botão do DsDialog); o foco
     // inicial vai para o campo Nome via [data-autofocus].
-    <DsDialog
-      className="people-ux-dialog"
-      open
-      onClose={requestClose}
-      title="Novo contato"
-    >
+    <DsDialog className="people-ux-dialog" open onClose={requestClose} title="Novo contato">
       <form
         className="modal-form"
         onSubmit={(e) => {
@@ -141,8 +136,24 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
             <strong>Descartar alterações não salvas?</strong>
             <p>O preenchimento será perdido se você fechar agora.</p>
             <div className="people-discard-actions">
-              <DsButton variant="secondary" disabled={busy} onClick={() => { if (!busy) setDiscardRequested(false); }}>Continuar editando</DsButton>
-              <DsButton variant="danger" disabled={busy} onClick={() => { if (!busy) onClose(); }}>Descartar alterações</DsButton>
+              <DsButton
+                variant="secondary"
+                disabled={busy}
+                onClick={() => {
+                  if (!busy) setDiscardRequested(false);
+                }}
+              >
+                Continuar editando
+              </DsButton>
+              <DsButton
+                variant="danger"
+                disabled={busy}
+                onClick={() => {
+                  if (!busy) onClose();
+                }}
+              >
+                Descartar alterações
+              </DsButton>
             </div>
           </div>
         ) : null}

@@ -88,9 +88,7 @@ const EMPTY_FORM: DraftForm = {
 };
 
 function toForm(payload: ConsentGovernanceDecisionPayload): DraftForm {
-  return Object.fromEntries(
-    DRAFT_FIELDS.map(({ key }) => [key, payload[key] ?? ""]),
-  ) as DraftForm;
+  return Object.fromEntries(DRAFT_FIELDS.map(({ key }) => [key, payload[key] ?? ""])) as DraftForm;
 }
 
 function toPayload(form: DraftForm): ConsentGovernanceDecisionPayload {
@@ -115,8 +113,7 @@ function findPurpose(
 }
 
 function completedFields(draft: AdminConsentGovernancePurposeDraft): number {
-  return DRAFT_FIELDS.filter(({ key }) => Boolean(draft.decisionPayload[key]?.trim()))
-    .length;
+  return DRAFT_FIELDS.filter(({ key }) => Boolean(draft.decisionPayload[key]?.trim())).length;
 }
 
 export interface ConsentGovernanceDraftTabProps {
@@ -139,16 +136,13 @@ export function ConsentGovernanceDraftTab({
   onStateChange,
 }: ConsentGovernanceDraftTabProps) {
   const [state, setState] = useState(initialState);
-  const [selectedPurpose, setSelectedPurpose] =
-    useState<ConsentGovernancePurpose | null>(null);
+  const [selectedPurpose, setSelectedPurpose] = useState<ConsentGovernancePurpose | null>(null);
   const [form, setForm] = useState<DraftForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const selectedDraft = selectedPurpose
-    ? findPurpose(state, selectedPurpose)
-    : undefined;
+  const selectedDraft = selectedPurpose ? findPurpose(state, selectedPurpose) : undefined;
   const totalLength = useMemo(
     () => DRAFT_FIELDS.reduce((total, { key }) => total + form[key].length, 0),
     [form],
@@ -227,10 +221,7 @@ export function ConsentGovernanceDraftTab({
   const openEditor = (purpose: ConsentGovernancePurpose) => {
     const draft = findPurpose(state, purpose);
     if (!draft) return;
-    if (
-      dirty &&
-      !window.confirm("Descartar as alterações não salvas deste rascunho?")
-    ) {
+    if (dirty && !window.confirm("Descartar as alterações não salvas deste rascunho?")) {
       return;
     }
     setSelectedPurpose(purpose);
@@ -251,15 +242,10 @@ export function ConsentGovernanceDraftTab({
     setError(null);
     setNotice(null);
     try {
-      const next = await updateIgrejaConsentGovernancePurpose(
-        token,
-        igrejaId,
-        selectedPurpose,
-        {
-          expectedRevision: selectedDraft.revision,
-          decisionPayload: toPayload(form),
-        },
-      );
+      const next = await updateIgrejaConsentGovernancePurpose(token, igrejaId, selectedPurpose, {
+        expectedRevision: selectedDraft.revision,
+        decisionPayload: toPayload(form),
+      });
       applyState(next);
       const savedDraft = findPurpose(next, selectedPurpose);
       if (savedDraft) setForm(toForm(savedDraft.decisionPayload));
@@ -295,12 +281,12 @@ export function ConsentGovernanceDraftTab({
           Rascunho, não aprovado
         </h2>
         <p className="sub" style={{ margin: "var(--s1) 0 0", color: "var(--muted)" }}>
-          O Master prepara fatos e propostas operacionais. Este espaço não registra
-          aprovação da igreja, não publica conteúdo e não libera o agente.
+          O Master prepara fatos e propostas operacionais. Este espaço não registra aprovação da
+          igreja, não publica conteúdo e não libera o agente.
         </p>
         <p className="sub" style={{ margin: "var(--s2) 0 0", color: "var(--danger)" }}>
-          <strong>Não inclua dados pessoais:</strong> nomes, telefones, e-mails,
-          documentos, mensagens, relatos ou qualquer dado de uma pessoa real.
+          <strong>Não inclua dados pessoais:</strong> nomes, telefones, e-mails, documentos,
+          mensagens, relatos ou qualquer dado de uma pessoa real.
         </p>
       </div>
 
@@ -327,22 +313,16 @@ export function ConsentGovernanceDraftTab({
         <div className="card card-pad">
           <h3 className="ds-mt-0">Preparar a governança desta igreja</h3>
           <p className="sub ds-muted">
-            A inicialização cria quatro rascunhos vazios e separados por finalidade.
-            Nenhum deles terá autoridade operacional.
+            A inicialização cria quatro rascunhos vazios e separados por finalidade. Nenhum deles
+            terá autoridade operacional.
           </p>
-          <DsButton
-            loading={busy}
-            onClick={() => void initialize()}
-          >
+          <DsButton loading={busy} onClick={() => void initialize()}>
             {busy ? "Iniciando…" : "Iniciar quatro rascunhos"}
           </DsButton>
         </div>
       ) : (
         <>
-          <div
-            aria-label="Finalidades em preparação"
-            className="governance-purposes"
-          >
+          <div aria-label="Finalidades em preparação" className="governance-purposes">
             {CONSENT_GOVERNANCE_PURPOSES.map((purpose) => {
               const draft = findPurpose(state, purpose);
               return (
@@ -390,8 +370,8 @@ export function ConsentGovernanceDraftTab({
                   {selectedDraft.purposeLabel || PURPOSE_LABELS[selectedPurpose]}
                 </h3>
                 <p className="sub" style={{ margin: "var(--s1) 0 0", color: "var(--muted)" }}>
-                  Registre fatos observáveis e propostas operacionais. Deixe decisões
-                  jurídicas ou aprovações para as etapas humanas próprias.
+                  Registre fatos observáveis e propostas operacionais. Deixe decisões jurídicas ou
+                  aprovações para as etapas humanas próprias.
                 </p>
               </div>
 

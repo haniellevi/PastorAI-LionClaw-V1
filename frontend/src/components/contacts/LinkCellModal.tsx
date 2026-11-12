@@ -36,7 +36,11 @@ export function LinkCellModal({
 }) {
   const [selected, setSelected] = useState<CellLookup | null>(null);
   const title = "Conectar à célula";
-  const loadPage = useCallback((q: string, page: number, signal: AbortSignal) => fetchCellLookupPage(token!, {q,page,signal}), [token]);
+  const loadPage = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      fetchCellLookupPage(token!, { q, page, signal }),
+    [token],
+  );
 
   // Fechar bloqueado durante o vínculo (Esc/backdrop/botão do DsDialog); as
   // linhas do seletor já ficam desabilitadas com busy.
@@ -58,37 +62,68 @@ export function LinkCellModal({
         </div>
       ) : null}
 
-      {token ? <PaginatedLookup<CellLookup> loadPage={loadPage} selected={selected} onSelect={cell => { if (!busy) setSelected(cell); }} label="Buscar célula" inputId="link-cell-search" getLabel={cell => cell.nome} getDescription={cell => !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => !cell.ativo || !cell.liderId} disabled={busy} onSessionExpired={onSessionExpired} /> : <div className="picker">
-        {cells.length === 0 ? (
-          <p className="sub">Nenhuma célula cadastrada.</p>
-        ) : (
-          cells.map((c) => {
-            const blocked = !c.ativo || !c.liderId;
-            const reason = !c.ativo ? "Inativa" : !c.liderId ? "Sem líder" : null;
-            return (
-              <button
-                type="button"
-                key={c.id}
-                className="picker-row"
-                disabled={blocked || busy}
-                aria-disabled={blocked || undefined}
-                title={blocked ? `Indisponível · ${reason}` : undefined}
-                aria-pressed={selected?.id === c.id}
-                onClick={() => !blocked && setSelected(c as CellLookup)}
-              >
-                <span className="nm">{c.nome}</span>
-                {blocked ? (
-                  <span className="pill muted">{reason}</span>
-                ) : (
-                  <span className="sub">Ativa · com líder</span>
-                )}
-              </button>
-            );
-          })
-        )}
-      </div>}
-      {selected ? <div role="status"><p>Célula selecionada: {selected.nome}</p><p>Ao confirmar, o acompanhamento será marcado como consolidado.</p></div> : null}
-      <DsButton disabled={busy || !selected} onClick={() => { if (selected && !busy) onLink(selected.id); }}>Confirmar vínculo</DsButton>
+      {token ? (
+        <PaginatedLookup<CellLookup>
+          loadPage={loadPage}
+          selected={selected}
+          onSelect={(cell) => {
+            if (!busy) setSelected(cell);
+          }}
+          label="Buscar célula"
+          inputId="link-cell-search"
+          getLabel={(cell) => cell.nome}
+          getDescription={(cell) =>
+            !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"
+          }
+          isDisabled={(cell) => !cell.ativo || !cell.liderId}
+          disabled={busy}
+          onSessionExpired={onSessionExpired}
+        />
+      ) : (
+        <div className="picker">
+          {cells.length === 0 ? (
+            <p className="sub">Nenhuma célula cadastrada.</p>
+          ) : (
+            cells.map((c) => {
+              const blocked = !c.ativo || !c.liderId;
+              const reason = !c.ativo ? "Inativa" : !c.liderId ? "Sem líder" : null;
+              return (
+                <button
+                  type="button"
+                  key={c.id}
+                  className="picker-row"
+                  disabled={blocked || busy}
+                  aria-disabled={blocked || undefined}
+                  title={blocked ? `Indisponível · ${reason}` : undefined}
+                  aria-pressed={selected?.id === c.id}
+                  onClick={() => !blocked && setSelected(c as CellLookup)}
+                >
+                  <span className="nm">{c.nome}</span>
+                  {blocked ? (
+                    <span className="pill muted">{reason}</span>
+                  ) : (
+                    <span className="sub">Ativa · com líder</span>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+      {selected ? (
+        <div role="status">
+          <p>Célula selecionada: {selected.nome}</p>
+          <p>Ao confirmar, o acompanhamento será marcado como consolidado.</p>
+        </div>
+      ) : null}
+      <DsButton
+        disabled={busy || !selected}
+        onClick={() => {
+          if (selected && !busy) onLink(selected.id);
+        }}
+      >
+        Confirmar vínculo
+      </DsButton>
     </DsDialog>
   );
 }

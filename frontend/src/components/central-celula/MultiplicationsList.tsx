@@ -13,10 +13,7 @@ import { DsEmptyState } from "@/components/ds/EmptyState";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
-import {
-  getMultiplicacoesList,
-  type MultiplicacoesListOut,
-} from "@/lib/multiplicacoes-api";
+import { getMultiplicacoesList, type MultiplicacoesListOut } from "@/lib/multiplicacoes-api";
 import { formatLongDate, formatPublishedAt } from "@/components/minha-celula/format";
 
 const EMPTY: MultiplicacoesListOut = { pendentes: [], registradas: [] };
@@ -36,7 +33,9 @@ export function MultiplicationsList({ token }: { token: string }) {
         setData(res);
         setLoaded(true);
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar as multiplicações.");
+        setError(
+          err instanceof ApiError ? err.message : "Não foi possível carregar as multiplicações.",
+        );
       } finally {
         setLoading(false);
       }

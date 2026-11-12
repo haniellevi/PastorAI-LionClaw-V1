@@ -7,7 +7,9 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
-  fetchChurchCadastroCapability, getChurchCadastro, saveChurchCadastro,
+  fetchChurchCadastroCapability,
+  getChurchCadastro,
+  saveChurchCadastro,
   type ChurchCadastro,
 } from "@/lib/church-cadastro-api";
 import { isAdmin } from "@/lib/roles";
@@ -74,12 +76,16 @@ export function CadastroIgrejaScreen() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!scoped || !allowed || !supported || loading || saving || !token || saveRequest.current) return;
+    if (!scoped || !allowed || !supported || loading || saving || !token || saveRequest.current)
+      return;
     const payload: ChurchCadastro = {
       enderecoInstitucional: optional(facts.enderecoInstitucional ?? ""),
       horariosCulto: optional(facts.horariosCulto ?? ""),
     };
-    if ((payload.enderecoInstitucional?.length ?? 0) > 400 || (payload.horariosCulto?.length ?? 0) > 400) {
+    if (
+      (payload.enderecoInstitucional?.length ?? 0) > 400 ||
+      (payload.horariosCulto?.length ?? 0) > 400
+    ) {
       setError("Cada campo aceita até 400 caracteres.");
       return;
     }
@@ -107,37 +113,61 @@ export function CadastroIgrejaScreen() {
 
   return (
     <div className="screen admin-screen administration-ux" key="cadastro-igreja">
-      <div className="screen-head"><div className="titles">
-        <h2>Cadastro da igreja</h2>
-        <p>Informe o endereço institucional e os horários dos cultos para consultas públicas.</p>
-      </div></div>
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Cadastro da igreja</h2>
+          <p>Informe o endereço institucional e os horários dos cultos para consultas públicas.</p>
+        </div>
+      </div>
       {!allowed ? <p role="alert">Somente administradores podem editar este cadastro.</p> : null}
       {allowed && (!scoped || loading) ? <p role="status">Carregando cadastro…</p> : null}
       {allowed && scoped && !loading && !supported ? (
         <div className="card card-pad">
           <p role="status">Cadastro indisponível nesta versão do servidor.</p>
           {error ? <p role="alert">{error}</p> : null}
-          <DsButton variant="secondary" onClick={() => setReload((value) => value + 1)}>Tentar novamente</DsButton>
+          <DsButton variant="secondary" onClick={() => setReload((value) => value + 1)}>
+            Tentar novamente
+          </DsButton>
         </div>
       ) : null}
       {allowed && scoped && supported && !loading ? (
-        <form className="card card-pad" onSubmit={(event) => { void submit(event); }}>
+        <form
+          className="card card-pad"
+          onSubmit={(event) => {
+            void submit(event);
+          }}
+        >
           <div className="panel-title">Informações institucionais</div>
           <div className="field">
             <label htmlFor="cadastroEndereco">Endereço institucional</label>
-            <input id="cadastroEndereco" maxLength={400}
+            <input
+              id="cadastroEndereco"
+              maxLength={400}
               value={facts.enderecoInstitucional ?? ""}
-              onChange={(event) => { setFacts((current) => ({ ...current, enderecoInstitucional: event.target.value })); setSuccess(false); }} />
+              onChange={(event) => {
+                setFacts((current) => ({ ...current, enderecoInstitucional: event.target.value }));
+                setSuccess(false);
+              }}
+            />
           </div>
           <div className="field">
             <label htmlFor="cadastroHorarios">Horários dos cultos</label>
-            <textarea id="cadastroHorarios" rows={2} maxLength={400}
+            <textarea
+              id="cadastroHorarios"
+              rows={2}
+              maxLength={400}
               value={facts.horariosCulto ?? ""}
-              onChange={(event) => { setFacts((current) => ({ ...current, horariosCulto: event.target.value })); setSuccess(false); }} />
+              onChange={(event) => {
+                setFacts((current) => ({ ...current, horariosCulto: event.target.value }));
+                setSuccess(false);
+              }}
+            />
           </div>
           {error ? <p role="alert">{error}</p> : null}
           {success ? <p role="status">Cadastro salvo.</p> : null}
-          <DsButton type="submit" loading={saving}>{saving ? "Salvando…" : "Salvar cadastro"}</DsButton>
+          <DsButton type="submit" loading={saving}>
+            {saving ? "Salvando…" : "Salvar cadastro"}
+          </DsButton>
         </form>
       ) : null}
     </div>

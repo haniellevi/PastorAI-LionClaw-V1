@@ -95,8 +95,8 @@ async function renderConfirmarTab(items: EventItem[]) {
     root.render(h(CalendarioScreen, {}));
   });
 
-  const tab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find(
-    (b) => b.textContent?.startsWith("A confirmar"),
+  const tab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((b) =>
+    b.textContent?.startsWith("A confirmar"),
   );
   expect(tab).not.toBeUndefined();
 

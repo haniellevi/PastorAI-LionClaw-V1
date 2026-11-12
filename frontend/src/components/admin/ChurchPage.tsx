@@ -112,8 +112,7 @@ export function ChurchPage({
   const [detail, setDetail] = useState<AdminIgrejaDetail | null>(null);
   const [admins, setAdmins] = useState<AdminIgrejaAdmin[] | null>(null);
   const [agente, setAgente] = useState<AdminAgente | null>(null);
-  const [governanceLoad, setGovernanceLoad] =
-    useState<GovernanceLoadState>({ kind: "loading" });
+  const [governanceLoad, setGovernanceLoad] = useState<GovernanceLoadState>({ kind: "loading" });
   const governanceRequestSequence = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -134,7 +133,9 @@ export function ChurchPage({
     setError(null);
     try {
       // Agent status enriches the overview, but never holds its primary detail.
-      void fetchIgrejaAgente(token, igreja.id).then(setAgente).catch(err => handleErr(err, "Não foi possível carregar o agente."));
+      void fetchIgrejaAgente(token, igreja.id)
+        .then(setAgente)
+        .catch((err) => handleErr(err, "Não foi possível carregar o agente."));
       const d = await fetchIgrejaDetail(token, igreja.id);
       setDetail(d);
     } catch (err) {
@@ -175,8 +176,7 @@ export function ChurchPage({
     };
   }, [loadGovernance]);
 
-  const governance =
-    governanceLoad.kind === "enabled" ? governanceLoad.state : null;
+  const governance = governanceLoad.kind === "enabled" ? governanceLoad.state : null;
 
   useEffect(() => {
     if (tab === "governanca" && !governance?.enabled) setTab("dashboard");
@@ -185,8 +185,19 @@ export function ChurchPage({
   useEffect(() => {
     if (tab !== "admins") return;
     let active = true;
-    void fetchIgrejaAdmins(token, igreja.id).then(value => { if (active) setAdmins(value); }).catch(err => { if (active) { const message = handleErr(err, "Não foi possível carregar os administradores."); if (message) setError(message); } });
-    return () => { active = false; };
+    void fetchIgrejaAdmins(token, igreja.id)
+      .then((value) => {
+        if (active) setAdmins(value);
+      })
+      .catch((err) => {
+        if (active) {
+          const message = handleErr(err, "Não foi possível carregar os administradores.");
+          if (message) setError(message);
+        }
+      });
+    return () => {
+      active = false;
+    };
   }, [tab, token, igreja.id, handleErr]);
 
   const reloadAdmins = useCallback(() => {
@@ -292,29 +303,19 @@ export function ChurchPage({
       ) : null}
 
       {governanceLoad.kind === "forbidden" || governanceLoad.kind === "error" ? (
-        <div
-          className="error-banner ds-mb-3 ds-wrap"
-          role="alert"
-        >
+        <div className="error-banner ds-mb-3 ds-wrap" role="alert">
           <span>
             {governanceLoad.kind === "forbidden"
               ? "Acesso à governança desta igreja foi negado."
               : "A governança está temporariamente indisponível."}
           </span>
-          <DsButton
-            variant="tertiary"
-            onClick={() => void loadGovernance()}
-          >
+          <DsButton variant="tertiary" onClick={() => void loadGovernance()}>
             Tentar novamente
           </DsButton>
         </div>
       ) : null}
 
-      <div
-        className="tabs ds-mb-4"
-        role="tablist"
-        aria-label="Seções da igreja"
-      >
+      <div className="tabs ds-mb-4" role="tablist" aria-label="Seções da igreja">
         {visibleTabs.map((t) => (
           <button
             key={t}
@@ -340,11 +341,7 @@ export function ChurchPage({
       </div>
 
       {tab === "dashboard" ? (
-        <div
-          id="church-panel-dashboard"
-          role="tabpanel"
-          aria-labelledby="church-tab-dashboard"
-        >
+        <div id="church-panel-dashboard" role="tabpanel" aria-labelledby="church-tab-dashboard">
           <DashboardTab
             igreja={igreja}
             detail={detail}
@@ -358,11 +355,7 @@ export function ChurchPage({
       ) : null}
 
       {tab === "agente" ? (
-        <div
-          id="church-panel-agente"
-          role="tabpanel"
-          aria-labelledby="church-tab-agente"
-        >
+        <div id="church-panel-agente" role="tabpanel" aria-labelledby="church-tab-agente">
           <AgenteTab
             token={token}
             igrejaId={igreja.id}
@@ -374,11 +367,7 @@ export function ChurchPage({
       ) : null}
 
       {tab === "admins" ? (
-        <div
-          id="church-panel-admins"
-          role="tabpanel"
-          aria-labelledby="church-tab-admins"
-        >
+        <div id="church-panel-admins" role="tabpanel" aria-labelledby="church-tab-admins">
           <AdminsTab
             token={token}
             igrejaId={igreja.id}
@@ -390,20 +379,14 @@ export function ChurchPage({
       ) : null}
 
       {tab === "governanca" && governance?.enabled ? (
-        <div
-          id="church-panel-governanca"
-          role="tabpanel"
-          aria-labelledby="church-tab-governanca"
-        >
+        <div id="church-panel-governanca" role="tabpanel" aria-labelledby="church-tab-governanca">
           <ConsentGovernanceDraftTab
             token={token}
             igrejaId={igreja.id}
             initialState={governance}
             onExpired={onExpired}
             onStateChange={(state) =>
-              setGovernanceLoad(
-                state.enabled ? { kind: "enabled", state } : { kind: "disabled" },
-              )
+              setGovernanceLoad(state.enabled ? { kind: "enabled", state } : { kind: "disabled" })
             }
           />
         </div>
@@ -427,9 +410,7 @@ export function ChurchPage({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="card ds-p-3">
-      <div className="sub ds-muted">
-        {label}
-      </div>
+      <div className="sub ds-muted">{label}</div>
       <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{value}</div>
     </div>
   );
@@ -469,14 +450,11 @@ function DashboardTab({
           label="Mensalidade"
           value={detail?.mensalidade != null ? brl(detail.mensalidade) : "—"}
         />
-        <Stat
-          label="Setup inicial"
-          value={detail ? brl(detail.setupFeeAplicavel) : "…"}
-        />
+        <Stat label="Setup inicial" value={detail ? brl(detail.setupFeeAplicavel) : "…"} />
         <Stat label="Custo de IA" value={detail ? formatAiCostUsd(detail.custoIa) : "…"} />
         <Stat
           label="Chave de IA"
-          value={agente ? CRED_LABEL[agente.credencialStatus] ?? "—" : "…"}
+          value={agente ? (CRED_LABEL[agente.credencialStatus] ?? "—") : "…"}
         />
       </div>
 
@@ -484,8 +462,8 @@ function DashboardTab({
         <div className="card card-pad ds-mb-4">
           <div style={{ fontWeight: 600, marginBottom: "var(--s2)" }}>Assinatura</div>
           <div className="sub ds-muted">
-            Plano {detail.assinatura.plano ?? "—"} · {detail.assinatura.status ?? "—"} ·
-            próxima cobrança {detail.assinatura.proximaCobranca ?? "—"} · setup{" "}
+            Plano {detail.assinatura.plano ?? "—"} · {detail.assinatura.status ?? "—"} · próxima
+            cobrança {detail.assinatura.proximaCobranca ?? "—"} · setup{" "}
             {detail.assinatura.setupPago ? "pago" : "pendente"}
           </div>
         </div>
@@ -496,10 +474,7 @@ function DashboardTab({
           Editar dados
         </DsButton>
         {pending ? (
-          <DsButton
-            onClick={onApprove}
-            loading={busy}
-          >
+          <DsButton onClick={onApprove} loading={busy}>
             {busy ? "Aprovando…" : "Aprovar igreja"}
           </DsButton>
         ) : null}
@@ -572,7 +547,11 @@ function AgenteTab({
       setRequests((prev) =>
         prev.map((r) =>
           r.id === req.id
-            ? { ...updated, solicitanteNome: r.solicitanteNome, solicitanteEmail: r.solicitanteEmail }
+            ? {
+                ...updated,
+                solicitanteNome: r.solicitanteNome,
+                solicitanteEmail: r.solicitanteEmail,
+              }
             : r,
         ),
       );
@@ -661,138 +640,149 @@ function AgenteTab({
 
   return (
     <>
-    <form
-      className="card card-pad"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void save();
-      }}
-    >
-      {err ? (
-        <div className="error-banner ds-mb-3" role="alert">
-          <span>{err}</span>
-        </div>
-      ) : null}
-      <h3>Comportamento desta igreja</h3>
-      <p className="sub">Revise o comportamento e o estado desejado antes de salvar. A credencial da igreja continua separada desta configuração.</p>
-      <div className="field ds-mb-3">
-        <label htmlFor="cp-nome">Nome do agente</label>
-        <input id="cp-nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Pastora Ana" />
-      </div>
-      <div className="field ds-mb-3">
-        <label htmlFor="cp-tom">Tom de voz</label>
-        <input id="cp-tom" value={tom} onChange={(e) => setTom(e.target.value)} placeholder="Ex.: acolhedor e pastoral" />
-      </div>
-      <div className="field ds-mb-3">
-        <label htmlFor="cp-comp">Comportamento e instruções</label>
-        <textarea
-          id="cp-comp"
-          rows={7}
-          value={comportamento}
-          onChange={(e) => setComportamento(e.target.value)}
-          placeholder="Como o agente deve se comunicar, o que pode e não pode fazer…"
-        />
-      </div>
-      <label
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--s2)",
-          opacity: credStatus === "active" ? 1 : 0.6,
-          marginBottom: "var(--s2)",
+      <form
+        className="card card-pad"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
         }}
       >
-        <input
-          type="checkbox"
-          checked={ativo}
-          disabled={credStatus !== "active"}
-          onChange={(e) => setAtivo(e.target.checked)}
-        />
-        <span>Agente ativo</span>
-      </label>
-      <p className="sub ds-muted ds-mb-3">
-        {CRED_LABEL[credStatus]}
-        {credStatus !== "active" ? " — a igreja precisa cadastrar a chave de LLM para ligar." : ""}
-      </p>
-      <div className="ds-flex ds-gap-2">
-        <DsButton type="submit" loading={busy}>
-          {busy ? "Salvando…" : "Salvar agente"}
-        </DsButton>
-        <DsButton
-          variant="tertiary"
-          disabled={busy || resetting}
-          onClick={() => void usarPadrao()}
-          title="Preenche com o modelo padrão do orquestrador (você revisa e salva)"
-        >
-          Usar o padrão
-        </DsButton>
-        <DsButton
-          variant="tertiary"
-          disabled={busy || resetting}
-          onClick={() => void restaurarPadrao()}
-          title="Restaura já a config para o modelo padrão (mantém ligado/desligado)"
-        >
-          {resetting ? "Restaurando…" : "Restaurar padrão"}
-        </DsButton>
-      </div>
-    </form>
-
-    {/* ── Requisições do admin desta igreja ──────────────────────────── */}
-    <div className="card card-pad ds-mt-4">
-      <div className="panel-title">Requisições de mudança do admin</div>
-      {requests.length === 0 ? (
-        <p className="sub ds-muted">
-          Nenhuma requisição desta igreja.
+        {err ? (
+          <div className="error-banner ds-mb-3" role="alert">
+            <span>{err}</span>
+          </div>
+        ) : null}
+        <h3>Comportamento desta igreja</h3>
+        <p className="sub">
+          Revise o comportamento e o estado desejado antes de salvar. A credencial da igreja
+          continua separada desta configuração.
         </p>
-      ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Solicitante</th>
-              <th>Mensagem</th>
-              <th>Status</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {requests.map((r) => (
-              <tr key={r.id}>
-                <td className="sub">{r.solicitanteNome ?? "—"}</td>
-                <td className="ds-prewrap">{r.mensagem}</td>
-                <td className="sub">
-                  {REQUEST_STATUS_LABEL[r.status]}
-                  {r.resposta ? ` — “${r.resposta}”` : ""}
-                </td>
-                <td>
-                  {r.status === "pendente" ? (
-                    <div className="ds-flex ds-gap-2">
-                      <DsButton
-                        variant="secondary"
-                        disabled={resolvingId !== null}
-                        onClick={() => void resolver(r, "atendida")}
-                      >
-                        Atender
-                      </DsButton>
-                      <DsButton
-                        variant="tertiary"
-                        disabled={resolvingId !== null}
-                        onClick={() => void resolver(r, "recusada")}
-                      >
-                        Recusar
-                      </DsButton>
-                    </div>
-                  ) : (
-                    <span className="sub ds-muted">
-                      Resolvida
-                    </span>
-                  )}
-                </td>
+        <div className="field ds-mb-3">
+          <label htmlFor="cp-nome">Nome do agente</label>
+          <input
+            id="cp-nome"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            placeholder="Ex.: Pastora Ana"
+          />
+        </div>
+        <div className="field ds-mb-3">
+          <label htmlFor="cp-tom">Tom de voz</label>
+          <input
+            id="cp-tom"
+            value={tom}
+            onChange={(e) => setTom(e.target.value)}
+            placeholder="Ex.: acolhedor e pastoral"
+          />
+        </div>
+        <div className="field ds-mb-3">
+          <label htmlFor="cp-comp">Comportamento e instruções</label>
+          <textarea
+            id="cp-comp"
+            rows={7}
+            value={comportamento}
+            onChange={(e) => setComportamento(e.target.value)}
+            placeholder="Como o agente deve se comunicar, o que pode e não pode fazer…"
+          />
+        </div>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--s2)",
+            opacity: credStatus === "active" ? 1 : 0.6,
+            marginBottom: "var(--s2)",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={ativo}
+            disabled={credStatus !== "active"}
+            onChange={(e) => setAtivo(e.target.checked)}
+          />
+          <span>Agente ativo</span>
+        </label>
+        <p className="sub ds-muted ds-mb-3">
+          {CRED_LABEL[credStatus]}
+          {credStatus !== "active"
+            ? " — a igreja precisa cadastrar a chave de LLM para ligar."
+            : ""}
+        </p>
+        <div className="ds-flex ds-gap-2">
+          <DsButton type="submit" loading={busy}>
+            {busy ? "Salvando…" : "Salvar agente"}
+          </DsButton>
+          <DsButton
+            variant="tertiary"
+            disabled={busy || resetting}
+            onClick={() => void usarPadrao()}
+            title="Preenche com o modelo padrão do orquestrador (você revisa e salva)"
+          >
+            Usar o padrão
+          </DsButton>
+          <DsButton
+            variant="tertiary"
+            disabled={busy || resetting}
+            onClick={() => void restaurarPadrao()}
+            title="Restaura já a config para o modelo padrão (mantém ligado/desligado)"
+          >
+            {resetting ? "Restaurando…" : "Restaurar padrão"}
+          </DsButton>
+        </div>
+      </form>
+
+      {/* ── Requisições do admin desta igreja ──────────────────────────── */}
+      <div className="card card-pad ds-mt-4">
+        <div className="panel-title">Requisições de mudança do admin</div>
+        {requests.length === 0 ? (
+          <p className="sub ds-muted">Nenhuma requisição desta igreja.</p>
+        ) : (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Solicitante</th>
+                <th>Mensagem</th>
+                <th>Status</th>
+                <th>Ações</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
+            </thead>
+            <tbody>
+              {requests.map((r) => (
+                <tr key={r.id}>
+                  <td className="sub">{r.solicitanteNome ?? "—"}</td>
+                  <td className="ds-prewrap">{r.mensagem}</td>
+                  <td className="sub">
+                    {REQUEST_STATUS_LABEL[r.status]}
+                    {r.resposta ? ` — “${r.resposta}”` : ""}
+                  </td>
+                  <td>
+                    {r.status === "pendente" ? (
+                      <div className="ds-flex ds-gap-2">
+                        <DsButton
+                          variant="secondary"
+                          disabled={resolvingId !== null}
+                          onClick={() => void resolver(r, "atendida")}
+                        >
+                          Atender
+                        </DsButton>
+                        <DsButton
+                          variant="tertiary"
+                          disabled={resolvingId !== null}
+                          onClick={() => void resolver(r, "recusada")}
+                        >
+                          Recusar
+                        </DsButton>
+                      </div>
+                    ) : (
+                      <span className="sub ds-muted">Resolvida</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </>
   );
 }
@@ -849,9 +839,7 @@ function AdminsTab({
 
   return (
     <div className="card card-pad">
-      <div style={{ fontWeight: 600, marginBottom: "var(--s3)" }}>
-        Administradores (owner)
-      </div>
+      <div style={{ fontWeight: 600, marginBottom: "var(--s3)" }}>Administradores (owner)</div>
       {err ? (
         <div className="error-banner ds-mb-2" role="alert">
           <span>{err}</span>
@@ -861,20 +849,20 @@ function AdminsTab({
         <div
           className="error-banner"
           role="status"
-          style={{ background: "var(--accent-soft)", color: "var(--accent)", marginBottom: "var(--s2)" }}
+          style={{
+            background: "var(--accent-soft)",
+            color: "var(--accent)",
+            marginBottom: "var(--s2)",
+          }}
         >
           <span>{notice}</span>
         </div>
       ) : null}
 
       {admins === null ? (
-        <p className="sub ds-muted">
-          Carregando…
-        </p>
+        <p className="sub ds-muted">Carregando…</p>
       ) : admins.length === 0 ? (
-        <p className="sub ds-muted">
-          Nenhum administrador.
-        </p>
+        <p className="sub ds-muted">Nenhum administrador.</p>
       ) : (
         <div
           style={{
@@ -897,7 +885,14 @@ function AdminsTab({
               }}
             >
               <div>
-                <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "var(--s2)" }}>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "var(--s2)",
+                  }}
+                >
                   {a.nome}
                   {a.isDono ? (
                     <span

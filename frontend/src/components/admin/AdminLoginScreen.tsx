@@ -30,7 +30,11 @@ export function AdminLoginScreen() {
     setEmailError(invalidEmail ? "Informe um e-mail válido." : undefined);
     setPasswordError(!password ? "Informe sua senha." : undefined);
     if (invalidEmail || !password) {
-      (event.currentTarget.elements.namedItem(invalidEmail ? "email" : "password") as HTMLInputElement | null)?.focus();
+      (
+        event.currentTarget.elements.namedItem(
+          invalidEmail ? "email" : "password",
+        ) as HTMLInputElement | null
+      )?.focus();
       return;
     }
     setError(undefined);
@@ -53,11 +57,7 @@ export function AdminLoginScreen() {
 
   return (
     <AuthLayout>
-      <form
-        className="login-card"
-        onSubmit={handleSubmit}
-        noValidate
-      >
+      <form className="login-card" onSubmit={handleSubmit} noValidate>
         <header className="login-card-head">
           <h1>Console da Plataforma</h1>
           <p className="sub">Use sua conta com permissão para administrar a plataforma.</p>

@@ -18,12 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
-import {
-  countDescendants,
-  fetchDescendencias,
-  initials,
-  type TreeNode,
-} from "@/lib/g12-api";
+import { countDescendants, fetchDescendencias, initials, type TreeNode } from "@/lib/g12-api";
 import { Icon } from "@/lib/icons";
 import { tipoLabel } from "@/lib/contacts-api";
 import { DsButton } from "@/components/ds/Button";
@@ -68,7 +63,9 @@ export function G12Screen() {
         setLoaded(true);
       } catch (err) {
         if (handleSessionError(err)) return;
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar o organograma.");
+        setError(
+          err instanceof ApiError ? err.message : "Não foi possível carregar o organograma.",
+        );
       } finally {
         setLoading(false);
       }
@@ -188,11 +185,19 @@ export function G12Screen() {
         ) : tab === "arvore" ? (
           <>
             <div className="org-bar">
-              <nav className="org-bc" ref={breadcrumb} tabIndex={-1} aria-label="Descendência atual">
+              <nav
+                className="org-bc"
+                ref={breadcrumb}
+                tabIndex={-1}
+                aria-label="Descendência atual"
+              >
                 {trail.map((node, i) => {
                   const isLast = i === trail.length - 1;
                   return (
-                    <span key={node.id + i} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <span
+                      key={node.id + i}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                    >
                       {i > 0 ? <span className="sep">/</span> : null}
                       <button
                         type="button"
@@ -230,8 +235,9 @@ export function G12Screen() {
               <div className="empty-state ds-p-6">
                 <Icon name="user" />
                 <p>
-                  <strong>Descendência vazia.</strong> {current.id === SYNTHETIC_ROOT ? "Esta pessoa" : current.nome}{" "}
-                  ainda não tem liderados no organograma.
+                  <strong>Descendência vazia.</strong>{" "}
+                  {current.id === SYNTHETIC_ROOT ? "Esta pessoa" : current.nome} ainda não tem
+                  liderados no organograma.
                 </p>
               </div>
             ) : (
@@ -246,7 +252,11 @@ export function G12Screen() {
                       className={`slot filled${hasTeam ? " has-team" : ""}`}
                       disabled={!hasTeam}
                       aria-disabled={!hasTeam || undefined}
-                      aria-label={hasTeam ? `Abrir descendência de ${child.nome}` : `${child.nome}, sem liderados`}
+                      aria-label={
+                        hasTeam
+                          ? `Abrir descendência de ${child.nome}`
+                          : `${child.nome}, sem liderados`
+                      }
                       onClick={() => hasTeam && openBranch(idx)}
                       title={hasTeam ? "Abrir descendência" : undefined}
                     >
@@ -254,7 +264,9 @@ export function G12Screen() {
                       <div className="s-body">
                         <div className="nm">{child.nome}</div>
                         <div className="rl">{tipoLabel(child.tipo)}</div>
-                        <div className="team-n">{hasTeam ? `${team} no time` : "Sem liderados"}</div>
+                        <div className="team-n">
+                          {hasTeam ? `${team} no time` : "Sem liderados"}
+                        </div>
                       </div>
                       {hasTeam ? <Icon name="caret" className="s-go" /> : null}
                     </button>
@@ -265,7 +277,8 @@ export function G12Screen() {
 
             <p className="org-hint">
               <Icon name="g12" />
-              Abra uma pessoa com liderados para ver o próximo nível. Use o caminho acima para voltar à liderança anterior.
+              Abra uma pessoa com liderados para ver o próximo nível. Use o caminho acima para
+              voltar à liderança anterior.
             </p>
           </>
         ) : (

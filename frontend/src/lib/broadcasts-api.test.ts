@@ -20,9 +20,7 @@ function result(status: string, enviados = 0): BroadcastResult {
   };
 }
 
-function historyItem(
-  overrides: Partial<BroadcastItem> = {},
-): BroadcastItem {
+function historyItem(overrides: Partial<BroadcastItem> = {}): BroadcastItem {
   return {
     id: "broadcast-1",
     titulo: "Aviso",
@@ -48,29 +46,21 @@ function historyItem(
 }
 
 describe("broadcastResultFeedback", () => {
-  it.each(["agendado", "enfileirado", "enviado"])(
-    "mantém %s como feedback positivo",
+  it.each(["agendado", "enfileirado", "enviado"])("mantém %s como feedback positivo", (status) => {
+    expect(broadcastResultFeedback(result(status, 2)).kind).toBe("ok");
+  });
+
+  it.each(["parcial", "falhou", "desconhecido", "suprimido", "concluido_sem_destinatarios"])(
+    "nunca apresenta %s como sucesso",
     (status) => {
-      expect(broadcastResultFeedback(result(status, 2)).kind).toBe("ok");
+      const feedback = broadcastResultFeedback(result(status, 0));
+      expect(feedback.kind).toBe("err");
+      expect(feedback.text).not.toContain("Comunicado enviado");
     },
   );
 
-  it.each([
-    "parcial",
-    "falhou",
-    "desconhecido",
-    "suprimido",
-    "concluido_sem_destinatarios",
-  ])("nunca apresenta %s como sucesso", (status) => {
-    const feedback = broadcastResultFeedback(result(status, 0));
-    expect(feedback.kind).toBe("err");
-    expect(feedback.text).not.toContain("Comunicado enviado");
-  });
-
   it("orienta não reenviar quando o resultado é desconhecido", () => {
-    expect(broadcastResultFeedback(result("desconhecido")).text).toContain(
-      "Não reenvie",
-    );
+    expect(broadcastResultFeedback(result("desconhecido")).text).toContain("Não reenvie");
   });
 });
 

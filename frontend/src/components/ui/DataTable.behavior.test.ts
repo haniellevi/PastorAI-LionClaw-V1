@@ -22,20 +22,34 @@ it("ações internas funcionam uma vez sem abrir a linha nem capturar sua tecla"
   const onOpen = vi.fn();
   const onAction = vi.fn();
   const row = { id: "pessoa-sintetica" };
-  act(() => root.render(h(DataTable<typeof row>, {
-    rows: [row], rowKey: (item: typeof row) => item.id,
-    empty: { title: "Sem pessoas" }, onRowClick: onOpen,
-    columns: [
-      { header: "Pessoa", cell: () => "Pessoa sintética" },
-      { header: "Ação", cell: () => h("button", { onClick: onAction }, "Editar pessoa") },
-    ],
-  })));
+  act(() =>
+    root.render(
+      h(DataTable<typeof row>, {
+        rows: [row],
+        rowKey: (item: typeof row) => item.id,
+        empty: { title: "Sem pessoas" },
+        onRowClick: onOpen,
+        columns: [
+          { header: "Pessoa", cell: () => "Pessoa sintética" },
+          { header: "Ação", cell: () => h("button", { onClick: onAction }, "Editar pessoa") },
+        ],
+      }),
+    ),
+  );
   const button = container.querySelector("button")!;
   act(() => button.click());
   expect(onAction).toHaveBeenCalledTimes(1);
-  act(() => button.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+  act(() =>
+    button.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    ),
+  );
   expect(onOpen).not.toHaveBeenCalled();
   const tableRow = container.querySelector("tbody tr")!;
-  act(() => tableRow.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })));
+  act(() =>
+    tableRow.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    ),
+  );
   expect(onOpen).toHaveBeenCalledExactlyOnceWith(row);
 });

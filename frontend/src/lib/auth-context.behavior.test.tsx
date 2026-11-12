@@ -16,7 +16,16 @@ const adminApiMocks = vi.hoisted(() => ({
 
 vi.mock("./api", async () => {
   const actual = await vi.importActual<typeof import("./api")>("./api");
-  return { ...actual, fetchMe: apiMocks.fetchMe, fetchBootstrap: async (token: string) => ({ user: await apiMocks.fetchMe(token), permissions: null }), login: apiMocks.login, logoutSession: apiMocks.logoutSession };
+  return {
+    ...actual,
+    fetchMe: apiMocks.fetchMe,
+    fetchBootstrap: async (token: string) => ({
+      user: await apiMocks.fetchMe(token),
+      permissions: null,
+    }),
+    login: apiMocks.login,
+    logoutSession: apiMocks.logoutSession,
+  };
 });
 vi.mock("./admin-api", async () => {
   const actual = await vi.importActual<typeof import("./admin-api")>("./admin-api");
@@ -33,22 +42,11 @@ vi.mock("@/components/dashboard/DashboardScreen", () => ({
 }));
 vi.mock("@/components/admin/AdminConsole", () => ({ AdminConsole: () => null }));
 
-import {
-  AdminAuthError,
-  AdminSessionExpiredError,
-  type AdminMe,
-} from "./admin-api";
-import {
-  AdminAuthProvider,
-  useAdminAuth,
-  type AdminAuthStatus,
-} from "./admin-auth-context";
-import {
-  SessionAccessDeniedError,
-  SessionExpiredError,
-  type MeResult,
-} from "./api";
+import { AdminAuthError, AdminSessionExpiredError, type AdminMe } from "./admin-api";
+import { AdminAuthProvider, useAdminAuth, type AdminAuthStatus } from "./admin-auth-context";
+import { SessionAccessDeniedError, SessionExpiredError, type MeResult } from "./api";
 import { AuthProvider, useAuth, type AuthStatus } from "./auth-context";
+import { clearConsolidations, getConsolidation, upsertConsolidation } from "./consolidacao-store";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -123,15 +121,85 @@ describe("AuthProvider — restauração de sessão", () => {
 
   it("ignores a bootstrap that finishes after logout", async () => {
     let resolve!: (value: MeResult) => void;
-    apiMocks.fetchMe.mockImplementation(() => new Promise<MeResult>(done => { resolve = done; }));
-    await renderProvider(<AuthProvider><Probe /></AuthProvider>);
+    apiMocks.fetchMe.mockImplementation(
+      () =>
+        new Promise<MeResult>((done) => {
+          resolve = done;
+        }),
+    );
+    await renderProvider(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
     await act(async () => {
       await latest?.logout();
     });
-    await act(async () => { resolve(me); });
+    await act(async () => {
+      resolve(me);
+    });
     expect(latest?.status).toBe("unauthenticated");
     expect(latest?.user).toBeNull();
     expect(window.localStorage.getItem("pastorai:token")).toBeNull();
+  });
+
+  it("esquece as consolidações da pessoa anterior ao sair", async () => {
+    apiMocks.fetchMe.mockResolvedValue(me);
+    clearConsolidations();
+    await renderProvider(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitForState(() => expect(latest?.status).toBe("authenticated"));
+    act(() => {
+      upsertConsolidation({
+        consolidacaoId: "cons-1",
+        pessoaId: "pessoa-ficticia-1",
+        responsavelId: null,
+        prazoConexao: null,
+        vinculo: "visitante",
+        confirmedStages: [],
+        concluida: false,
+      });
+    });
+    expect(getConsolidation("pessoa-ficticia-1")).toBeDefined();
+
+    await act(async () => {
+      await latest?.logout();
+    });
+
+    expect(getConsolidation("pessoa-ficticia-1")).toBeUndefined();
+  });
+
+  it("esquece as consolidações de antes ao entrar com outra conta", async () => {
+    window.localStorage.removeItem("pastorai:token");
+    apiMocks.login.mockResolvedValue({ ...me, token: "outra-conta" });
+    clearConsolidations();
+    await renderProvider(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
+    await waitForState(() => expect(latest?.status).toBe("unauthenticated"));
+    act(() => {
+      upsertConsolidation({
+        consolidacaoId: "cons-2",
+        pessoaId: "pessoa-ficticia-2",
+        responsavelId: null,
+        prazoConexao: null,
+        vinculo: "visitante",
+        confirmedStages: [],
+        concluida: false,
+      });
+    });
+
+    await act(async () => {
+      await latest?.login("outra@example.com", "senha-ficticia");
+    });
+
+    expect(latest?.status).toBe("authenticated");
+    expect(getConsolidation("pessoa-ficticia-2")).toBeUndefined();
   });
 
   it("revoga a sessão no servidor antes de limpar o token local", async () => {
@@ -140,7 +208,11 @@ describe("AuthProvider — restauração de sessão", () => {
       expect(window.localStorage.getItem("pastorai:token")).toBe("tenant-token");
     });
 
-    await renderProvider(<AuthProvider><Probe /></AuthProvider>);
+    await renderProvider(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
     await waitForState(() => expect(latest?.status).toBe("authenticated"));
     await act(async () => {
       await latest?.logout({ revokeServer: true });
@@ -155,7 +227,11 @@ describe("AuthProvider — restauração de sessão", () => {
     apiMocks.fetchMe.mockResolvedValue(me);
     apiMocks.logoutSession.mockRejectedValue(new Error("network"));
 
-    await renderProvider(<AuthProvider><Probe /></AuthProvider>);
+    await renderProvider(
+      <AuthProvider>
+        <Probe />
+      </AuthProvider>,
+    );
     await waitForState(() => expect(latest?.status).toBe("authenticated"));
     await act(async () => {
       await latest?.logout({ revokeServer: true });
@@ -215,7 +291,6 @@ describe("AuthProvider — restauração de sessão", () => {
     expect(latest?.user?.appUserId).toBe("user-1");
     expect(window.localStorage.getItem("pastorai:token")).toBe("tenant-token");
   });
-
 });
 
 describe("AdminAuthProvider — restauração de sessão", () => {
@@ -286,7 +361,11 @@ describe("AdminAuthProvider — restauração de sessão", () => {
     adminApiMocks.fetchAdminMe.mockResolvedValue(adminMe);
     adminApiMocks.logoutAdminSession.mockRejectedValue(new Error("network"));
 
-    await renderProvider(<AdminAuthProvider><Probe /></AdminAuthProvider>);
+    await renderProvider(
+      <AdminAuthProvider>
+        <Probe />
+      </AdminAuthProvider>,
+    );
     await waitForState(() => expect(latest?.status).toBe("authenticated"));
     await act(async () => {
       await latest?.logout({ revokeServer: true });

@@ -63,7 +63,10 @@ export function DiamondMark({
       {...rest}
     >
       {solid ? (
-        <polygon points={OUTLINE} fill={effective === "silhouette" && variant === "color" ? "#2B5CB4" : tone} />
+        <polygon
+          points={OUTLINE}
+          fill={effective === "silhouette" && variant === "color" ? "#2B5CB4" : tone}
+        />
       ) : (
         <g stroke="#F7FAFD" strokeWidth={2.5} strokeLinejoin="round">
           {PLANES.map((p) => (

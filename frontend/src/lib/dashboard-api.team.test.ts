@@ -27,15 +27,18 @@ describe("fetchTeam", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({
-          items: first,
-          page: 1,
-          pageSize: 100,
-          total: 101,
-          sem_pessoa_ativa_coordenacao: 4,
-        }), {
-          status: 200,
-        }),
+        new Response(
+          JSON.stringify({
+            items: first,
+            page: 1,
+            pageSize: 100,
+            total: 101,
+            sem_pessoa_ativa_coordenacao: 4,
+          }),
+          {
+            status: 200,
+          },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ items: [last], page: 2, pageSize: 100, total: 101 }), {

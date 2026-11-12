@@ -225,7 +225,10 @@ export function CalendarioScreen() {
       if (mode === "retry") clearAuthedResponseCache(token, ["/events?"]);
       setError(null);
       try {
-        const window = view === "confirmar" ? { status: "a_confirmar" } : {...eventWindow(view, cursor),includeUndated:true};
+        const window =
+          view === "confirmar"
+            ? { status: "a_confirmar" }
+            : { ...eventWindow(view, cursor), includeUndated: true };
         const page = await fetchEvents(token, 200, window, controller.signal);
         if (controller.signal.aborted || generation !== loadGeneration.current) return;
         setEvents(page.items);
@@ -243,7 +246,9 @@ export function CalendarioScreen() {
 
   useEffect(() => {
     void load("initial");
-    return () => { loadController.current?.abort(); };
+    return () => {
+      loadController.current?.abort();
+    };
   }, [load]);
 
   const toastTimer = useRef<number | null>(null);
@@ -459,7 +464,9 @@ export function CalendarioScreen() {
         flashToast({ kind: "ok", text: `Evento "${updated.titulo}" atualizado.` });
       } catch (err) {
         if (handleSessionError(err)) return;
-        setFormError(err instanceof ApiError ? err.message : "Não foi possível salvar as alterações.");
+        setFormError(
+          err instanceof ApiError ? err.message : "Não foi possível salvar as alterações.",
+        );
       } finally {
         setSaving(false);
       }
@@ -518,7 +525,9 @@ export function CalendarioScreen() {
     <div className="screen agenda ops-v2" key="calendario">
       <div className="screen-head">
         <div className="titles">
-          <h2 aria-live="polite" aria-atomic="true">{periodLabel}</h2>
+          <h2 aria-live="polite" aria-atomic="true">
+            {periodLabel}
+          </h2>
           <p>Selecione um evento para ver os detalhes. Itens em A confirmar precisam de revisão.</p>
         </div>
         <div className="actions">
@@ -569,62 +578,62 @@ export function CalendarioScreen() {
           onChange={(id) => setView(id as AgendaTab)}
           label="Visualização da agenda"
         >
-        {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-            <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
-              Tentar novamente
-            </DsButton>
-          </div>
-        ) : null}
+          {error ? (
+            <div className="error-banner" role="alert">
+              <Icon name="alert" />
+              <span>{error}</span>
+              <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
+                Tentar novamente
+              </DsButton>
+            </div>
+          ) : null}
 
-        {showSkeleton ? (
-          <div className="card card-pad">
-            <div className="sk-line sk-lg" />
-            <div className="sk-line sk-md" />
-            <div className="sk-line sk-sm" />
-          </div>
-        ) : isCalendar ? (
-          <>
-            {view === "mes" ? (
-              <>
-                <div className="cal">
-                  <div className="cal-head">
-                    {WEEKDAYS.map((d) => (
-                      <div key={d}>{d}</div>
-                    ))}
+          {showSkeleton ? (
+            <div className="card card-pad">
+              <div className="sk-line sk-lg" />
+              <div className="sk-line sk-md" />
+              <div className="sk-line sk-sm" />
+            </div>
+          ) : isCalendar ? (
+            <>
+              {view === "mes" ? (
+                <>
+                  <div className="cal">
+                    <div className="cal-head">
+                      {WEEKDAYS.map((d) => (
+                        <div key={d}>{d}</div>
+                      ))}
+                    </div>
+                    <div className="cal-grid">
+                      {monthCells.map((cell, i) => (
+                        <div
+                          key={cell.iso ?? `pad-${i}`}
+                          className={`cal-cell${cell.day == null ? " off" : ""}${cell.today ? " today" : ""}`}
+                          onClick={() => openCreateForDate(cell.iso)}
+                          style={cell.iso != null && canManage ? { cursor: "pointer" } : undefined}
+                          {...dayCellActivation(cell.iso)}
+                        >
+                          {cell.day != null ? <div className="d num">{cell.day}</div> : null}
+                          {cell.events.map((ev) => (
+                            <div
+                              key={ev.id}
+                              className={evClass(ev)}
+                              title={ev.titulo}
+                              {...eventActivation(ev)}
+                              // Depois do spread de propósito: o nome acessível do
+                              // chip do mês não pode ser sobrescrito por ele.
+                              aria-label={monthChipLabel(ev)}
+                            >
+                              {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
+                              <span className="cal-ev-title">{ev.titulo}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div className="cal-grid">
-                    {monthCells.map((cell, i) => (
-                      <div
-                        key={cell.iso ?? `pad-${i}`}
-                        className={`cal-cell${cell.day == null ? " off" : ""}${cell.today ? " today" : ""}`}
-                        onClick={() => openCreateForDate(cell.iso)}
-                        style={cell.iso != null && canManage ? { cursor: "pointer" } : undefined}
-                        {...dayCellActivation(cell.iso)}
-                      >
-                        {cell.day != null ? <div className="d num">{cell.day}</div> : null}
-                        {cell.events.map((ev) => (
-                          <div
-                            key={ev.id}
-                            className={evClass(ev)}
-                            title={ev.titulo}
-                            {...eventActivation(ev)}
-                            // Depois do spread de propósito: o nome acessível do
-                            // chip do mês não pode ser sobrescrito por ele.
-                            aria-label={monthChipLabel(ev)}
-                          >
-                            {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
-                            <span className="cal-ev-title">{ev.titulo}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </div>
 
-                {/* VIS-2-MOBILE-CALENDAR-ARCH-1: variante mensal compacta.
+                  {/* VIS-2-MOBILE-CALENDAR-ARCH-1: variante mensal compacta.
                     Decisão de produto: em coluna de ~40px não cabe hora+título —
                     a grade vira visão geral + seletor de dia (botões reais com
                     aria-pressed e badge de contagem), e os detalhes completos
@@ -634,273 +643,289 @@ export function CalendarioScreen() {
                     criando, acima). Qual das duas grades aparece é decisão do
                     CSS: .cal-m aparece com largura útil ≤860px via container
                     query, com fallback de viewport ≤640px; .cal some nessa faixa. */}
-                <div className="cal-m">
-                  <div className="cal-m-cal">
-                    <div className="cal-head">
-                      {WEEKDAYS.map((d) => (
-                        <div key={d}>{d}</div>
-                      ))}
-                    </div>
-                    <div className="cal-m-grid">
-                      {monthCells.map((cell, i) =>
-                        cell.iso == null ? (
-                          <div key={`pad-${i}`} className="cal-m-cell off" aria-hidden="true" />
-                        ) : (
-                          <button
-                            key={cell.iso}
-                            type="button"
-                            className={`cal-m-cell${cell.today ? " today" : ""}${
-                              cell.iso === selectedDayCell?.iso ? " selected" : ""
-                            }`}
-                            aria-pressed={cell.iso === selectedDayCell?.iso}
-                            aria-label={mobileDayLabel(cell.iso, cell.events.length)}
-                            onClick={() => setTappedDayIso(cell.iso)}
-                          >
-                            <span className="d num">{cell.day}</span>
-                            {cell.events.length > 0 ? (
-                              <span className="cal-m-count" aria-hidden="true">
-                                {cell.events.length}
-                              </span>
-                            ) : null}
-                          </button>
-                        ),
-                      )}
-                    </div>
-                  </div>
-
-                  {selectedDayCell?.iso ? (
-                    <section className="agenda-section cal-m-day">
-                      <div className="panel-title">
-                        <Icon name="calendar" /> Eventos em {formatLongDate(selectedDayCell.iso)}
+                  <div className="cal-m">
+                    <div className="cal-m-cal">
+                      <div className="cal-head">
+                        {WEEKDAYS.map((d) => (
+                          <div key={d}>{d}</div>
+                        ))}
                       </div>
-                      {selectedDayCell.events.length ? (
-                        // PR214-CORRECTIVE-1: botão NATIVO, não div+role="button" —
-                        // Enter/Espaço e foco visível vêm de graça e sem
-                        // eventActivation (aqui não há célula-pai clicável para
-                        // conter propagação). Spans por dentro: div em button é
-                        // HTML inválido. O visual fica na classe .cal-m-event.
-                        selectedDayCell.events.map((ev) => (
-                          <button
-                            type="button"
-                            className="list-row cal-m-event"
-                            key={ev.id}
-                            onClick={() => openDetail(ev)}
+                      <div className="cal-m-grid">
+                        {monthCells.map((cell, i) =>
+                          cell.iso == null ? (
+                            <div key={`pad-${i}`} className="cal-m-cell off" aria-hidden="true" />
+                          ) : (
+                            <button
+                              key={cell.iso}
+                              type="button"
+                              className={`cal-m-cell${cell.today ? " today" : ""}${
+                                cell.iso === selectedDayCell?.iso ? " selected" : ""
+                              }`}
+                              aria-pressed={cell.iso === selectedDayCell?.iso}
+                              aria-label={mobileDayLabel(cell.iso, cell.events.length)}
+                              onClick={() => setTappedDayIso(cell.iso)}
+                            >
+                              <span className="d num">{cell.day}</span>
+                              {cell.events.length > 0 ? (
+                                <span className="cal-m-count" aria-hidden="true">
+                                  {cell.events.length}
+                                </span>
+                              ) : null}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedDayCell?.iso ? (
+                      <section className="agenda-section cal-m-day">
+                        <div className="panel-title">
+                          <Icon name="calendar" /> Eventos em {formatLongDate(selectedDayCell.iso)}
+                        </div>
+                        {selectedDayCell.events.length ? (
+                          // PR214-CORRECTIVE-1: botão NATIVO, não div+role="button" —
+                          // Enter/Espaço e foco visível vêm de graça e sem
+                          // eventActivation (aqui não há célula-pai clicável para
+                          // conter propagação). Spans por dentro: div em button é
+                          // HTML inválido. O visual fica na classe .cal-m-event.
+                          selectedDayCell.events.map((ev) => (
+                            <button
+                              type="button"
+                              className="list-row cal-m-event"
+                              key={ev.id}
+                              onClick={() => openDetail(ev)}
+                            >
+                              <span className="agenda-row-main">
+                                <span className="nm">{ev.titulo}</span>
+                                {ev.hora ? <span className="sub">{ev.hora}</span> : null}
+                              </span>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="sub cal-m-day-empty">Nenhum evento neste dia.</p>
+                        )}
+                        {canManage ? (
+                          <DsButton
+                            variant="secondary"
+                            className="cal-m-new"
+                            onClick={() => openCreateForDate(selectedDayCell.iso)}
                           >
-                            <span className="agenda-row-main">
-                              <span className="nm">{ev.titulo}</span>
-                              {ev.hora ? <span className="sub">{ev.hora}</span> : null}
-                            </span>
-                          </button>
-                        ))
+                            <Icon name="plus" />
+                            <span>Novo evento neste dia</span>
+                          </DsButton>
+                        ) : null}
+                      </section>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+
+              {view === "semana" ? (
+                <div className="agenda-week">
+                  {weekDays.map((d) => (
+                    <div
+                      key={d.iso}
+                      className={`agenda-day${d.today ? " today" : ""}`}
+                      onClick={() => openCreateForDate(d.iso)}
+                      style={canManage ? { cursor: "pointer" } : undefined}
+                      {...dayCellActivation(d.iso)}
+                    >
+                      <div className="agenda-day-head">
+                        <span className="wd">{WEEKDAYS[d.weekday]}</span>
+                        <span className="dt">
+                          {d.day} {d.monthShort}
+                          {d.today ? " · hoje" : ""}
+                        </span>
+                      </div>
+                      {d.events.length ? (
+                        <div className="agenda-day-evs">
+                          {d.events.map((ev) => (
+                            <div
+                              key={ev.id}
+                              className={evClass(ev)}
+                              title={ev.titulo}
+                              {...eventActivation(ev)}
+                            >
+                              {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
+                              <span className="cal-ev-title">{ev.titulo}</span>
+                            </div>
+                          ))}
+                        </div>
                       ) : (
-                        <p className="sub cal-m-day-empty">Nenhum evento neste dia.</p>
+                        <div className="agenda-day-empty">—</div>
                       )}
-                      {canManage ? (
-                        <DsButton
-                          variant="secondary"
-                          className="cal-m-new"
-                          onClick={() => openCreateForDate(selectedDayCell.iso)}
-                        >
-                          <Icon name="plus" />
-                          <span>Novo evento neste dia</span>
-                        </DsButton>
-                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {view === "ano" ? (
+                <div className="agenda-year">
+                  {yearMonths.map((mo) => (
+                    <button
+                      key={mo.month}
+                      type="button"
+                      className={`agenda-month${mo.isCurrent ? " current" : ""}`}
+                      onClick={() => {
+                        setCursor(new Date(year, mo.month, 1));
+                        setView("mes");
+                      }}
+                      aria-label={`Abrir ${mo.label} de ${year}`}
+                    >
+                      <div className="agenda-month-head">
+                        <span className="mn">{mo.label}</span>
+                        <span className="count">{mo.count}</span>
+                      </div>
+                      {mo.count ? (
+                        <ul className="agenda-month-list">
+                          {mo.events.slice(0, 3).map((ev) => (
+                            <li
+                              key={ev.id}
+                              className={ev.status === "a_confirmar" ? "danger" : undefined}
+                            >
+                              <span className={dotClass(ev)} />
+                              {ev.data ? `${Number(ev.data.slice(8, 10))} ` : ""}
+                              {ev.titulo}
+                            </li>
+                          ))}
+                          {mo.count > 3 ? <li className="more">+{mo.count - 3} mais</li> : null}
+                        </ul>
+                      ) : (
+                        <div className="agenda-month-empty">Sem eventos</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {viewIsEmpty ? (
+                <div className="agenda-empty">
+                  <div className="empty-state agenda-empty-body">
+                    <Icon name="calendar" />
+                    <p>
+                      <strong>Nenhum evento em {periodLabel}.</strong> Use as setas para navegar ou
+                      crie um novo evento.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
+              {recurring.length > 0 || unsynced.length > 0 ? (
+                <div className="agenda-support-grid">
+                  {recurring.length > 0 ? (
+                    <section className="agenda-section">
+                      <div className="panel-title">
+                        <Icon name="refresh" /> Eventos recorrentes
+                        <span className="count">· {recurring.length}</span>
+                      </div>
+                      {recurring.map((ev) => (
+                        <div className="list-row" key={ev.id} {...eventActivation(ev)}>
+                          <div className="agenda-row-main">
+                            <div className="nm">{ev.titulo}</div>
+                            <div className="sub">
+                              {ev.hora ? `${ev.hora} · ` : ""}
+                              {ev.recorrencia === "semanal" ? "Semanal" : "Recorrente"}
+                            </div>
+                          </div>
+                          <span className="pill">Recorrente</span>
+                        </div>
+                      ))}
+                    </section>
+                  ) : null}
+
+                  {unsynced.length > 0 ? (
+                    <section className="agenda-section">
+                      <div className="panel-title">
+                        <Icon name="calendar" /> Eventos locais
+                        <span className="count">· {unsynced.length}</span>
+                      </div>
+                      <p className="sub agenda-section-note">
+                        Criados no Igreja 12 e não enviados ao Google Calendar. Clique num evento
+                        para abrir o detalhe{canManage ? ", editar ou excluir" : ""}.
+                      </p>
+                      {unsynced.map((ev) => (
+                        <div className="list-row" key={ev.id} {...eventActivation(ev)}>
+                          <div className="agenda-row-main">
+                            <div className="nm">{ev.titulo}</div>
+                            <div className="sub">
+                              {ev.data ? formatLongDate(ev.data) : ""}
+                              {ev.hora ? ` · ${ev.hora}` : ""}
+                            </div>
+                          </div>
+                          <span className="pill muted">Local</span>
+                        </div>
+                      ))}
                     </section>
                   ) : null}
                 </div>
-              </>
-            ) : null}
-
-            {view === "semana" ? (
-              <div className="agenda-week">
-                {weekDays.map((d) => (
-                  <div
-                    key={d.iso}
-                    className={`agenda-day${d.today ? " today" : ""}`}
-                    onClick={() => openCreateForDate(d.iso)}
-                    style={canManage ? { cursor: "pointer" } : undefined}
-                    {...dayCellActivation(d.iso)}
-                  >
-                    <div className="agenda-day-head">
-                      <span className="wd">{WEEKDAYS[d.weekday]}</span>
-                      <span className="dt">{d.day} {d.monthShort}{d.today ? " · hoje" : ""}</span>
-                    </div>
-                    {d.events.length ? (
-                      <div className="agenda-day-evs">
-                        {d.events.map((ev) => (
-                          <div
-                            key={ev.id}
-                            className={evClass(ev)}
-                            title={ev.titulo}
-                            {...eventActivation(ev)}
-                          >
-                            {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
-                            <span className="cal-ev-title">{ev.titulo}</span>
-                          </div>
-                        ))}
+              ) : null}
+            </>
+          ) : pendentes.length > 0 ? (
+            <section className="agenda-section agenda-confirm-list">
+              <div className="panel-title">
+                <Icon name="clock" /> A confirmar
+                <span className="count">· {pendentes.length}</span>
+              </div>
+              {pendentes.map((ev) => {
+                const meta = [whenLabel(ev), origemLabel(ev.origem)].filter(Boolean).join(" · ");
+                return (
+                  <div className="list-row" key={ev.id}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openDetail(ev)}
+                      onKeyDown={(e: KeyboardEvent) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          openDetail(ev);
+                        }
+                      }}
+                      className="agenda-row-main agenda-row-action"
+                    >
+                      <div className="nm" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Icon name="alert" size={14} className="icon-danger" />
+                        {ev.titulo}
                       </div>
-                    ) : (
-                      <div className="agenda-day-empty">—</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {view === "ano" ? (
-              <div className="agenda-year">
-                {yearMonths.map((mo) => (
-                  <button
-                    key={mo.month}
-                    type="button"
-                    className={`agenda-month${mo.isCurrent ? " current" : ""}`}
-                    onClick={() => { setCursor(new Date(year, mo.month, 1)); setView("mes"); }}
-                    aria-label={`Abrir ${mo.label} de ${year}`}
-                  >
-                    <div className="agenda-month-head">
-                      <span className="mn">{mo.label}</span>
-                      <span className="count">{mo.count}</span>
-                    </div>
-                    {mo.count ? (
-                      <ul className="agenda-month-list">
-                        {mo.events.slice(0, 3).map((ev) => (
-                          <li key={ev.id} className={ev.status === "a_confirmar" ? "danger" : undefined}>
-                            <span className={dotClass(ev)} />
-                            {ev.data ? `${Number(ev.data.slice(8, 10))} ` : ""}
-                            {ev.titulo}
-                          </li>
-                        ))}
-                        {mo.count > 3 ? <li className="more">+{mo.count - 3} mais</li> : null}
-                      </ul>
-                    ) : (
-                      <div className="agenda-month-empty">Sem eventos</div>
-                    )}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            {viewIsEmpty ? (
-              <div className="agenda-empty">
-                <div className="empty-state agenda-empty-body">
-                  <Icon name="calendar" />
-                  <p>
-                    <strong>Nenhum evento em {periodLabel}.</strong> Use as setas para
-                    navegar ou crie um novo evento.
-                  </p>
-                </div>
-              </div>
-            ) : null}
-
-            {recurring.length > 0 || unsynced.length > 0 ? (
-              <div className="agenda-support-grid">
-                {recurring.length > 0 ? (
-                  <section className="agenda-section">
-                    <div className="panel-title">
-                      <Icon name="refresh" /> Eventos recorrentes
-                      <span className="count">· {recurring.length}</span>
-                    </div>
-                    {recurring.map((ev) => (
-                      <div className="list-row" key={ev.id} {...eventActivation(ev)}>
-                        <div className="agenda-row-main">
-                          <div className="nm">{ev.titulo}</div>
-                          <div className="sub">
-                            {ev.hora ? `${ev.hora} · ` : ""}
-                            {ev.recorrencia === "semanal" ? "Semanal" : "Recorrente"}
-                          </div>
+                      <div className="sub">{meta}</div>
+                      {ev.descricao ? (
+                        <div
+                          className="sub"
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {ev.descricao}
                         </div>
-                        <span className="pill">Recorrente</span>
-                      </div>
-                    ))}
-                  </section>
-                ) : null}
-
-                {unsynced.length > 0 ? (
-                  <section className="agenda-section">
-                    <div className="panel-title">
-                      <Icon name="calendar" /> Eventos locais
-                      <span className="count">· {unsynced.length}</span>
+                      ) : null}
                     </div>
-                    <p className="sub agenda-section-note">
-                      Criados no Igreja 12 e não enviados ao Google Calendar. Clique num
-                      evento para abrir o detalhe{canManage ? ", editar ou excluir" : ""}.
-                    </p>
-                    {unsynced.map((ev) => (
-                      <div className="list-row" key={ev.id} {...eventActivation(ev)}>
-                        <div className="agenda-row-main">
-                          <div className="nm">{ev.titulo}</div>
-                          <div className="sub">{ev.data ? formatLongDate(ev.data) : ""}{ev.hora ? ` · ${ev.hora}` : ""}</div>
-                        </div>
-                        <span className="pill muted">Local</span>
-                      </div>
-                    ))}
-                  </section>
-                ) : null}
-              </div>
-            ) : null}
-          </>
-        ) : pendentes.length > 0 ? (
-          <section className="agenda-section agenda-confirm-list">
-            <div className="panel-title">
-              <Icon name="clock" /> A confirmar
-              <span className="count">· {pendentes.length}</span>
-            </div>
-            {pendentes.map((ev) => {
-              const meta = [whenLabel(ev), origemLabel(ev.origem)].filter(Boolean).join(" · ");
-              return (
-                <div className="list-row" key={ev.id}>
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openDetail(ev)}
-                    onKeyDown={(e: KeyboardEvent) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        openDetail(ev);
-                      }
-                    }}
-                    className="agenda-row-main agenda-row-action"
-                  >
-                    <div className="nm" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Icon name="alert" size={14} className="icon-danger" />
-                      {ev.titulo}
-                    </div>
-                    <div className="sub">{meta}</div>
-                    {ev.descricao ? (
-                      <div
-                        className="sub"
-                        style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    {canManage ? (
+                      <DsButton
+                        disabled={confirming != null}
+                        onClick={() => {
+                          setConfirmError(null);
+                          setConfirming(ev);
+                        }}
                       >
-                        {ev.descricao}
-                      </div>
+                        <Icon name="check" /> Confirmar
+                      </DsButton>
                     ) : null}
                   </div>
-                  {canManage ? (
-                    <DsButton
-                      disabled={confirming != null}
-                      onClick={() => {
-                        setConfirmError(null);
-                        setConfirming(ev);
-                      }}
-                    >
-                      <Icon name="check" /> Confirmar
-                    </DsButton>
-                  ) : null}
-                </div>
-              );
-            })}
-          </section>
-        ) : (
-          <div className="agenda-empty">
-            <div className="empty-state agenda-empty-body">
-              <Icon name="check" />
-              <p>
-                <strong>Nenhum evento aguardando confirmação.</strong> Eventos
-                importados aparecerão aqui para confirmação manual.
-              </p>
+                );
+              })}
+            </section>
+          ) : (
+            <div className="agenda-empty">
+              <div className="empty-state agenda-empty-body">
+                <Icon name="check" />
+                <p>
+                  <strong>Nenhum evento aguardando confirmação.</strong> Eventos importados
+                  aparecerão aqui para confirmação manual.
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </Tabs>
       </section>
 

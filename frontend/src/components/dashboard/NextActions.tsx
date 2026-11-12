@@ -31,13 +31,7 @@ interface Group {
   count: number;
 }
 
-export function NextActions({
-  items,
-  members,
-}: {
-  items: WorkItem[];
-  members: TeamMember[];
-}) {
+export function NextActions({ items, members }: { items: WorkItem[]; members: TeamMember[] }) {
   const byId = new Map<string, TeamMember>(members.map((m) => [m.usuarioId, m]));
 
   const counts = new Map<string, number>();

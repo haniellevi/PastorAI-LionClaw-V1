@@ -14,11 +14,7 @@ import { formatLongDate, formatPublishedAt } from "@/components/minha-celula/for
 import { Icon, type IconKey } from "@/lib/icons";
 import type { CentralDashboard } from "@/lib/cell-central-api";
 
-import {
-  countActionableItems,
-  type TodayItem,
-  type TodayKind,
-} from "./today-queue";
+import { countActionableItems, type TodayItem, type TodayKind } from "./today-queue";
 import type { CellsSection, CentralTab } from "./types";
 
 interface CardDef {
@@ -182,7 +178,8 @@ export function DashboardPanel({
         <ul className="cc-today-queue">
           {shownQueue.map((item) => {
             const visual = KIND_VISUAL[item.kind];
-            const section = item.kind === "health" ? "health" : item.kind === "report" ? "reports" : undefined;
+            const section =
+              item.kind === "health" ? "health" : item.kind === "report" ? "reports" : undefined;
             return (
               <li key={item.id}>
                 <button
@@ -207,33 +204,33 @@ export function DashboardPanel({
 
       {dashboard && !error ? (
         <SupportReveal>
-        <details className="cc-today-summary">
-          <summary>Totais da igreja</summary>
-          <div className="central-cards">
-            {CARDS.map((card) => {
-              const value = dashboard[card.key] ?? 0;
-              const alert = Boolean(card.alertWhenPositive && value > 0);
-              return (
-                <button
-                  key={card.key}
-                  type="button"
-                  className={`central-card${alert ? " alert" : ""}`}
-                  onClick={() => onGoTo(card.goTo, card.section)}
-                >
-                  <div className="cc-lbl">
-                    <Icon name={card.icon} />
-                    {card.label}
-                  </div>
-                  <div className="cc-val num">{value}</div>
-                  <div className="cc-delta">
-                    {alert ? <span className="cc-delta-alert">Atenção · </span> : null}
-                    {card.delta}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </details>
+          <details className="cc-today-summary">
+            <summary>Totais da igreja</summary>
+            <div className="central-cards">
+              {CARDS.map((card) => {
+                const value = dashboard[card.key] ?? 0;
+                const alert = Boolean(card.alertWhenPositive && value > 0);
+                return (
+                  <button
+                    key={card.key}
+                    type="button"
+                    className={`central-card${alert ? " alert" : ""}`}
+                    onClick={() => onGoTo(card.goTo, card.section)}
+                  >
+                    <div className="cc-lbl">
+                      <Icon name={card.icon} />
+                      {card.label}
+                    </div>
+                    <div className="cc-val num">{value}</div>
+                    <div className="cc-delta">
+                      {alert ? <span className="cc-delta-alert">Atenção · </span> : null}
+                      {card.delta}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </details>
         </SupportReveal>
       ) : null}
     </section>

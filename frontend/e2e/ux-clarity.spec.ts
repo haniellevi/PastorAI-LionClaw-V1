@@ -15,7 +15,9 @@ test.beforeEach(async ({ request }) => {
   expect(fixture.ok()).toBeTruthy();
 });
 
-test("Hoje apresenta ação principal e permite descobrir as demais por teclado", async ({ page }, testInfo) => {
+test("Hoje apresenta ação principal e permite descobrir as demais por teclado", async ({
+  page,
+}, testInfo) => {
   const safety = await armBrowserSafety(page);
   await loginThroughUi(page);
 
@@ -45,7 +47,9 @@ test("Hoje apresenta ação principal e permite descobrir as demais por teclado"
   await conversations.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Conversas", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Assumir atendimento", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Assumir atendimento", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Ver pessoa", exact: true })).toBeVisible();
   expectCleanBrowser(safety);
 });
@@ -56,7 +60,10 @@ test("no celular o atendimento preserva busca e rascunho ao voltar à lista", as
   await loginThroughUi(page);
   await page.getByRole("link", { name: "Abrir conversas" }).click();
   await page.getByRole("searchbox", { name: "Buscar conversa" }).fill("Contato B");
-  await page.locator(".conv").filter({ has: page.getByText("Contato B", { exact: true }) }).click();
+  await page
+    .locator(".conv")
+    .filter({ has: page.getByText("Contato B", { exact: true }) })
+    .click();
   await expect(page.getByText("Responsável: você", { exact: true })).toBeVisible();
   const composer = page.locator('.thread-foot input[type="text"]');
   await composer.fill("Rascunho sintético preservado");
@@ -66,12 +73,17 @@ test("no celular o atendimento preserva busca e rascunho ao voltar à lista", as
   await expect(composer).toHaveValue("Rascunho sintético preservado");
   await page.getByRole("button", { name: "Voltar para a lista de conversas" }).click();
   await expect(page.getByRole("searchbox", { name: "Buscar conversa" })).toHaveValue("Contato B");
-  await page.locator(".conv").filter({ has: page.getByText("Contato B", { exact: true }) }).click();
+  await page
+    .locator(".conv")
+    .filter({ has: page.getByText("Contato B", { exact: true }) })
+    .click();
   await expect(composer).toHaveValue("Rascunho sintético preservado");
   expectCleanBrowser(safety);
 });
 
-test("contraste renderizado e composição não perdem controles nas quatro larguras", async ({ page }, testInfo) => {
+test("contraste renderizado e composição não perdem controles nas quatro larguras", async ({
+  page,
+}, testInfo) => {
   const safety = await armBrowserSafety(page);
   await loginThroughUi(page);
   const measurements = [];
@@ -79,47 +91,62 @@ test("contraste renderizado e composição não perdem controles nas quatro larg
     await page.setViewportSize({ width, height: 1000 });
     await page.goto("/#dashboard");
     await expect(page.locator(".dh-item").first()).toBeVisible();
-    const contrast = await page.locator(".dh-item-meta").first().evaluate((el) => {
-      const canvas = document.createElement("canvas");
-      canvas.width = canvas.height = 1;
-      const ctx = canvas.getContext("2d")!;
-      const luminance = (color: string) => {
-        ctx.clearRect(0, 0, 1, 1);
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, 1, 1);
-        const rgb = ctx.getImageData(0, 0, 1, 1).data;
-        const channel = (index: number) => {
-          const s = rgb[index]! / 255;
-          return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    const contrast = await page
+      .locator(".dh-item-meta")
+      .first()
+      .evaluate((el) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 1;
+        const ctx = canvas.getContext("2d")!;
+        const luminance = (color: string) => {
+          ctx.clearRect(0, 0, 1, 1);
+          ctx.fillStyle = color;
+          ctx.fillRect(0, 0, 1, 1);
+          const rgb = ctx.getImageData(0, 0, 1, 1).data;
+          const channel = (index: number) => {
+            const s = rgb[index]! / 255;
+            return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+          };
+          return channel(0) * 0.2126 + channel(1) * 0.7152 + channel(2) * 0.0722;
         };
-        return channel(0) * 0.2126 + channel(1) * 0.7152 + channel(2) * 0.0722;
-      };
-      const fg = getComputedStyle(el).color;
-      const bg = getComputedStyle(el.closest(".dh-workboard")!).backgroundColor;
-      const ratio = (first: string, second: string) => {
-        const a = luminance(first);
-        const b = luminance(second);
-        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-      };
-      const root = getComputedStyle(document.documentElement);
-      const lead = document.querySelector<HTMLElement>(".dh-lead")!;
-      const hero = document.querySelector<HTMLElement>(".dh-hero")!;
-      const selected = document.querySelector<HTMLElement>(".sidebar .nav-item.active");
-      return {
-        fg, bg, ratio: ratio(fg, bg), fontSize: getComputedStyle(el).fontSize,
-        actionRatio: ratio(root.getPropertyValue("--text-on-action"), root.getPropertyValue("--action-primary")),
-        focusRatio: ratio(root.getPropertyValue("--focus-ring"), bg),
-        heroLeadRatio: ratio(getComputedStyle(lead).color, getComputedStyle(hero).backgroundColor),
-        selectedNavRatio: selected ? ratio(getComputedStyle(selected).color, getComputedStyle(selected).backgroundColor) : null,
-        heroHeight: hero.getBoundingClientRect().height,
-        heroTitleSize: getComputedStyle(hero.querySelector(".dh-title")!).fontSize,
-      };
-    });
+        const fg = getComputedStyle(el).color;
+        const bg = getComputedStyle(el.closest(".dh-workboard")!).backgroundColor;
+        const ratio = (first: string, second: string) => {
+          const a = luminance(first);
+          const b = luminance(second);
+          return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        };
+        const root = getComputedStyle(document.documentElement);
+        const lead = document.querySelector<HTMLElement>(".dh-lead")!;
+        const hero = document.querySelector<HTMLElement>(".dh-hero")!;
+        const selected = document.querySelector<HTMLElement>(".sidebar .nav-item.active");
+        return {
+          fg,
+          bg,
+          ratio: ratio(fg, bg),
+          fontSize: getComputedStyle(el).fontSize,
+          actionRatio: ratio(
+            root.getPropertyValue("--text-on-action"),
+            root.getPropertyValue("--action-primary"),
+          ),
+          focusRatio: ratio(root.getPropertyValue("--focus-ring"), bg),
+          heroLeadRatio: ratio(
+            getComputedStyle(lead).color,
+            getComputedStyle(hero).backgroundColor,
+          ),
+          selectedNavRatio: selected
+            ? ratio(getComputedStyle(selected).color, getComputedStyle(selected).backgroundColor)
+            : null,
+          heroHeight: hero.getBoundingClientRect().height,
+          heroTitleSize: getComputedStyle(hero.querySelector(".dh-title")!).fontSize,
+        };
+      });
     expect(contrast.ratio).toBeGreaterThanOrEqual(4.5);
     expect(contrast.actionRatio).toBeGreaterThanOrEqual(4.5);
     expect(contrast.focusRatio).toBeGreaterThanOrEqual(3);
     expect(contrast.heroLeadRatio).toBeGreaterThanOrEqual(4.5);
-    if (contrast.selectedNavRatio !== null) expect(contrast.selectedNavRatio).toBeGreaterThanOrEqual(4.5);
+    if (contrast.selectedNavRatio !== null)
+      expect(contrast.selectedNavRatio).toBeGreaterThanOrEqual(4.5);
     expect(contrast.fontSize).toBe("14px");
     expect(contrast.heroTitleSize).toBe(width <= 860 ? "28px" : "32px");
     if (width >= 1024) expect(contrast.heroHeight).toBeLessThanOrEqual(160);
@@ -134,7 +161,9 @@ test("contraste renderizado e composição não perdem controles nas quatro larg
       keyboardVisible: el.matches(":focus-visible"),
     }));
     expect(outline).toEqual({ width: "2px", style: "solid", keyboardVisible: true });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBeTruthy();
     await page.screenshot({ path: testInfo.outputPath(`hoje-${width}.png`), fullPage: true });
     await page.getByRole("link", { name: "Abrir conversas" }).click();
     await expect(page.getByRole("searchbox", { name: "Buscar conversa" })).toBeVisible();
@@ -151,19 +180,27 @@ test("contraste renderizado e composição não perdem controles nas quatro larg
       ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
       return {
         text: ctx.measureText(input.placeholder).width,
-        available: input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        available:
+          input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
       };
     });
     expect(placeholder.text).toBeLessThanOrEqual(placeholder.available);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBeTruthy();
     await page.screenshot({ path: testInfo.outputPath(`conversas-${width}.png`), fullPage: true });
     measurements.push({ width, contrast });
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(page.locator(".thread-head")).toBeVisible();
-  const reducedTransition = await page.locator(".conv").first().evaluate((el) =>
-    getComputedStyle(el).transitionDuration.split(",").map((duration) => parseFloat(duration)),
-  );
+  const reducedTransition = await page
+    .locator(".conv")
+    .first()
+    .evaluate((el) =>
+      getComputedStyle(el)
+        .transitionDuration.split(",")
+        .map((duration) => parseFloat(duration)),
+    );
   expect(Math.max(...reducedTransition)).toBeLessThanOrEqual(0.001);
   await attachJson(testInfo, "rendered-contrast", measurements);
   expectCleanBrowser(safety);

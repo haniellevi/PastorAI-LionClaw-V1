@@ -392,9 +392,10 @@ describe("CalendarioScreen — nome acessível do chip do mês (P2)", () => {
  */
 describe("CalendarioScreen — grade mensal mobile: seletor de dia + lista (VIS-2)", () => {
   const isoOf = (d: Date) =>
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-      d.getDate(),
-    ).padStart(2, "0")}`;
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(
+      2,
+      "0",
+    )}`;
   const todayIso = () => isoOf(new Date());
   /** Um dia do mês corrente diferente de hoje (1º, ou 2 se hoje for dia 1º). */
   const otherDayIso = () => {
@@ -479,9 +480,7 @@ describe("CalendarioScreen — grade mensal mobile: seletor de dia + lista (VIS-
     expect(container.querySelector(".ds-dialog-title")).toBeNull();
     // Seleção migrou para o dia tocado…
     expect(alvo!.getAttribute("aria-pressed")).toBe("true");
-    expect(
-      container.querySelectorAll('.cal-m-grid button[aria-pressed="true"]').length,
-    ).toBe(1);
+    expect(container.querySelectorAll('.cal-m-grid button[aria-pressed="true"]').length).toBe(1);
     // …e a lista abaixo passou a ser a do dia tocado, com estado vazio claro.
     expect(container.querySelector(".cal-m-day .panel-title")?.textContent).toContain(
       `Eventos em ${formatLongDate(otherDayIso())}`,

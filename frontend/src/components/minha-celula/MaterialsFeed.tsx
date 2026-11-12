@@ -35,12 +35,7 @@ export function MaterialsFeed({ materials }: { materials: Material[] }) {
                 {m.descricao ? <div className="sub">{m.descricao}</div> : null}
               </div>
               {m.url ? (
-                <a
-                  className="btn btn-sm"
-                  href={m.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <a className="btn btn-sm" href={m.url} target="_blank" rel="noopener noreferrer">
                   <Icon name="link" size={16} />
                   <span>Abrir</span>
                 </a>

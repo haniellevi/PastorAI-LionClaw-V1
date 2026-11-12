@@ -108,8 +108,8 @@ export function ArchiveContactModal({
             <div className="preserve-note" role="note">
               <Icon name="shield" />
               <span>
-                O cadastro <strong>não é excluído</strong>. Arquivar apenas marca a pessoa
-                como desligada — o histórico abaixo é preservado por completo:
+                O cadastro <strong>não é excluído</strong>. Arquivar apenas marca a pessoa como
+                desligada — o histórico abaixo é preservado por completo:
                 <PreflightItems items={preflight.preservados} />
               </span>
             </div>

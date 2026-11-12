@@ -27,12 +27,7 @@ import {
   upsertConsolidation,
   useConsolidationStore,
 } from "@/lib/consolidacao-store";
-import {
-  fetchContacts,
-  fetchPipeline,
-  followStatus,
-  type Contact,
-} from "@/lib/contacts-api";
+import { fetchContacts, fetchPipeline, followStatus, type Contact } from "@/lib/contacts-api";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { ApiError, fetchWorkQueue, type WorkItem } from "@/lib/dashboard-api";
 
@@ -53,7 +48,7 @@ export function useConsolidation() {
   const [people, setPeople] = useState<Contact[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cells, setCells] = useState<CellSummary[]>([]);
-  const [deadlinesReady,setDeadlinesReady] = useState(false);
+  const [deadlinesReady, setDeadlinesReady] = useState(false);
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -103,8 +98,27 @@ export function useConsolidation() {
       const generation = ++loadGeneration.current;
       try {
         // Deadline and labels enrich the list independently; no picker catalog blocks its first page.
-        void fetchWorkQueue(token).then(queue => { if (generation === loadGeneration.current) { setWorkItems(queue.items); setDeadlinesReady(true); } }).catch(err => { if (generation === loadGeneration.current && !handleSessionError(err)) setSupportError("Não foi possível confirmar os prazos da fila. Atualize para tentar novamente."); });
-        void fetchCellsFull(token).then(page => { if (generation === loadGeneration.current) setCells(page.items); }).catch(err => { if (generation === loadGeneration.current && !handleSessionError(err)) setSupportError("Nomes de células indisponíveis. Atualize para tentar novamente."); });
+        void fetchWorkQueue(token)
+          .then((queue) => {
+            if (generation === loadGeneration.current) {
+              setWorkItems(queue.items);
+              setDeadlinesReady(true);
+            }
+          })
+          .catch((err) => {
+            if (generation === loadGeneration.current && !handleSessionError(err))
+              setSupportError(
+                "Não foi possível confirmar os prazos da fila. Atualize para tentar novamente.",
+              );
+          });
+        void fetchCellsFull(token)
+          .then((page) => {
+            if (generation === loadGeneration.current) setCells(page.items);
+          })
+          .catch((err) => {
+            if (generation === loadGeneration.current && !handleSessionError(err))
+              setSupportError("Nomes de células indisponíveis. Atualize para tentar novamente.");
+          });
         const pipe = await fetchPipeline(token, "consolidar", 50);
         if (generation !== loadGeneration.current) return;
         setPeople(pipe.items);
@@ -115,9 +129,7 @@ export function useConsolidation() {
       } catch (err) {
         if (generation !== loadGeneration.current || handleSessionError(err)) return;
         setError(
-          err instanceof ApiError
-            ? err.message
-            : "Não foi possível carregar a consolidação.",
+          err instanceof ApiError ? err.message : "Não foi possível carregar a consolidação.",
         );
       } finally {
         if (generation === loadGeneration.current) setLoading(false);
@@ -128,7 +140,9 @@ export function useConsolidation() {
 
   useEffect(() => {
     void load("initial");
-    return () => { loadGeneration.current += 1; };
+    return () => {
+      loadGeneration.current += 1;
+    };
   }, [load]);
 
   useVisibleInterval(() => setNow(Date.now()), 30_000);
@@ -138,16 +152,27 @@ export function useConsolidation() {
     const generation = loadGeneration.current;
     setLoadingMore(true);
     try {
-      const page = await fetchPipeline(token,"consolidar",50,{page:pipelinePage+1});
+      const page = await fetchPipeline(token, "consolidar", 50, { page: pipelinePage + 1 });
       if (generation !== loadGeneration.current) return;
-      if (page.items.length === 0 && people.length < page.total) throw new ApiError(502,"A base mudou. Atualize para confirmar os próximos registros.");
-      setPeople(current => [...new Map([...current,...page.items].map(item => [item.id,item])).values()]);
-      setContacts(current => [...new Map([...current,...page.items].map(item => [item.id,item])).values()]);
+      if (page.items.length === 0 && people.length < page.total)
+        throw new ApiError(502, "A base mudou. Atualize para confirmar os próximos registros.");
+      setPeople((current) => [
+        ...new Map([...current, ...page.items].map((item) => [item.id, item])).values(),
+      ]);
+      setContacts((current) => [
+        ...new Map([...current, ...page.items].map((item) => [item.id, item])).values(),
+      ]);
       setPipelinePage(page.page);
       setPipelineTotal(page.total);
-    } catch(error) { if (generation === loadGeneration.current && !handleSessionError(error)) setError(error instanceof ApiError ? error.message : "Não foi possível carregar mais pessoas."); }
-    finally { if (generation === loadGeneration.current) setLoadingMore(false); }
-  },[token,loadingMore,people.length,pipelineTotal,pipelinePage,handleSessionError]);
+    } catch (error) {
+      if (generation === loadGeneration.current && !handleSessionError(error))
+        setError(
+          error instanceof ApiError ? error.message : "Não foi possível carregar mais pessoas.",
+        );
+    } finally {
+      if (generation === loadGeneration.current) setLoadingMore(false);
+    }
+  }, [token, loadingMore, people.length, pipelineTotal, pipelinePage, handleSessionError]);
 
   const toastTimer = useRef<number | null>(null);
   const flashToast = useCallback((t: Toast) => {
@@ -164,14 +189,13 @@ export function useConsolidation() {
 
   // ---- mapas derivados ----------------------------------------------------
   const cellName = useCallback(
-    (id: string | null) =>
-      id ? cells.find((c) => c.id === id)?.nome ?? "Célula" : "Sem célula",
+    (id: string | null) => (id ? (cells.find((c) => c.id === id)?.nome ?? "Célula") : "Sem célula"),
     [cells],
   );
 
   const personName = useCallback(
     (id: string | null) =>
-      id ? contacts.find((c) => c.id === id)?.nome ?? "Consolidador" : null,
+      id ? (contacts.find((c) => c.id === id)?.nome ?? "Consolidador") : null,
     [contacts],
   );
 
@@ -308,15 +332,9 @@ export function useConsolidation() {
       if (handleSessionError(err)) return;
       if (err instanceof StageGateError) {
         const nomes = err.etapasPendentes.join(", ");
-        setTrackError(
-          nomes
-            ? `Há etapas obrigatórias pendentes: ${nomes}.`
-            : err.message,
-        );
+        setTrackError(nomes ? `Há etapas obrigatórias pendentes: ${nomes}.` : err.message);
       } else {
-        setTrackError(
-          err instanceof ApiError ? err.message : "Não foi possível concluir.",
-        );
+        setTrackError(err instanceof ApiError ? err.message : "Não foi possível concluir.");
       }
     } finally {
       setTrackBusy(false);

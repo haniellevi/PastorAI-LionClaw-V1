@@ -144,7 +144,10 @@ describe("Topbar — papéis acumulados (Wave Visual W2)", () => {
     const chips = Array.from(container.querySelectorAll(".who .role-chip"));
     for (const chip of chips) {
       const match = Object.values(ROLE_DEFS).find((def) => def.label === chip.textContent);
-      expect(match, `chip com texto "${chip.textContent}" não bate com nenhum ROLE_DEFS.label`).toBeTruthy();
+      expect(
+        match,
+        `chip com texto "${chip.textContent}" não bate com nenhum ROLE_DEFS.label`,
+      ).toBeTruthy();
     }
   });
 
@@ -152,7 +155,9 @@ describe("Topbar — papéis acumulados (Wave Visual W2)", () => {
     const roles: Role[] = ["pastor", "membro", "operador"];
     renderWithRoles(roles);
     const chips = Array.from(container.querySelectorAll(".who .role-chip"));
-    const byLabel = Object.fromEntries(chips.map((c) => [c.textContent, c.classList.contains("lead")]));
+    const byLabel = Object.fromEntries(
+      chips.map((c) => [c.textContent, c.classList.contains("lead")]),
+    );
     expect(byLabel[ROLE_DEFS.pastor.label]).toBe(true);
     expect(byLabel[ROLE_DEFS.membro.label]).toBe(false);
     expect(byLabel[ROLE_DEFS.operador.label]).toBe(false);

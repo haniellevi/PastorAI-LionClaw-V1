@@ -33,7 +33,12 @@ export function ReportDetailModal({
 
   // Somente-leitura: fechar sem restrição (Esc/backdrop/botão do DsDialog).
   return (
-    <DsDialog className="ops-dialog" open onClose={onClose} title={`Relatório — ${report.celulaNome ?? "Célula"}`}>
+    <DsDialog
+      className="ops-dialog"
+      open
+      onClose={onClose}
+      title={`Relatório — ${report.celulaNome ?? "Célula"}`}
+    >
       <div className="modal-form ops-dialog">
         <div className="detail-head">
           <div>
@@ -72,8 +77,8 @@ export function ReportDetailModal({
           <div className="empty-state" style={{ padding: "var(--s5)" }}>
             <Icon name="clock" />
             <p>
-              <strong>Relatório ainda não enviado.</strong> O líder envia o
-              relatório desta reunião pelo painel Minha Célula.
+              <strong>Relatório ainda não enviado.</strong> O líder envia o relatório desta reunião
+              pelo painel Minha Célula.
             </p>
           </div>
         )}

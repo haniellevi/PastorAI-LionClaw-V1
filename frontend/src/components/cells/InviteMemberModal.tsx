@@ -50,7 +50,7 @@ export function AddCellMemberModal({
 
   const candidatos = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const elegiveis = (loadContactsPage ? lookup.result?.items ?? [] : contacts).filter(
+    const elegiveis = (loadContactsPage ? (lookup.result?.items ?? []) : contacts).filter(
       (contact) =>
         !contact.celulaId &&
         !contact.liderDeCelula &&
@@ -58,16 +58,19 @@ export function AddCellMemberModal({
         !contact.semInteresse &&
         !contact.arquivada,
     );
-    const base = q && !loadContactsPage
-      ? elegiveis.filter((contact) =>
-          `${contact.nome} ${contact.telefone}`.toLowerCase().includes(q),
-        )
-      : elegiveis;
+    const base =
+      q && !loadContactsPage
+        ? elegiveis.filter((contact) =>
+            `${contact.nome} ${contact.telefone}`.toLowerCase().includes(q),
+          )
+        : elegiveis;
     return base;
   }, [contacts, query, loadContactsPage, lookup.result]);
 
   const selected = selectedPerson?.id === pessoaId ? selectedPerson : null;
-  useEffect(() => { if (lookup.error instanceof SessionExpiredError) expireSession(); }, [lookup.error, expireSession]);
+  useEffect(() => {
+    if (lookup.error instanceof SessionExpiredError) expireSession();
+  }, [lookup.error, expireSession]);
 
   async function submit() {
     if (!token || !selected || sending) return;
@@ -75,9 +78,7 @@ export function AddCellMemberModal({
     setError(null);
     try {
       await addCellMember(token, celulaId, selected.id);
-      setSuccess(
-        `${selected.nome} foi adicionada à célula. O vínculo não cria acesso ao painel.`,
-      );
+      setSuccess(`${selected.nome} foi adicionada à célula. O vínculo não cria acesso ao painel.`);
       onAdded();
     } catch (err) {
       if (err instanceof SessionExpiredError) {
@@ -85,9 +86,7 @@ export function AddCellMemberModal({
         return;
       }
       setError(
-        err instanceof ApiError
-          ? err.message
-          : "Não foi possível adicionar a pessoa à célula.",
+        err instanceof ApiError ? err.message : "Não foi possível adicionar a pessoa à célula.",
       );
     } finally {
       setSending(false);
@@ -95,7 +94,8 @@ export function AddCellMemberModal({
   }
 
   return (
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!sending) onClose();
@@ -106,13 +106,11 @@ export function AddCellMemberModal({
         <div className="modal-form ops-dialog">
           <DsBanner kind="info">{success}</DsBanner>
           <p className="sub ds-muted">
-            Se esta pessoa também precisar entrar no sistema, conceda o acesso
-            separadamente em Equipe.
+            Se esta pessoa também precisar entrar no sistema, conceda o acesso separadamente em
+            Equipe.
           </p>
           <div className="modal-foot">
-            <DsButton onClick={onClose}>
-              Concluir
-            </DsButton>
+            <DsButton onClick={onClose}>Concluir</DsButton>
           </div>
         </div>
       ) : (
@@ -131,8 +129,8 @@ export function AddCellMemberModal({
           ) : null}
 
           <p className="sub ds-muted">
-            Escolha uma Pessoa já cadastrada. Esta ação apenas cria o vínculo
-            com a célula e não concede acesso ao painel.
+            Escolha uma Pessoa já cadastrada. Esta ação apenas cria o vínculo com a célula e não
+            concede acesso ao painel.
           </p>
 
           <div className="field">
@@ -151,10 +149,20 @@ export function AddCellMemberModal({
               data-autofocus=""
             />
             <div className="ops-pick-list">
-              {loadContactsPage && lookup.loading ? <p className="sub" role="status">Carregando Pessoas…</p> : lookup.error ? <div role="alert">
-                {lookup.error instanceof Error ? lookup.error.message : "Não foi possível carregar as Pessoas."}
-                <DsButton variant="secondary" onClick={lookup.retry}>Tentar novamente</DsButton>
-              </div> : candidatos.length === 0 ? (
+              {loadContactsPage && lookup.loading ? (
+                <p className="sub" role="status">
+                  Carregando Pessoas…
+                </p>
+              ) : lookup.error ? (
+                <div role="alert">
+                  {lookup.error instanceof Error
+                    ? lookup.error.message
+                    : "Não foi possível carregar as Pessoas."}
+                  <DsButton variant="secondary" onClick={lookup.retry}>
+                    Tentar novamente
+                  </DsButton>
+                </div>
+              ) : candidatos.length === 0 ? (
                 <p className="sub ds-muted ds-p-3">
                   Nenhuma Pessoa elegível sem célula foi encontrada.
                 </p>
@@ -174,9 +182,7 @@ export function AddCellMemberModal({
                     >
                       <span className="ops-pick-option-copy">
                         <span className="nm">{contact.nome}</span>
-                        <span className="sub mono ds-muted">
-                          {contact.telefone}
-                        </span>
+                        <span className="sub mono ds-muted">{contact.telefone}</span>
                       </span>
                       {isSelected ? <StatusPill tone="accent">Selecionada</StatusPill> : null}
                     </button>
@@ -184,19 +190,25 @@ export function AddCellMemberModal({
                 })
               )}
             </div>
-            {loadContactsPage ? <LookupPager result={lookup.result} loading={lookup.loading} onPage={lookup.setPage} /> : null}
-            {selected ? <p className="sub" role="status">Pessoa selecionada: <strong>{selected.nome}</strong></p> : null}
+            {loadContactsPage ? (
+              <LookupPager
+                result={lookup.result}
+                loading={lookup.loading}
+                onPage={lookup.setPage}
+              />
+            ) : null}
+            {selected ? (
+              <p className="sub" role="status">
+                Pessoa selecionada: <strong>{selected.nome}</strong>
+              </p>
+            ) : null}
           </div>
 
           <div className="modal-foot">
             <DsButton variant="secondary" onClick={onClose} disabled={sending}>
               Cancelar
             </DsButton>
-            <DsButton
-              type="submit"
-              disabled={!selected || sending}
-              loading={sending}
-            >
+            <DsButton type="submit" disabled={!selected || sending} loading={sending}>
               {sending ? "Adicionando…" : "Adicionar à célula"}
             </DsButton>
           </div>

@@ -40,15 +40,16 @@ const DIAS_SEMANA = [
 
 function normalizedWeekday(value: string): string | null {
   if (!value.trim()) return null;
-  const key = (day: string) => day.normalize("NFKD").replace(/\p{M}/gu, "")
-    .trim().toLowerCase();
+  const key = (day: string) => day.normalize("NFKD").replace(/\p{M}/gu, "").trim().toLowerCase();
   const token = key(value);
-  const input = token.endsWith("-feira") || token.endsWith(" feira")
-    ? token.slice(0, -6).trim() : token;
-  return DIAS_SEMANA.find((day) => {
-    const name = key(day).replace(/-feira$/, "");
-    return input === name || input === name.slice(0, 3);
-  }) ?? null;
+  const input =
+    token.endsWith("-feira") || token.endsWith(" feira") ? token.slice(0, -6).trim() : token;
+  return (
+    DIAS_SEMANA.find((day) => {
+      const name = key(day).replace(/-feira$/, "");
+      return input === name || input === name.slice(0, 3);
+    }) ?? null
+  );
 }
 
 export interface CellFormModalProps {
@@ -93,9 +94,11 @@ export function CellFormModal({
   const [horario, setHorario] = useState(cell?.horario ?? "");
   const [cobertura, setCobertura] = useState(cell?.coberturaEspiritual ?? "");
   const [ativo, setAtivo] = useState(cell?.ativo ?? true);
-  const [bairro, setBairro] = useState<string | undefined>(cell && cell.bairro === undefined ? undefined : cell?.bairro ?? "");
+  const [bairro, setBairro] = useState<string | undefined>(
+    cell && cell.bairro === undefined ? undefined : (cell?.bairro ?? ""),
+  );
   const [divulgarWhatsapp, setDivulgarWhatsapp] = useState<boolean | undefined>(
-    cell && cell.divulgarWhatsapp === undefined ? undefined : cell?.divulgarWhatsapp ?? false,
+    cell && cell.divulgarWhatsapp === undefined ? undefined : (cell?.divulgarWhatsapp ?? false),
   );
   const [bairroChanged, setBairroChanged] = useState(false);
   const [publishChanged, setPublishChanged] = useState(false);
@@ -103,14 +106,17 @@ export function CellFormModal({
   const [touched, setTouched] = useState(false);
   const [pickedLeader, setPickedLeader] = useState<CellLeaderOption | null>(null);
   const coverageLookup = useLookupPage(loadCoveragePage, cobertura);
-  useEffect(() => { if (coverageLookup.error instanceof SessionExpiredError) onSessionExpired?.(); }, [coverageLookup.error, onSessionExpired]);
+  useEffect(() => {
+    if (coverageLookup.error instanceof SessionExpiredError) onSessionExpired?.();
+  }, [coverageLookup.error, onSessionExpired]);
 
-  const currentLeaderOption = pickedLeader?.id === liderId ? pickedLeader : leaders.find((option) => option.id === liderId);
+  const currentLeaderOption =
+    pickedLeader?.id === liderId ? pickedLeader : leaders.find((option) => option.id === liderId);
   const leadershipBlocked =
-    canManageLeadership && (currentLeaderOption?.blocksSave === true || (!!loadLeadersPage && !!liderId && !currentLeaderOption));
-  const blockedLeaderOptions = leaders.filter(
-    (option) => !option.selectable && !option.current,
-  );
+    canManageLeadership &&
+    (currentLeaderOption?.blocksSave === true ||
+      (!!loadLeadersPage && !!liderId && !currentLeaderOption));
+  const blockedLeaderOptions = leaders.filter((option) => !option.selectable && !option.current);
 
   // Valor legado de dia ("Quinta 20h") vira opção extra do select: editar sem
   // mexer no campo preserva a string antiga em vez de apagá-la.
@@ -122,24 +128,39 @@ export function CellFormModal({
   const nomeError = touched && !nome.trim() ? "Informe o nome da célula." : undefined;
   const coberturaError =
     touched && !cobertura.trim() ? "A cobertura espiritual é obrigatória." : undefined;
-  const invalidBairro = publicDataEnabled && (bairroChanged || publishChanged) &&
-    divulgarWhatsapp === true && !bairro?.trim();
-  const bairroError = touched && invalidBairro ? "Informe o bairro antes de divulgar a célula." : undefined;
-  const invalidPublish = publicDataEnabled && canPublish && publishChanged && divulgarWhatsapp === true && !ativo;
-  const publishError = touched && invalidPublish
-    ? "Ative a célula antes de divulgar no WhatsApp." : undefined;
-  const validatePublicDay = publicDataEnabled && (
-    (canPublish && publishChanged && divulgarWhatsapp === true) ||
-    (cell?.divulgarWhatsapp === true && divulgarWhatsapp === true && diaChanged)
-  );
+  const invalidBairro =
+    publicDataEnabled &&
+    (bairroChanged || publishChanged) &&
+    divulgarWhatsapp === true &&
+    !bairro?.trim();
+  const bairroError =
+    touched && invalidBairro ? "Informe o bairro antes de divulgar a célula." : undefined;
+  const invalidPublish =
+    publicDataEnabled && canPublish && publishChanged && divulgarWhatsapp === true && !ativo;
+  const publishError =
+    touched && invalidPublish ? "Ative a célula antes de divulgar no WhatsApp." : undefined;
+  const validatePublicDay =
+    publicDataEnabled &&
+    ((canPublish && publishChanged && divulgarWhatsapp === true) ||
+      (cell?.divulgarWhatsapp === true && divulgarWhatsapp === true && diaChanged));
   const canonicalDay = normalizedWeekday(diaReuniao);
   const invalidPublicDay = validatePublicDay && Boolean(diaReuniao.trim()) && !canonicalDay;
-  const diaError = touched && invalidPublicDay
-    ? "Dia fora do padrão. Escolha um dia da semana ou deixe sem dia." : undefined;
+  const diaError =
+    touched && invalidPublicDay
+      ? "Dia fora do padrão. Escolha um dia da semana ou deixe sem dia."
+      : undefined;
 
   const submit = () => {
     setTouched(true);
-    if (!nome.trim() || !cobertura.trim() || leadershipBlocked || invalidBairro || invalidPublish || invalidPublicDay) return;
+    if (
+      !nome.trim() ||
+      !cobertura.trim() ||
+      leadershipBlocked ||
+      invalidBairro ||
+      invalidPublish ||
+      invalidPublicDay
+    )
+      return;
     onSubmit({
       id: cell?.id ?? null,
       nome: nome.trim(),
@@ -150,7 +171,8 @@ export function CellFormModal({
       ativo,
       ...(publicDataEnabled && bairroChanged ? { bairro: bairro?.trim() || null } : {}),
       ...(publicDataEnabled && canPublish && publishChanged && divulgarWhatsapp !== undefined
-        ? { divulgarWhatsapp } : {}),
+        ? { divulgarWhatsapp }
+        : {}),
     });
   };
 
@@ -160,80 +182,103 @@ export function CellFormModal({
     // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
     // primitive); fechar bloqueado enquanto salva. O foco inicial vai para o
     // campo Nome via [data-autofocus].
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
       }}
       title={title}
     >
-        <form
-          className="modal-form ops-dialog"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          {error ? (
-            <div className="error-banner" role="alert">
-              <Icon name="alert" />
-              <span>{error}</span>
-            </div>
-          ) : null}
+      <form
+        className="modal-form ops-dialog"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        {error ? (
+          <div className="error-banner" role="alert">
+            <Icon name="alert" />
+            <span>{error}</span>
+          </div>
+        ) : null}
 
-          <Field
-            label="Nome da célula"
-            value={nome}
-            onChange={(e) => setNome(e.target.value)}
-            placeholder="Ex.: Boas Novas"
-            error={nomeError}
-            data-autofocus=""
-          />
+        <Field
+          label="Nome da célula"
+          value={nome}
+          onChange={(e) => setNome(e.target.value)}
+          placeholder="Ex.: Boas Novas"
+          error={nomeError}
+          data-autofocus=""
+        />
 
-          <Field
-            label="Cobertura espiritual"
-            value={cobertura}
-            onChange={(e) => setCobertura(e.target.value)}
-            placeholder="Quem cobre espiritualmente esta célula"
-            helper="Obrigatória. Sugestões: pastores — ter célula não impede de cobrir."
-            error={coberturaError}
-            list="cf-cobertura-sugestoes"
-          />
-          <datalist id="cf-cobertura-sugestoes">
-            {(loadCoveragePage ? coverageLookup.result?.items ?? [] : coverageOptions).map((p) => (
-              <option key={p.id} value={p.nome} />
-            ))}
-          </datalist>
-          {coverageLookup.error ? <p role="alert" className="sub">Sugestões de cobertura indisponíveis. <DsButton variant="secondary" onClick={coverageLookup.retry}>Tentar novamente</DsButton></p> : null}
+        <Field
+          label="Cobertura espiritual"
+          value={cobertura}
+          onChange={(e) => setCobertura(e.target.value)}
+          placeholder="Quem cobre espiritualmente esta célula"
+          helper="Obrigatória. Sugestões: pastores — ter célula não impede de cobrir."
+          error={coberturaError}
+          list="cf-cobertura-sugestoes"
+        />
+        <datalist id="cf-cobertura-sugestoes">
+          {(loadCoveragePage ? (coverageLookup.result?.items ?? []) : coverageOptions).map((p) => (
+            <option key={p.id} value={p.nome} />
+          ))}
+        </datalist>
+        {coverageLookup.error ? (
+          <p role="alert" className="sub">
+            Sugestões de cobertura indisponíveis.{" "}
+            <DsButton variant="secondary" onClick={coverageLookup.retry}>
+              Tentar novamente
+            </DsButton>
+          </p>
+        ) : null}
 
-          {!editing ? <p role="note">Este cadastro cria uma célula sem líder. Para abrir com líder, solicite a abertura na área Enviar e aguarde a decisão da Central.</p> : (
+        {!editing ? (
+          <p role="note">
+            Este cadastro cria uma célula sem líder. Para abrir com líder, solicite a abertura na
+            área Enviar e aguarde a decisão da Central.
+          </p>
+        ) : (
           <div className="row">
             <div className="field">
               <label htmlFor="cf-lider">Líder da célula</label>
-              {loadLeadersPage && canManageLeadership ? <PaginatedLookup
-                inputId="cf-lider" label="Buscar líder apto" loadPage={loadLeadersPage}
-                selected={currentLeaderOption ?? null} getLabel={(option) => option.nome}
-                getDescription={(option) => option.reason} isDisabled={(option) => !option.selectable}
-                onSessionExpired={onSessionExpired} allowClear disabled={busy}
-                onSelect={(option) => { setPickedLeader(option); setLiderId(option?.id ?? ""); }}
-              /> : <select
-                id="cf-lider"
-                value={liderId}
-                onChange={(e) => setLiderId(e.target.value)}
-                disabled={!canManageLeadership}
-                aria-describedby="cf-lider-help"
-              >
-                <option value="">Sem líder definido</option>
-                {leaders.map((p) => (
-                  <option
-                    key={p.id}
-                    value={p.id}
-                    disabled={!p.selectable && p.id !== liderId}
-                  >
-                    {p.nome}{p.reason ? ` · ${p.reason}` : ""}
-                  </option>
-                ))}
-              </select>}
+              {loadLeadersPage && canManageLeadership ? (
+                <PaginatedLookup
+                  inputId="cf-lider"
+                  label="Buscar líder apto"
+                  loadPage={loadLeadersPage}
+                  selected={currentLeaderOption ?? null}
+                  getLabel={(option) => option.nome}
+                  getDescription={(option) => option.reason}
+                  isDisabled={(option) => !option.selectable}
+                  onSessionExpired={onSessionExpired}
+                  allowClear
+                  disabled={busy}
+                  onSelect={(option) => {
+                    setPickedLeader(option);
+                    setLiderId(option?.id ?? "");
+                  }}
+                />
+              ) : (
+                <select
+                  id="cf-lider"
+                  value={liderId}
+                  onChange={(e) => setLiderId(e.target.value)}
+                  disabled={!canManageLeadership}
+                  aria-describedby="cf-lider-help"
+                >
+                  <option value="">Sem líder definido</option>
+                  {leaders.map((p) => (
+                    <option key={p.id} value={p.id} disabled={!p.selectable && p.id !== liderId}>
+                      {p.nome}
+                      {p.reason ? ` · ${p.reason}` : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
               <p id="cf-lider-help" className="sub ds-muted ops-help-tight">
                 {canManageLeadership
                   ? "Somente pessoas aptas e com acesso ativo ao painel podem assumir a liderança."
@@ -266,118 +311,159 @@ export function CellFormModal({
               ) : null}
             </div>
           </div>
+        )}
 
-          )}
-
-          <div className="row">
-            <div className="field">
-              <label htmlFor="cf-dia">Dia de reunião</label>
-              <select
-                id="cf-dia"
-                value={diaReuniao}
-                onChange={(e) => {
-                  setDiaReuniao(e.target.value);
-                  setDiaChanged(true);
-                }}
-                aria-invalid={Boolean(diaError) || undefined}
-                aria-describedby={diaError ? "cf-dia-error" : undefined}
-              >
-                <option value="">Sem dia definido</option>
-                {legacyDia ? <option value={legacyDia}>{legacyDia} (atual)</option> : null}
-                {DIAS_SEMANA.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-              {diaError ? <span id="cf-dia-error" className="err" role="alert">{diaError}</span> : null}
-            </div>
-            <Field
-              label="Horário"
-              type="time"
-              value={horario}
-              onChange={(e) => setHorario(e.target.value)}
-            />
+        <div className="row">
+          <div className="field">
+            <label htmlFor="cf-dia">Dia de reunião</label>
+            <select
+              id="cf-dia"
+              value={diaReuniao}
+              onChange={(e) => {
+                setDiaReuniao(e.target.value);
+                setDiaChanged(true);
+              }}
+              aria-invalid={Boolean(diaError) || undefined}
+              aria-describedby={diaError ? "cf-dia-error" : undefined}
+            >
+              <option value="">Sem dia definido</option>
+              {legacyDia ? <option value={legacyDia}>{legacyDia} (atual)</option> : null}
+              {DIAS_SEMANA.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+            {diaError ? (
+              <span id="cf-dia-error" className="err" role="alert">
+                {diaError}
+              </span>
+            ) : null}
           </div>
+          <Field
+            label="Horário"
+            type="time"
+            value={horario}
+            onChange={(e) => setHorario(e.target.value)}
+          />
+        </div>
 
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={ativo}
-              onChange={(e) => setAtivo(e.target.checked)}
-              disabled={!canManageLeadership}
-              aria-describedby="cf-active-help"
-            />
-            <span>Célula ativa</span>
-          </label>
-          <p id="cf-active-help" className="sub ds-muted">
-            {canManageLeadership
-              ? "Desativar preserva o histórico e retira a célula dos fluxos ativos."
-              : "Ativação e desativação são geridas exclusivamente na Central de Células."}
-          </p>
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={ativo}
+            onChange={(e) => setAtivo(e.target.checked)}
+            disabled={!canManageLeadership}
+            aria-describedby="cf-active-help"
+          />
+          <span>Célula ativa</span>
+        </label>
+        <p id="cf-active-help" className="sub ds-muted">
+          {canManageLeadership
+            ? "Desativar preserva o histórico e retira a célula dos fluxos ativos."
+            : "Ativação e desativação são geridas exclusivamente na Central de Células."}
+        </p>
 
-          {publicDataEnabled ? (
-            <fieldset className="ds-fieldset-reset">
-              <legend className="panel-title">Divulgação no WhatsApp</legend>
-              <p className="sub">Informe apenas o bairro público da célula, sem endereço residencial ou contato.</p>
-              <div className="field">
-                <label htmlFor="cf-bairro">Bairro da célula</label>
-                <input id="cf-bairro" value={bairro ?? ""} onChange={(event) => {
+        {publicDataEnabled ? (
+          <fieldset className="ds-fieldset-reset">
+            <legend className="panel-title">Divulgação no WhatsApp</legend>
+            <p className="sub">
+              Informe apenas o bairro público da célula, sem endereço residencial ou contato.
+            </p>
+            <div className="field">
+              <label htmlFor="cf-bairro">Bairro da célula</label>
+              <input
+                id="cf-bairro"
+                value={bairro ?? ""}
+                onChange={(event) => {
                   setBairro(event.target.value);
                   setBairroChanged(true);
                 }}
-                  aria-invalid={Boolean(bairroError) || undefined} aria-describedby={bairroError ? "cf-bairro-error" : undefined} />
-                {bairroError ? <span id="cf-bairro-error" className="err" role="alert">{bairroError}</span> : null}
-              </div>
-              {cell && (bairro === undefined || (canPublish && divulgarWhatsapp === undefined)) ? (
-                <p className="sub">Dados ausentes desta lista serão mantidos até alteração explícita.</p>
+                aria-invalid={Boolean(bairroError) || undefined}
+                aria-describedby={bairroError ? "cf-bairro-error" : undefined}
+              />
+              {bairroError ? (
+                <span id="cf-bairro-error" className="err" role="alert">
+                  {bairroError}
+                </span>
               ) : null}
-              {canPublish ? (
-                cell && cell.divulgarWhatsapp === undefined ? (
-                  <div className="field">
-                    <label htmlFor="cf-divulgar">Divulgação no WhatsApp</label>
-                    <select id="cf-divulgar" value={divulgarWhatsapp === undefined ? "" : String(divulgarWhatsapp)}
-                      aria-invalid={Boolean(publishError) || undefined}
-                      aria-describedby={publishError ? "cf-divulgar-error" : undefined}
-                      onChange={(event) => {
-                      setDivulgarWhatsapp(event.target.value === "true" ? true : event.target.value === "false" ? false : undefined);
+            </div>
+            {cell && (bairro === undefined || (canPublish && divulgarWhatsapp === undefined)) ? (
+              <p className="sub">
+                Dados ausentes desta lista serão mantidos até alteração explícita.
+              </p>
+            ) : null}
+            {canPublish ? (
+              cell && cell.divulgarWhatsapp === undefined ? (
+                <div className="field">
+                  <label htmlFor="cf-divulgar">Divulgação no WhatsApp</label>
+                  <select
+                    id="cf-divulgar"
+                    value={divulgarWhatsapp === undefined ? "" : String(divulgarWhatsapp)}
+                    aria-invalid={Boolean(publishError) || undefined}
+                    aria-describedby={publishError ? "cf-divulgar-error" : undefined}
+                    onChange={(event) => {
+                      setDivulgarWhatsapp(
+                        event.target.value === "true"
+                          ? true
+                          : event.target.value === "false"
+                            ? false
+                            : undefined,
+                      );
                       setPublishChanged(event.target.value !== "");
-                    }}>
-                      <option value="">Manter estado atual</option>
-                      <option value="true">Divulgar</option>
-                      <option value="false">Não divulgar</option>
-                    </select>
-                    {publishError ? <span id="cf-divulgar-error" className="err" role="alert">{publishError}</span> : null}
-                  </div>
-                ) : <>
+                    }}
+                  >
+                    <option value="">Manter estado atual</option>
+                    <option value="true">Divulgar</option>
+                    <option value="false">Não divulgar</option>
+                  </select>
+                  {publishError ? (
+                    <span id="cf-divulgar-error" className="err" role="alert">
+                      {publishError}
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <>
                   <label className="check-row">
-                    <input id="cf-divulgar" type="checkbox" checked={divulgarWhatsapp}
+                    <input
+                      id="cf-divulgar"
+                      type="checkbox"
+                      checked={divulgarWhatsapp}
                       onChange={(event) => {
                         setDivulgarWhatsapp(event.target.checked);
                         setPublishChanged(true);
-                      }} />
+                      }}
+                    />
                     <span>Divulgar célula no WhatsApp</span>
                   </label>
-                  {publishError ? <p className="err" role="alert">{publishError}</p> : null}
+                  {publishError ? (
+                    <p className="err" role="alert">
+                      {publishError}
+                    </p>
+                  ) : null}
                 </>
-              ) : <p className="sub">Somente pastor ou administrador pode alterar a divulgação.</p>}
-            </fieldset>
-          ) : null}
+              )
+            ) : (
+              <p className="sub">Somente pastor ou administrador pode alterar a divulgação.</p>
+            )}
+          </fieldset>
+        ) : null}
 
-          <div className="modal-foot">
-            <DsButton variant="secondary" onClick={onClose} disabled={busy}>
-              Cancelar
-            </DsButton>
-            <DsButton
-              type="submit"
-              loading={busy}
-              disabled={leadershipBlocked}
-              aria-describedby={leadershipBlocked ? "cf-leader-status" : undefined}
-            >
-              {busy ? "Salvando…" : editing ? "Salvar alterações" : "Criar célula"}
-            </DsButton>
-          </div>
-        </form>
+        <div className="modal-foot">
+          <DsButton variant="secondary" onClick={onClose} disabled={busy}>
+            Cancelar
+          </DsButton>
+          <DsButton
+            type="submit"
+            loading={busy}
+            disabled={leadershipBlocked}
+            aria-describedby={leadershipBlocked ? "cf-leader-status" : undefined}
+          >
+            {busy ? "Salvando…" : editing ? "Salvar alterações" : "Criar célula"}
+          </DsButton>
+        </div>
+      </form>
     </DsDialog>
   );
 }

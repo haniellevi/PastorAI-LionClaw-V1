@@ -55,9 +55,7 @@ export function IndicateVisitorModal({
       onIndicated?.(created.nome_visitante);
       onClose();
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Não foi possível indicar o visitante.",
-      );
+      setError(err instanceof ApiError ? err.message : "Não foi possível indicar o visitante.");
     } finally {
       setBusy(false);
     }
@@ -66,7 +64,8 @@ export function IndicateVisitorModal({
   return (
     // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
     // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -75,9 +74,7 @@ export function IndicateVisitorModal({
       description="Avise a liderança de quem você quer trazer para a próxima reunião."
     >
       <>
-
-
-      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
+        {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
           onSubmit={(e) => {

@@ -92,8 +92,7 @@ export function ComunicadosScreen() {
   const [contactsAttempt, setContactsAttempt] = useState(0);
   const [historyState, setHistoryState] = useState<"loading" | "ready" | "error">("loading");
   const [history, setHistory] = useState<BroadcastItem[]>([]);
-  const [capabilities, setCapabilities] =
-    useState<BroadcastCapabilities | null>(null);
+  const [capabilities, setCapabilities] = useState<BroadcastCapabilities | null>(null);
   const [conn, setConn] = useState<ConnState>("unknown");
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -130,7 +129,14 @@ export function ComunicadosScreen() {
       setError(null);
       try {
         setHistoryState("loading");
-        void fetchBroadcasts(token).then(page => { setHistory(page.items); setHistoryState("ready"); }).catch(err => { if (!handleSessionError(err)) setHistoryState("error"); });
+        void fetchBroadcasts(token)
+          .then((page) => {
+            setHistory(page.items);
+            setHistoryState("ready");
+          })
+          .catch((err) => {
+            if (!handleSessionError(err)) setHistoryState("error");
+          });
         const rollout = await fetchBroadcastCapabilities(token);
         setCapabilities(rollout);
         setLoaded(true);
@@ -143,7 +149,9 @@ export function ComunicadosScreen() {
         }
       } catch (err) {
         if (handleSessionError(err)) return;
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar os comunicados.");
+        setError(
+          err instanceof ApiError ? err.message : "Não foi possível carregar os comunicados.",
+        );
       } finally {
         setLoading(false);
       }
@@ -159,8 +167,19 @@ export function ComunicadosScreen() {
     if (!token || step !== "segment") return;
     let active = true;
     setContactsState("loading");
-    void fetchContacts(token).then(page => { if (active) { setContacts(page.items); setContactsState("ready"); } }).catch(err => { if (active && !handleSessionError(err)) setContactsState("error"); });
-    return () => { active = false; };
+    void fetchContacts(token)
+      .then((page) => {
+        if (active) {
+          setContacts(page.items);
+          setContactsState("ready");
+        }
+      })
+      .catch((err) => {
+        if (active && !handleSessionError(err)) setContactsState("error");
+      });
+    return () => {
+      active = false;
+    };
   }, [token, step, contactsAttempt, handleSessionError]);
 
   const toastTimer = useRef<number | null>(null);
@@ -193,14 +212,12 @@ export function ComunicadosScreen() {
   }, []);
 
   // ---- regras de envio ----------------------------------------------------
-  const externalSendsBlocked =
-    capabilities?.motivo === "envios_externos_desabilitados";
+  const externalSendsBlocked = capabilities?.motivo === "envios_externos_desabilitados";
   const dispatcherUnavailable = capabilities?.motivo === "despacho_indisponivel";
   const scheduleAvailable = capabilities?.agendamentoDisponivel === true;
   const whatsappUnavailable = isSendNowConnectionUnavailable(conn);
   const sendNowBlocked =
-    !scheduleOn &&
-    (whatsappUnavailable || externalSendsBlocked || dispatcherUnavailable);
+    !scheduleOn && (whatsappUnavailable || externalSendsBlocked || dispatcherUnavailable);
 
   const schedulePast = useMemo(() => {
     if (!scheduleOn || !data) return false;
@@ -210,7 +227,8 @@ export function ComunicadosScreen() {
 
   const composeReady = titulo.trim().length > 0 && mensagem.trim().length > 0;
   const segmentReady =
-    contactsState === "ready" && capabilities !== null &&
+    contactsState === "ready" &&
+    capabilities !== null &&
     selectedTokens.length > 0 &&
     recipients.length > 0 &&
     (!scheduleOn || (Boolean(data) && !schedulePast)) &&
@@ -247,11 +265,7 @@ export function ComunicadosScreen() {
       if (pendingRequest.current?.fingerprint !== fingerprint) {
         pendingRequest.current = { fingerprint, key: crypto.randomUUID() };
       }
-      const result = await createBroadcast(
-        token,
-        input,
-        pendingRequest.current.key,
-      );
+      const result = await createBroadcast(token, input, pendingRequest.current.key);
       pendingRequest.current = null;
 
       if (result.status === "bloqueado") {
@@ -309,7 +323,10 @@ export function ComunicadosScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen operations-screen communications-screen administration-ux" key="comunicados">
+    <div
+      className="screen operations-screen communications-screen administration-ux"
+      key="comunicados"
+    >
       <div className="screen-head">
         <div className="titles">
           <h2>Comunicação da igreja</h2>
@@ -336,9 +353,8 @@ export function ComunicadosScreen() {
             >
               <Icon name="alert" />
               <span>
-                Envios temporariamente desativados durante a validação de
-                produção. Você pode consultar o histórico, mas ainda não pode
-                disparar mensagens.
+                Envios temporariamente desativados durante a validação de produção. Você pode
+                consultar o histórico, mas ainda não pode disparar mensagens.
               </span>
             </div>
           ) : null}
@@ -391,25 +407,35 @@ export function ComunicadosScreen() {
                   placeholder="Escreva a mensagem que será enviada…"
                 />
                 <div className="helper">
-                  Opt-out e contatos sem consentimento são removidos do envio
-                  automaticamente.
+                  Opt-out e contatos sem consentimento são removidos do envio automaticamente.
                 </div>
               </div>
               <div className="modal-foot">
                 <span />
-                <DsButton
-                  disabled={!composeReady}
-                  onClick={() => setStep("segment")}
-                >
+                <DsButton disabled={!composeReady} onClick={() => setStep("segment")}>
                   Avançar
                 </DsButton>
               </div>
             </>
           ) : step === "segment" ? (
             <>
-              {contactsState === "loading" ? <p role="status">Carregando destinatários…</p> : contactsState === "error" ? <div role="alert">Não foi possível confirmar os destinatários. <DsButton variant="secondary" onClick={() => setContactsAttempt(value => value + 1)}>Tentar novamente</DsButton></div> : null}
+              {contactsState === "loading" ? (
+                <p role="status">Carregando destinatários…</p>
+              ) : contactsState === "error" ? (
+                <div role="alert">
+                  Não foi possível confirmar os destinatários.{" "}
+                  <DsButton
+                    variant="secondary"
+                    onClick={() => setContactsAttempt((value) => value + 1)}
+                  >
+                    Tentar novamente
+                  </DsButton>
+                </div>
+              ) : null}
               <div className="field">
-                <label>Segmentos <span className="helper ds-regular">· marque um ou mais</span></label>
+                <label>
+                  Segmentos <span className="helper ds-regular">· marque um ou mais</span>
+                </label>
                 <div className="seg-list">
                   {SEGMENTS.map((seg) => {
                     const count = countSegment(contacts, seg.token);
@@ -417,7 +443,11 @@ export function ComunicadosScreen() {
                       <div className="seg-row" key={seg.token}>
                         <div style={{ flex: 1 }}>
                           <div className="nm">{seg.label}</div>
-                          <div className="sub">{contactsState === "ready" ? `${count} contato(s)` : "Contagem aguardando confirmação"}</div>
+                          <div className="sub">
+                            {contactsState === "ready"
+                              ? `${count} contato(s)`
+                              : "Contagem aguardando confirmação"}
+                          </div>
                         </div>
                         <Toggle
                           label={seg.label}
@@ -431,14 +461,20 @@ export function ComunicadosScreen() {
               </div>
 
               {contactsState === "ready" && selectedTokens.length > 0 && recipients.length === 0 ? (
-                <div className="degraded-banner" role="status" style={{ borderRadius: "var(--r-md)" }}>
+                <div
+                  className="degraded-banner"
+                  role="status"
+                  style={{ borderRadius: "var(--r-md)" }}
+                >
                   <Icon name="alert" />
                   <span>Nenhuma pessoa nos segmentos selecionados. Escolha outro segmento.</span>
                 </div>
               ) : null}
 
               <div className="field">
-                <label>Destinatários estimados <span className="count">· {recipients.length}</span></label>
+                <label>
+                  Destinatários estimados <span className="count">· {recipients.length}</span>
+                </label>
                 <DataTable
                   columns={recipientColumns}
                   rows={recipients.slice(0, 50)}
@@ -450,8 +486,8 @@ export function ComunicadosScreen() {
                   }}
                 />
                 <div className="helper">
-                  Estimativa por segmento. O número final exclui opt-out e contatos
-                  sem consentimento (calculado no envio).
+                  Estimativa por segmento. O número final exclui opt-out e contatos sem
+                  consentimento (calculado no envio).
                 </div>
               </div>
 
@@ -467,7 +503,11 @@ export function ComunicadosScreen() {
                   />
                 </div>
                 {sendNowBlocked ? (
-                  <div className="degraded-banner" role="alert" style={{ borderRadius: "var(--r-md)", marginTop: "var(--s3)" }}>
+                  <div
+                    className="degraded-banner"
+                    role="alert"
+                    style={{ borderRadius: "var(--r-md)", marginTop: "var(--s3)" }}
+                  >
                     <Icon name="alert" />
                     <span>
                       {externalSendsBlocked
@@ -491,11 +531,21 @@ export function ComunicadosScreen() {
                   <div className="row">
                     <div className="field">
                       <label htmlFor="bcDate">Data</label>
-                      <input id="bcDate" type="date" value={data} onChange={(e) => setData(e.target.value)} />
+                      <input
+                        id="bcDate"
+                        type="date"
+                        value={data}
+                        onChange={(e) => setData(e.target.value)}
+                      />
                     </div>
                     <div className="field">
                       <label htmlFor="bcTime">Hora</label>
-                      <input id="bcTime" type="time" value={hora} onChange={(e) => setHora(e.target.value)} />
+                      <input
+                        id="bcTime"
+                        type="time"
+                        value={hora}
+                        onChange={(e) => setHora(e.target.value)}
+                      />
                     </div>
                   </div>
                   <div className="field">
@@ -524,10 +574,7 @@ export function ComunicadosScreen() {
                 <DsButton variant="secondary" onClick={() => setStep("compose")}>
                   Voltar
                 </DsButton>
-                <DsButton
-                  disabled={!segmentReady}
-                  onClick={() => setStep("review")}
-                >
+                <DsButton disabled={!segmentReady} onClick={() => setStep("review")}>
                   Revisar
                 </DsButton>
               </div>
@@ -568,29 +615,42 @@ export function ComunicadosScreen() {
               </div>
 
               {blocked ? (
-                <div className="degraded-banner" role="alert" style={{ borderRadius: "var(--r-md)" }}>
+                <div
+                  className="degraded-banner"
+                  role="alert"
+                  style={{ borderRadius: "var(--r-md)" }}
+                >
                   <Icon name="alert" />
                   <span>
-                    Envio bloqueado: alcance zero (todos com opt-out ou sem
-                    consentimento). {blocked.ignoradosOptout} contato(s) ignorado(s).
+                    Envio bloqueado: alcance zero (todos com opt-out ou sem consentimento).{" "}
+                    {blocked.ignoradosOptout} contato(s) ignorado(s).
                   </span>
                 </div>
               ) : null}
 
               <div className="modal-foot">
-                <DsButton variant="secondary" onClick={() => setStep("segment")} disabled={submitting}>
+                <DsButton
+                  variant="secondary"
+                  onClick={() => setStep("segment")}
+                  disabled={submitting}
+                >
                   Voltar
                 </DsButton>
                 <DsButton
                   disabled={
-                    submitting || !segmentReady ||
+                    submitting ||
+                    !segmentReady ||
                     externalSendsBlocked ||
                     (scheduleOn && !scheduleAvailable)
                   }
                   loading={submitting}
                   onClick={() => void handleSubmit()}
                 >
-                  {submitting ? "Enviando…" : scheduleOn ? "Agendar comunicado" : "Enviar comunicado"}
+                  {submitting
+                    ? "Enviando…"
+                    : scheduleOn
+                      ? "Agendar comunicado"
+                      : "Enviar comunicado"}
                 </DsButton>
               </div>
             </>
@@ -610,12 +670,20 @@ export function ComunicadosScreen() {
                 </div>
               ))}
             </div>
-          ) : historyState === "error" ? <div role="alert">Histórico indisponível. <DsButton variant="secondary" onClick={() => void load("retry")}>Tentar novamente</DsButton></div> : historyState === "loading" ? <p role="status">Carregando histórico…</p> : history.length === 0 ? (
+          ) : historyState === "error" ? (
+            <div role="alert">
+              Histórico indisponível.{" "}
+              <DsButton variant="secondary" onClick={() => void load("retry")}>
+                Tentar novamente
+              </DsButton>
+            </div>
+          ) : historyState === "loading" ? (
+            <p role="status">Carregando histórico…</p>
+          ) : history.length === 0 ? (
             <div className="empty-state ds-p-6">
               <Icon name="broadcast" />
               <p>
-                <strong>Nenhum comunicado ainda.</strong> Crie o primeiro envio
-                segmentado ao lado.
+                <strong>Nenhum comunicado ainda.</strong> Crie o primeiro envio segmentado ao lado.
               </p>
             </div>
           ) : (
@@ -630,9 +698,7 @@ export function ComunicadosScreen() {
                         .join(", ")}
                     </div>
                   </div>
-                  <StatusPill tone={statusTone(b)}>
-                    {broadcastStatusLabel(b)}
-                  </StatusPill>
+                  <StatusPill tone={statusTone(b)}>{broadcastStatusLabel(b)}</StatusPill>
                 </div>
               ))}
             </div>

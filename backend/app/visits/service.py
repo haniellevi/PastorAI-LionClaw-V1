@@ -7,7 +7,7 @@ import datetime as dt
 import uuid
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select, or_
+from sqlalchemy import ColumnElement, delete, func, select, or_
 from app.db.models import AppUser, CelulaExpectativaVisitante, CelulaVisitante, Pessoa, UserRole
 from app.domain.pipeline import PIPELINE_PROMOTE_ROLES, validate_transition
 from app.visits.models import VisitEvent
@@ -147,7 +147,7 @@ def lookup_people(db, actor, *, reuniao_id, q, page, page_size):
     pattern = '%' + term.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
     digits = ''.join(c for c in term if c.isdigit())
     phone = func.regexp_replace(Pessoa.telefone, '[^0-9]', '', 'g')
-    name_or_phone = [Pessoa.nome.ilike(pattern, escape='\\')]
+    name_or_phone: list[ColumnElement[bool]] = [Pessoa.nome.ilike(pattern, escape='\\')]
     if len(digits) >= 3:
         name_or_phone.append(phone.contains(digits))
     filters = [Pessoa.igreja_id == meeting.igreja_id, Pessoa.arquivada_em.is_(None),

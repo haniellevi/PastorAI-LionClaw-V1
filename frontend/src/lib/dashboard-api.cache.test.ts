@@ -88,14 +88,23 @@ describe("authedFetch navigation cache", () => {
   });
 });
 
-
 describe("authedFetch bounded freshness", () => {
-  afterEach(() => { clearAuthedResponseCache(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
+  afterEach(() => {
+    clearAuthedResponseCache();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.useRealTimers();
+  });
 
   it("cancela só o consumidor sem abortar outra leitura compartilhada", async () => {
     vi.stubEnv("NODE_ENV", "production");
     let resolve!: (response: Response) => void;
-    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => new Promise<Response>((done) => { resolve = done; }));
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const firstController = new AbortController();
     const first = authedFetch("actor", "/dashboard/overview", { signal: firstController.signal });
@@ -112,8 +121,14 @@ describe("authedFetch bounded freshness", () => {
   it("invalida após commit uma leitura iniciada durante a escrita", async () => {
     vi.stubEnv("NODE_ENV", "production");
     let commit!: (response: Response) => void;
-    const fetchMock = vi.fn()
-      .mockImplementationOnce(() => new Promise<Response>((done) => { commit = done; }))
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((done) => {
+            commit = done;
+          }),
+      )
       .mockResolvedValueOnce(Response.json({ version: "before-commit" }))
       .mockResolvedValueOnce(Response.json({ version: "committed" }));
     vi.stubGlobal("fetch", fetchMock);
@@ -128,7 +143,10 @@ describe("authedFetch bounded freshness", () => {
 
   it("encerra request geral pendente com deadline, mesmo se fetch ignorar abort", async () => {
     vi.useFakeTimers();
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
     const pending = authedFetch("actor", "/roles/permissions");
     const failed = expect(pending).rejects.toMatchObject({ status: 408 });
     await vi.advanceTimersByTimeAsync(20_000);

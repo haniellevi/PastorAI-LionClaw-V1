@@ -47,13 +47,21 @@ export function upsertConsolidation(entry: SessionConsolidation): void {
 }
 
 /** Aplica um patch parcial à consolidação de uma pessoa, se existir. */
-export function patchConsolidation(
-  pessoaId: string,
-  patch: Partial<SessionConsolidation>,
-): void {
+export function patchConsolidation(pessoaId: string, patch: Partial<SessionConsolidation>): void {
   const current = store.get(pessoaId);
   if (!current) return;
   store.set(pessoaId, { ...current, ...patch });
+  emit();
+}
+
+/**
+ * Esquece todas as consolidações da sessão. Chamado em login, logout e sessão
+ * expirada: o store é global ao módulo e, sem isso, dados de uma pessoa
+ * continuariam na aba depois da troca de usuário sem recarregar a página.
+ */
+export function clearConsolidations(): void {
+  if (store.size === 0) return;
+  store.clear();
   emit();
 }
 

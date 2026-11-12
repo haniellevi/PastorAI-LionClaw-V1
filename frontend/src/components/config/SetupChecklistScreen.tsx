@@ -106,8 +106,9 @@ export function SetupChecklistScreen() {
   }, [load]);
 
   const pending = items?.filter((i) => !i.done).length ?? 0;
-  const nextItem = items?.find((item) => !item.done && item.id !== "identidade")
-    ?? items?.find((item) => !item.done);
+  const nextItem =
+    items?.find((item) => !item.done && item.id !== "identidade") ??
+    items?.find((item) => !item.done);
 
   return (
     <div className="screen admin-screen setup-screen administration-ux" key="setup">
@@ -123,11 +124,7 @@ export function SetupChecklistScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <DsButton
-            variant="secondary"
-            onClick={() => void load()}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load()} disabled={loading}>
             Tentar novamente
           </DsButton>
         </div>
@@ -168,7 +165,13 @@ export function SetupChecklistScreen() {
                   </span>
                   <div className="qbody">
                     <strong>{copy.label}</strong>
-                    <div className="sub">{item.done ? "Configurado" : item.id === "identidade" ? "Opcional" : "Pendente"}</div>
+                    <div className="sub">
+                      {item.done
+                        ? "Configurado"
+                        : item.id === "identidade"
+                          ? "Opcional"
+                          : "Pendente"}
+                    </div>
                     <div className="meta">{item.done ? copy.done : copy.pending}</div>
                   </div>
                   <div className="qactions">
@@ -193,7 +196,10 @@ export function SetupChecklistScreen() {
           </ul>
         ) : null}
       </div>
-      <p className="sub admin-context">Configurar credencial ou conectar o WhatsApp não ativa o assistente. O estado do agente aparece na sua própria configuração.</p>
+      <p className="sub admin-context">
+        Configurar credencial ou conectar o WhatsApp não ativa o assistente. O estado do agente
+        aparece na sua própria configuração.
+      </p>
     </div>
   );
 }

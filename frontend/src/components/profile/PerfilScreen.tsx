@@ -155,8 +155,8 @@ export function PerfilScreen() {
         <form className="card card-pad" onSubmit={saveChatNome}>
           <h3>Nome no chat do WhatsApp</h3>
           <p className="sub ds-muted ds-mb-3">
-            Aparece nas suas respostas no WhatsApp (ex.: “Pastor Raniel Levi”). Em
-            branco, usa seu nome: <strong>{user?.nome}</strong>.
+            Aparece nas suas respostas no WhatsApp (ex.: “Pastor Raniel Levi”). Em branco, usa seu
+            nome: <strong>{user?.nome}</strong>.
           </p>
           {chatError ? (
             <div className="error-banner" role="alert">
@@ -180,9 +180,7 @@ export function PerfilScreen() {
 
         <form className="card card-pad" onSubmit={savePw}>
           <h3>Segurança da conta</h3>
-          <p className="sub ds-muted ds-mb-3">
-            Informe a senha atual para confirmar a troca.
-          </p>
+          <p className="sub ds-muted ds-mb-3">Informe a senha atual para confirmar a troca.</p>
           {pwError ? (
             <div className="error-banner" role="alert">
               <span>{pwError}</span>

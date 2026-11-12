@@ -172,8 +172,8 @@ export function IdentidadeVisualScreen() {
           <Icon name="image" /> Identidade Visual
         </div>
         <p className="sub ds-muted ds-m-0 ds-mt-2 ds-mb-3">
-          Logo da igreja exibida no sistema. É opcional: sem logo, mostramos o nome da
-          igreja. (Isto não altera a marca do produto “Igreja 12”.)
+          Logo da igreja exibida no sistema. É opcional: sem logo, mostramos o nome da igreja. (Isto
+          não altera a marca do produto “Igreja 12”.)
         </p>
 
         {loading ? (
@@ -213,10 +213,7 @@ export function IdentidadeVisualScreen() {
                   }}
                 />
               ) : (
-                <span
-                  className="identity-preview-name"
-                  title={nome}
-                >
+                <span className="identity-preview-name" title={nome}>
                   {nome}
                 </span>
               )}
@@ -232,13 +229,7 @@ export function IdentidadeVisualScreen() {
               </p>
             ) : null}
 
-            <input
-              ref={inputRef}
-              type="file"
-              accept={LOGO_ACCEPT_ATTR}
-              onChange={onPick}
-              hidden
-            />
+            <input ref={inputRef} type="file" accept={LOGO_ACCEPT_ATTR} onChange={onPick} hidden />
 
             <div className="ds-flex ds-gap-2 ds-wrap">
               <DsButton
@@ -252,18 +243,11 @@ export function IdentidadeVisualScreen() {
 
               {file ? (
                 <>
-                  <DsButton
-                    onClick={() => void submit()}
-                    disabled={busy}
-                  >
+                  <DsButton onClick={() => void submit()} disabled={busy}>
                     <Icon name="check" />
                     <span>{busy ? "Enviando…" : "Enviar logo"}</span>
                   </DsButton>
-                  <DsButton
-                    variant="secondary"
-                    onClick={clearSelection}
-                    disabled={busy}
-                  >
+                  <DsButton variant="secondary" onClick={clearSelection} disabled={busy}>
                     <span>Cancelar</span>
                   </DsButton>
                 </>
@@ -271,7 +255,12 @@ export function IdentidadeVisualScreen() {
                 <DsButton
                   variant="danger"
                   onClick={() => {
-                    if (window.confirm(`Remover a logo de ${nome}? O painel passa a exibir o nome da igreja.`)) void remove();
+                    if (
+                      window.confirm(
+                        `Remover a logo de ${nome}? O painel passa a exibir o nome da igreja.`,
+                      )
+                    )
+                      void remove();
                   }}
                   disabled={busy}
                 >

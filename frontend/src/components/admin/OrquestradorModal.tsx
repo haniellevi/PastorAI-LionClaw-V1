@@ -17,11 +17,7 @@ import "@/components/config/administration-ux-v2.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import {
-  AdminSessionExpiredError,
-  fetchOrquestrador,
-  saveOrquestrador,
-} from "@/lib/admin-api";
+import { AdminSessionExpiredError, fetchOrquestrador, saveOrquestrador } from "@/lib/admin-api";
 import { DsButton } from "@/components/ds/Button";
 
 export interface OrquestradorModalProps {
@@ -120,11 +116,7 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
             <DsButton variant="secondary" onClick={onClose} disabled={busy}>
               Fechar
             </DsButton>
-            <DsButton
-              type="submit"
-              form="orquestrador-form"
-              loading={busy}
-            >
+            <DsButton type="submit" form="orquestrador-form" loading={busy}>
               {busy ? "Salvando…" : "Salvar modelo"}
             </DsButton>
           </>
@@ -140,9 +132,8 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
         }}
       >
         <p className="sub ds-muted ds-mb-2">
-          Este é o modelo base do agente. Toda igreja aprovada começa com ele;
-          depois você pode ajustar por igreja na aba <strong>Agente</strong> da
-          página dela.
+          Este é o modelo base do agente. Toda igreja aprovada começa com ele; depois você pode
+          ajustar por igreja na aba <strong>Agente</strong> da página dela.
         </p>
 
         {error ? (
@@ -163,9 +154,7 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
         {!loaded ? (
           <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
             <span className="spinner" aria-hidden="true" />
-            <div className="sub ds-mt-2">
-              Carregando…
-            </div>
+            <div className="sub ds-mt-2">Carregando…</div>
           </div>
         ) : (
           <>

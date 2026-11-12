@@ -15,10 +15,7 @@ import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
 import { registerVisitor, lookupVisitorPeople, type VisitPerson } from "@/lib/cell-meetings-api";
-import type {
-  ReportVisitante,
-  VisitorExpectationItem,
-} from "@/lib/cell-meetings-api";
+import type { ReportVisitante, VisitorExpectationItem } from "@/lib/cell-meetings-api";
 import type { FlashToast } from "./types";
 
 export function VisitorsSection({
@@ -39,7 +36,11 @@ export function VisitorsSection({
   onChanged: () => void;
 }) {
   const [person, setPerson] = useState<VisitPerson | null>(null);
-  const loadPeople = useCallback((q: string, page: number, signal: AbortSignal) => lookupVisitorPeople(token,reuniaoId,{q,page,signal}),[token,reuniaoId]);
+  const loadPeople = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      lookupVisitorPeople(token, reuniaoId, { q, page, signal }),
+    [token, reuniaoId],
+  );
   const [expectedPeople, setExpectedPeople] = useState<Record<string, VisitPerson | null>>({});
   const [mode, setMode] = useState("person");
   const [name, setName] = useState("");
@@ -48,7 +49,7 @@ export function VisitorsSection({
     setExpectedPeople({});
     setName("");
     setObs("");
-  }, [token,reuniaoId]);
+  }, [token, reuniaoId]);
   const [obs, setObs] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -83,7 +84,7 @@ export function VisitorsSection({
 
   async function registerNew() {
     if (locked || busy || pendingId) return;
-    const trimmed = mode === "person" ? person?.nome ?? "" : name.trim();
+    const trimmed = mode === "person" ? (person?.nome ?? "") : name.trim();
     if (!trimmed) {
       setError("Selecione a pessoa ou informe o nome do visitante novo.");
       return;
@@ -138,10 +139,17 @@ export function VisitorsSection({
                 </div>
                 {!locked ? (
                   <div>
-                    <PaginatedLookup<VisitPerson> loadPage={loadPeople} selected={expectedPeople[e.id] ?? null}
-                      onSelect={p => setExpectedPeople(prev => ({...prev, [e.id]: p}))}
-                      label={`Pessoa para ${e.nome_visitante} (opcional)`} inputId={`visit-expected-${e.id}`}
-                      getLabel={p=>p.nome} getDescription={p=>p.telefone} disabled={busy || pendingId !== null} allowClear />
+                    <PaginatedLookup<VisitPerson>
+                      loadPage={loadPeople}
+                      selected={expectedPeople[e.id] ?? null}
+                      onSelect={(p) => setExpectedPeople((prev) => ({ ...prev, [e.id]: p }))}
+                      label={`Pessoa para ${e.nome_visitante} (opcional)`}
+                      inputId={`visit-expected-${e.id}`}
+                      getLabel={(p) => p.nome}
+                      getDescription={(p) => p.telefone}
+                      disabled={busy || pendingId !== null}
+                      allowClear
+                    />
                     <DsButton
                       variant="secondary"
                       onClick={() => void confirmExpected(e)}
@@ -149,9 +157,13 @@ export function VisitorsSection({
                       disabled={busy || pendingId !== null}
                     >
                       <Icon name="check" />
-                      <span>{pendingId === e.id ? "Confirmando…" : expectedPeople[e.id]
-                        ? `Confirmar ${e.nome_visitante} como ${expectedPeople[e.id]!.nome}`
-                        : `Confirmar ${e.nome_visitante} só pelo nome (não muda a etapa)`}</span>
+                      <span>
+                        {pendingId === e.id
+                          ? "Confirmando…"
+                          : expectedPeople[e.id]
+                            ? `Confirmar ${e.nome_visitante} como ${expectedPeople[e.id]!.nome}`
+                            : `Confirmar ${e.nome_visitante} só pelo nome (não muda a etapa)`}
+                      </span>
                     </DsButton>
                   </div>
                 ) : null}
@@ -170,7 +182,11 @@ export function VisitorsSection({
               <div className="list-row" key={v.id}>
                 <div className="grow ds-min-w-0">
                   <div className="nm">{v.nome_visitante}</div>
-                  {v.origem ? <div className="sub">Visita de célula · responsável: {v.responsavel_nome ?? "Equipe"}</div> : null}
+                  {v.origem ? (
+                    <div className="sub">
+                      Visita de célula · responsável: {v.responsavel_nome ?? "Equipe"}
+                    </div>
+                  ) : null}
                   {v.observacao ? <div className="sub">{v.observacao}</div> : null}
                 </div>
                 {v.expectativa_id ? (
@@ -195,18 +211,57 @@ export function VisitorsSection({
             <div className="subhead">Registrar visitante presente</div>
             <fieldset disabled={busy || pendingId !== null}>
               <legend>Como registrar</legend>
-              <label><input type="radio" name={`visit-mode-${reuniaoId}`} value="person" checked={mode === "person"} onChange={() => setMode("person")} /> Pessoa já cadastrada</label>
-              <label><input type="radio" name={`visit-mode-${reuniaoId}`} value="name" checked={mode === "name"} onChange={() => setMode("name")} /> Visitante novo (só nome, não muda a etapa)</label>
+              <label>
+                <input
+                  type="radio"
+                  name={`visit-mode-${reuniaoId}`}
+                  value="person"
+                  checked={mode === "person"}
+                  onChange={() => setMode("person")}
+                />{" "}
+                Pessoa já cadastrada
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name={`visit-mode-${reuniaoId}`}
+                  value="name"
+                  checked={mode === "name"}
+                  onChange={() => setMode("name")}
+                />{" "}
+                Visitante novo (só nome, não muda a etapa)
+              </label>
             </fieldset>
-            {mode === "person" ? <>
-              <PaginatedLookup<VisitPerson> loadPage={loadPeople} selected={person} onSelect={setPerson}
-                label="Buscar pessoa por nome ou telefone (mínimo 3 caracteres)" inputId={`visit-person-${reuniaoId}`}
-                getLabel={p=>p.nome} getDescription={p=>p.telefone} disabled={busy || pendingId !== null} allowClear />
-              <p className="muted-note">Confira o final do telefone. Esta seleção registra a visita e pode mudar a etapa da Pessoa.</p>
-            </> : <div className="field">
-              <label htmlFor={`vis-name-${reuniaoId}`}>Nome do visitante</label>
-              <input id={`vis-name-${reuniaoId}`} value={name} onChange={e => setName(e.target.value)} maxLength={120} disabled={busy || pendingId !== null} />
-            </div>}
+            {mode === "person" ? (
+              <>
+                <PaginatedLookup<VisitPerson>
+                  loadPage={loadPeople}
+                  selected={person}
+                  onSelect={setPerson}
+                  label="Buscar pessoa por nome ou telefone (mínimo 3 caracteres)"
+                  inputId={`visit-person-${reuniaoId}`}
+                  getLabel={(p) => p.nome}
+                  getDescription={(p) => p.telefone}
+                  disabled={busy || pendingId !== null}
+                  allowClear
+                />
+                <p className="muted-note">
+                  Confira o final do telefone. Esta seleção registra a visita e pode mudar a etapa
+                  da Pessoa.
+                </p>
+              </>
+            ) : (
+              <div className="field">
+                <label htmlFor={`vis-name-${reuniaoId}`}>Nome do visitante</label>
+                <input
+                  id={`vis-name-${reuniaoId}`}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={120}
+                  disabled={busy || pendingId !== null}
+                />
+              </div>
+            )}
             <div className="field">
               <label htmlFor={`vis-obs-${reuniaoId}`}>Observação (opcional)</label>
               <textarea

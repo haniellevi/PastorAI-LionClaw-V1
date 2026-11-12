@@ -201,10 +201,10 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
       }
     >
       <p className="sub ds-muted ds-mb-2">
-        Modo sombra: o Jev só registra probabilidades ao lado da decisão das
-        regras; não muda rota, resposta, consentimento nem etapa. O que você salva
-        aqui vale na hora, e campo vazio usa o ambiente do servidor. O guard{" "}
-        <code>ALLOW_REAL_SENDS</code> e a URL da API ficam só no servidor.
+        Modo sombra: o Jev só registra probabilidades ao lado da decisão das regras; não muda rota,
+        resposta, consentimento nem etapa. O que você salva aqui vale na hora, e campo vazio usa o
+        ambiente do servidor. O guard <code>ALLOW_REAL_SENDS</code> e a URL da API ficam só no
+        servidor.
       </p>
 
       {error ? (
@@ -222,9 +222,7 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
       {!loaded ? (
         <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
           <span className="spinner" aria-hidden="true" />
-          <div className="sub ds-mt-2">
-            Carregando…
-          </div>
+          <div className="sub ds-mt-2">Carregando…</div>
         </div>
       ) : status ? (
         <>
@@ -351,9 +349,7 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
                 value={dpa}
                 onChange={(e) => setDpa(e.target.value)}
               />
-              <div className="helper">
-                Sem esta data, nenhuma igreja pode ficar em modo sombra.
-              </div>
+              <div className="helper">Sem esta data, nenhuma igreja pode ficar em modo sombra.</div>
             </div>
             <fieldset
               className="field"
@@ -390,11 +386,7 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
                   : "Libera depois de informar a data do DPA."}
               </div>
             </fieldset>
-            <DsButton
-              type="submit"
-              loading={saving}
-              disabled={busy}
-            >
+            <DsButton type="submit" loading={saving} disabled={busy}>
               {saving ? "Salvando…" : "Salvar configuração"}
             </DsButton>
           </form>
@@ -413,8 +405,8 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
         >
           <span>
             Conectado ({teste.modelo}, {teste.latenciaMs} ms): intenção{" "}
-            <strong>{teste.intencao}</strong>, risco pastoral {pct(teste.riscoPastoral)},
-            opt-out {pct(teste.pedeOptout)}.
+            <strong>{teste.intencao}</strong>, risco pastoral {pct(teste.riscoPastoral)}, opt-out{" "}
+            {pct(teste.pedeOptout)}.
           </span>
         </div>
       ) : null}

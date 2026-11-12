@@ -31,7 +31,8 @@ const STATUS_TONE: Record<string, PillTone> = {
 };
 
 function statusMeta(h: CellHealth): { label: string; tone: PillTone } {
-  const tone = STATUS_TONE[h.status] ?? (h.vermelhos > 0 ? "danger" : h.alertas > 0 ? "warn" : "ok");
+  const tone =
+    STATUS_TONE[h.status] ?? (h.vermelhos > 0 ? "danger" : h.alertas > 0 ? "warn" : "ok");
   const label =
     h.status === "critico" || h.vermelhos > 1
       ? "Crítica"
@@ -56,7 +57,9 @@ export function CellHealthList({ token }: { token: string }) {
         setCells(res.cells);
         setLoaded(true);
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar a saúde das células.");
+        setError(
+          err instanceof ApiError ? err.message : "Não foi possível carregar a saúde das células.",
+        );
       } finally {
         setLoading(false);
       }

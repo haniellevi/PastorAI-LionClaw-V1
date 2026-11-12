@@ -31,7 +31,7 @@ from app.db.models import (
 from app.deps import CurrentUser
 from app.domain import cell_meetings_schedule as schedule
 from app.routers.cell_discipulo import (
-    _my_visitor_names, get_my_next_meeting, indicate_my_visitor,
+    get_my_history, get_my_next_meeting, indicate_my_visitor,
 )
 from app.routers.cell_meetings import RegisterExpectativaRequest, register_expectativa_visitante
 from app.services.agent_action_proposals import ProposalContractError
@@ -348,9 +348,18 @@ def test_visitor_http_pg_summary_sim_replay_and_private_human_source(visitor_htt
     with turn.factory() as session:
         projection = get_my_next_meeting(db=session, current_user=_member(turn))
         assert projection.meeting is not None and projection.meeting.id == str(turn.meeting_id)
-        # NextMeetingBody has no visitor-name field: use its REAL private source helper.
-        assert _my_visitor_names(session, _IGREJA, turn.meeting_id, turn.actor_id) == [_NAME]
-        assert _my_visitor_names(session, _IGREJA, turn.meeting_id, turn.target_id) == []
+        # The private projection is available after the meeting, through history.
+        session.execute(update(CelulaReuniao).where(
+            CelulaReuniao.id == turn.meeting_id, CelulaReuniao.igreja_id == _IGREJA,
+        ).values(data=dt.date(2000, 1, 1)))
+        history = get_my_history(page=1, page_size=20, db=session, current_user=_member(turn))
+        assert [item.meus_visitantes_indicados for item in history.items] == [[_NAME]]
+
+        session.execute(update(AppUser).where(
+            AppUser.id == turn.app_user_id, AppUser.igreja_id == _IGREJA,
+        ).values(pessoa_id=turn.target_id))
+        other = get_my_history(page=1, page_size=20, db=session, current_user=_member(turn))
+        assert [item.meus_visitantes_indicados for item in other.items] == [[]]
     assert all(len(presence._rows(turn, model)) == count for model, count in counts.items())
 
 
