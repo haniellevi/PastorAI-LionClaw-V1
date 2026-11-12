@@ -9,6 +9,7 @@ import {
   type PublicAgentProfileFacts,
 } from "@/lib/agent-api";
 import { ApiError } from "@/lib/dashboard-api";
+import { DsButton } from "@/components/ds/Button";
 
 type Cell = PublicAgentProfileFacts["celulas"][number] & { id: number };
 const EMPTY: PublicAgentProfileFacts = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
@@ -107,14 +108,14 @@ export function PublicAgentProfile({ token, expireSession }: { token: string; ex
   };
 
   return (
-    <form className="card card-pad" style={{ marginTop: "var(--s4)" }} onSubmit={(event) => { void submit(event); }}>
+    <form className="card card-pad ds-mt-4" onSubmit={(event) => { void submit(event); }}>
       <div className="panel-title">Informações públicas da igreja</div>
       <p className="sub">Publique somente dados institucionais aprovados. Não inclua telefone, líder ou endereço residencial. Salvar não ativa o agente.</p>
       {busy ? <p role="status">Carregando informações públicas…</p> : null}
       {scoped && !loading && configured === false ? <p role="status">Aguarde a configuração do agente pela plataforma para editar estas informações.</p> : null}
       {scoped && error ? <div className="error-banner" role="alert">{error}</div> : null}
-      {scoped && !loading && configured === null ? <button type="button" className="btn" onClick={() => setReload((value) => value + 1)}>Tentar novamente</button> : null}
-      <fieldset disabled={!canEdit} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      {scoped && !loading && configured === null ? <DsButton variant="secondary" onClick={() => setReload((value) => value + 1)}>Tentar novamente</DsButton> : null}
+      <fieldset disabled={!canEdit} className="ds-fieldset-reset">
         <div className="field">
           <label htmlFor="publicEndereco">Endereço institucional da igreja</label>
           <input id="publicEndereco" maxLength={400} value={visibleFacts.enderecoIgreja ?? ""} onChange={(event) => { setFacts((current) => ({ ...current, enderecoIgreja: event.target.value })); setSuccess(false); }} />
@@ -123,32 +124,32 @@ export function PublicAgentProfile({ token, expireSession }: { token: string; ex
           <label htmlFor="publicHorarios">Horários dos cultos</label>
           <textarea id="publicHorarios" rows={2} maxLength={400} value={visibleFacts.horariosCulto ?? ""} onChange={(event) => { setFacts((current) => ({ ...current, horariosCulto: event.target.value })); setSuccess(false); }} />
         </div>
-        <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset className="ds-fieldset-reset">
           <legend className="panel-title">Células públicas por bairro</legend>
           {visibleCells.length === 0 ? <p className="sub">Nenhuma célula publicada. Adicione uma se a igreja quiser indicar uma por bairro.</p> : null}
           {visibleCells.map((cell, index) => (
-            <div key={cell.id} className="admin-inline-section" style={{ marginBottom: "var(--s3)" }}>
-              <div className="row" style={{ flexWrap: "wrap" }}>
-                <div className="field" style={{ minWidth: "min(100%, 12rem)" }}>
+            <div key={cell.id} className="admin-inline-section ds-mb-3">
+              <div className="row ds-wrap">
+                <div className="field admin-field-fluid">
                   <label htmlFor={`publicBairro${index}`}>Bairro da célula {index + 1}</label>
                   <input id={`publicBairro${index}`} maxLength={400} value={cell.bairro} onChange={(event) => updateCell(cell.id, "bairro", event.target.value)} />
                 </div>
-                <div className="field" style={{ minWidth: "min(100%, 12rem)" }}>
+                <div className="field admin-field-fluid">
                   <label htmlFor={`publicNome${index}`}>Nome da célula {index + 1}</label>
                   <input id={`publicNome${index}`} maxLength={400} value={cell.nome} onChange={(event) => updateCell(cell.id, "nome", event.target.value)} />
                 </div>
-                <div className="field" style={{ minWidth: "min(100%, 12rem)" }}>
+                <div className="field admin-field-fluid">
                   <label htmlFor={`publicEncontro${index}`}>Dia e horário do encontro {index + 1} (opcional)</label>
                   <input id={`publicEncontro${index}`} maxLength={400} placeholder="terça, 19h" value={cell.encontro ?? ""} onChange={(event) => updateCell(cell.id, "encontro", event.target.value)} />
                 </div>
               </div>
-              <button type="button" className="btn" onClick={() => { setCells((current) => current.filter((item) => item.id !== cell.id)); setSuccess(false); }}>Remover célula {index + 1}</button>
+              <DsButton variant="secondary" onClick={() => { setCells((current) => current.filter((item) => item.id !== cell.id)); setSuccess(false); }}>Remover célula {index + 1}</DsButton>
             </div>
           ))}
-          <button type="button" className="btn" disabled={visibleCells.length >= 5} onClick={() => { setCells((current) => [...current, { id: nextId.current++, bairro: "", nome: "", encontro: null }]); setSuccess(false); }}>Adicionar célula</button>
+          <DsButton variant="secondary" disabled={visibleCells.length >= 5} onClick={() => { setCells((current) => [...current, { id: nextId.current++, bairro: "", nome: "", encontro: null }]); setSuccess(false); }}>Adicionar célula</DsButton>
         </fieldset>
-        <div style={{ marginTop: "var(--s4)" }}>
-          <button type="submit" className="btn btn-primary" disabled={!canEdit} aria-busy={saving || undefined}>{saving ? "Salvando…" : "Salvar informações públicas"}</button>
+        <div className="ds-mt-4">
+          <DsButton type="submit" disabled={!canEdit} loading={saving}>{saving ? "Salvando…" : "Salvar informações públicas"}</DsButton>
         </div>
       </fieldset>
       {scoped && success ? <p role="status">Informações públicas salvas.</p> : null}

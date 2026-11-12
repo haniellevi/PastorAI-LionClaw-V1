@@ -22,6 +22,7 @@ import {
   type AlertRecipient,
 } from "@/lib/calendar-api";
 import { Icon } from "@/lib/icons";
+import { DsButton } from "@/components/ds/Button";
 
 export function AlertRecipientsCard() {
   const { user, token, expireSession } = useAuth();
@@ -117,87 +118,80 @@ export function AlertRecipientsCard() {
   if (!isAdmin || loading) return null;
 
   return (
-    <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
+    <div className="card card-pad ds-mb-4">
       <div className="panel-title">
         <Icon name="bell" /> Destinatários dos avisos
       </div>
-      <p className="sub" style={{ color: "var(--muted)", margin: "var(--s2) 0 var(--s3)" }}>
+      <p className="sub ds-muted ds-m-0 ds-mt-2 ds-mb-3">
         Receberá avisos internos da Agenda por WhatsApp.
       </p>
 
       {error ? (
-        <p className="sub" role="alert" style={{ color: "var(--danger)", marginBottom: "var(--s2)" }}>
+        <p className="sub ds-text-danger ds-mb-2" role="alert">
           {error}
         </p>
       ) : null}
 
       {recipients.length > 0 ? (
-        <ul style={{ listStyle: "none", padding: 0, margin: "0 0 var(--s3)" }}>
+        <ul className="alert-recipient-list">
           {recipients.map((r) => (
             <li
               key={r.id}
-              className="conn-row"
-              style={{ gap: 8, padding: "var(--s2) 0", borderBottom: "1px solid var(--border)" }}
+              className="conn-row alert-recipient-row"
             >
-              <span style={{ flex: 1, opacity: r.ativo ? 1 : 0.55 }}>
+              <span className={r.ativo ? "alert-recipient-name" : "alert-recipient-name is-inactive"}>
                 {r.nome} · {r.telefone}
-                {r.ativo ? null : <span className="pill" style={{ marginLeft: 8 }}>inativo</span>}
+                {r.ativo ? null : <span className="pill alert-recipient-pill">inativo</span>}
               </span>
-              <button
-                type="button"
-                className="btn btn-sm"
+              <DsButton
+                variant="secondary"
                 onClick={() => void toggle(r)}
                 disabled={busyId === r.id}
               >
                 {r.ativo ? "Desativar" : "Ativar"}
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm btn-danger"
+              </DsButton>
+              <DsButton
+                variant="danger"
                 onClick={() => void remove(r)}
                 disabled={busyId === r.id}
                 aria-label={`Remover ${r.nome}`}
               >
                 <Icon name="trash" />
-              </button>
+              </DsButton>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+        <p className="sub ds-muted ds-mb-3">
           Nenhum destinatário configurado. Sem destinatário, a Agenda não envia avisos.
         </p>
       )}
 
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div className="ds-flex ds-gap-2 ds-wrap">
         <label className="sr-only" htmlFor="alert-recipient-nome">Nome</label>
         <input
           id="alert-recipient-nome"
-          className="input"
+          className="input alert-recipient-input"
           placeholder="Nome"
           value={nome}
           onChange={(e) => setNome(e.target.value)}
-          style={{ flex: "1 1 140px" }}
         />
         <label className="sr-only" htmlFor="alert-recipient-telefone">Telefone (WhatsApp)</label>
         <input
           id="alert-recipient-telefone"
-          className="input"
+          className="input alert-recipient-input alert-recipient-input--tel"
           placeholder="Telefone (WhatsApp)"
           value={telefone}
           onChange={(e) => setTelefone(e.target.value)}
           inputMode="tel"
-          style={{ flex: "1 1 160px" }}
         />
-        <button
-          type="button"
-          className="btn btn-primary"
+        <DsButton
           onClick={() => void add()}
           disabled={adding || !nome.trim() || !telefone.trim()}
         >
           <Icon name="plus" />
           <span>{adding ? "Adicionando…" : "Adicionar"}</span>
-        </button>
+        </DsButton>
       </div>
     </div>
   );

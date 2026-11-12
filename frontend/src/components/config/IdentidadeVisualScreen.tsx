@@ -23,6 +23,7 @@ import {
   type ChurchBranding,
 } from "@/lib/branding-api";
 import { Icon } from "@/lib/icons";
+import { DsButton } from "@/components/ds/Button";
 
 type Toast = { kind: "ok" | "err"; text: string };
 
@@ -166,53 +167,40 @@ export function IdentidadeVisualScreen() {
           <p>Atualize a logo exibida no painel.</p>
         </div>
       </div>
-      <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
+      <div className="card card-pad ds-mb-4">
         <div className="panel-title">
           <Icon name="image" /> Identidade Visual
         </div>
-        <p className="sub" style={{ color: "var(--muted)", margin: "var(--s2) 0 var(--s3)" }}>
+        <p className="sub ds-muted ds-m-0 ds-mt-2 ds-mb-3">
           Logo da igreja exibida no sistema. É opcional: sem logo, mostramos o nome da
           igreja. (Isto não altera a marca do produto “Igreja 12”.)
         </p>
 
         {loading ? (
-          <p className="sub" style={{ color: "var(--muted)" }}>Carregando…</p>
+          <p className="sub ds-muted">Carregando…</p>
         ) : (
           <>
             {/* Nome da igreja — read-only (só o master edita). */}
-            <label style={{ display: "block", marginBottom: "var(--s3)" }}>
-              <span className="sub" style={{ color: "var(--muted)" }}>Nome da igreja</span>
+            <label className="ds-block ds-mb-3">
+              <span className="sub ds-muted">Nome da igreja</span>
               <input
-                className="input"
+                className="input admin-input-block"
                 type="text"
                 value={nome}
                 readOnly
                 disabled
                 title={nome}
-                style={{ display: "block", marginTop: "var(--s1)", width: "100%" }}
               />
-              <span className="sub" style={{ color: "var(--muted)", fontSize: 12 }}>
+              <span className="sub ds-muted identity-name-hint">
                 Para alterar o nome da igreja, fale com o suporte.
               </span>
             </label>
 
             {/* Prévia: arquivo escolhido, ou logo salva, ou fallback pelo nome. */}
-            <div className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s1)" }}>
+            <div className="sub ds-muted ds-mb-1">
               {previewUrl ? "Prévia (ainda não salva)" : "Logo atual"}
             </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                minHeight: 96,
-                padding: "var(--s3)",
-                border: "1px solid var(--line)",
-                borderRadius: "var(--r2, 10px)",
-                background: "var(--bg-soft, #f7f7f8)",
-                marginBottom: "var(--s3)",
-              }}
-            >
+            <div className="identity-preview">
               {previewLogo ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -223,19 +211,10 @@ export function IdentidadeVisualScreen() {
                     // Se a logo salva falhar ao carregar, cai para o nome.
                     if (!previewUrl) setImgFailed(true);
                   }}
-                  style={{ maxWidth: "100%", maxHeight: 120, objectFit: "contain" }}
                 />
               ) : (
                 <span
-                  style={{
-                    fontWeight: 600,
-                    fontSize: 18,
-                    textAlign: "center",
-                    maxWidth: "100%",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
+                  className="identity-preview-name"
                   title={nome}
                 >
                   {nome}
@@ -243,12 +222,12 @@ export function IdentidadeVisualScreen() {
               )}
             </div>
 
-            <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+            <p className="sub ds-muted ds-mb-3">
               PNG, JPG ou WebP · até 1 MB · recomendado horizontal (ex.: 512×160).
             </p>
 
             {error ? (
-              <p className="sub" role="alert" style={{ color: "var(--danger)", marginBottom: "var(--s3)" }}>
+              <p className="sub ds-text-danger ds-mb-3" role="alert">
                 {error}
               </p>
             ) : null}
@@ -258,44 +237,39 @@ export function IdentidadeVisualScreen() {
               type="file"
               accept={LOGO_ACCEPT_ATTR}
               onChange={onPick}
-              style={{ display: "none" }}
+              hidden
             />
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                className="btn"
+            <div className="ds-flex ds-gap-2 ds-wrap">
+              <DsButton
+                variant="secondary"
                 onClick={() => inputRef.current?.click()}
                 disabled={busy}
               >
                 <Icon name="image" />
                 <span>{file ? "Trocar imagem" : "Escolher imagem"}</span>
-              </button>
+              </DsButton>
 
               {file ? (
                 <>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
+                  <DsButton
                     onClick={() => void submit()}
                     disabled={busy}
                   >
                     <Icon name="check" />
                     <span>{busy ? "Enviando…" : "Enviar logo"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
+                  </DsButton>
+                  <DsButton
+                    variant="secondary"
                     onClick={clearSelection}
                     disabled={busy}
                   >
                     <span>Cancelar</span>
-                  </button>
+                  </DsButton>
                 </>
               ) : savedLogo ? (
-                <button
-                  type="button"
-                  className="btn btn-danger"
+                <DsButton
+                  variant="danger"
                   onClick={() => {
                     if (window.confirm(`Remover a logo de ${nome}? O painel passa a exibir o nome da igreja.`)) void remove();
                   }}
@@ -303,7 +277,7 @@ export function IdentidadeVisualScreen() {
                 >
                   <Icon name="trash" />
                   <span>{busy ? "Removendo…" : "Remover logo"}</span>
-                </button>
+                </DsButton>
               ) : null}
             </div>
           </>
