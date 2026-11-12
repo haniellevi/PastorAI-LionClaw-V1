@@ -84,6 +84,9 @@ _CELL_REPORT_AUDIO_KEY_RE = re.compile(r"cell-report-audio/[0-9a-f]{64}\.(ogg|mp
 _ATTEMPT_INFO_TIMEOUT_SECONDS = 5.0
 _ATTEMPT_INFO_MAX_BYTES = 16 * 1024
 _TENANT_LIST_PAGE_SIZE = 100
+# Teto de páginas por pasta (100 objetos cada = 100 mil objetos). Passar disso
+# indica listagem travada; a falha impede apagar a igreja com lista parcial.
+_TENANT_LIST_MAX_PAGES = 1000
 _TENANT_REMOVE_BATCH_SIZE = 100
 
 
@@ -579,7 +582,7 @@ class SupabaseStorage:
                         continue
                     visited_prefixes.add(prefix)
                     offset = 0
-                    while True:
+                    for _page_number in range(_TENANT_LIST_MAX_PAGES):
                         if before_request is not None:
                             before_request()
                         response = client.post(
@@ -642,6 +645,12 @@ class SupabaseStorage:
                         if len(entries) < _TENANT_LIST_PAGE_SIZE:
                             break
                         offset += len(entries)
+                    else:
+                        logger.error(
+                            "Supabase Storage tenant list exceeded %d pages",
+                            _TENANT_LIST_MAX_PAGES,
+                        )
+                        raise StorageError("Listagem de armazenamento não terminou")
         except httpx.HTTPError as exc:
             logger.warning("Supabase Storage tenant list failed: %s", type(exc).__name__)
             raise StorageError("Falha ao listar objetos da igreja") from exc

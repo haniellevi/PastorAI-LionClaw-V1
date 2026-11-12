@@ -32,7 +32,14 @@ import {
 } from "./api";
 import { normalizeRoles, type Role } from "./roles";
 import type { PermissionMatrix } from "./permissions";
+import { clearConsolidations } from "./consolidacao-store";
 import { clearAuthedResponseCache } from "./dashboard-api";
+
+/** Esquece tudo que a sessão anterior deixou na memória da aba. */
+function clearSessionMemory(): void {
+  clearAuthedResponseCache();
+  clearConsolidations();
+}
 
 const TOKEN_KEY = "pastorai:token";
 const RETURN_KEY = "pastorai:returnTo";
@@ -288,7 +295,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const generation = ++sessionGeneration.current;
     const { token, permissions, ...me } = await apiLogin(email, password);
     if (generation !== sessionGeneration.current) throw new Error("Esta tentativa de acesso foi cancelada.");
-    clearAuthedResponseCache();
+    clearSessionMemory();
     setPermissionSnapshot(permissions ? { token, matrix: permissions } : null);
     preloadAuthenticatedSurface();
     tokenRef.current = token;
@@ -310,7 +317,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     setPermissionSnapshot(null);
-    clearAuthedResponseCache();
+    clearSessionMemory();
     tokenRef.current = null;
     writeToken(null);
     try {
@@ -334,7 +341,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const expireSession = useCallback(() => {
     sessionGeneration.current += 1;
     setPermissionSnapshot(null);
-    clearAuthedResponseCache();
+    clearSessionMemory();
     try {
       const current = window.location.hash.replace(/^#/, "");
       if (current && current !== "login") {
