@@ -245,10 +245,19 @@ def test_nginx_certbot_site_with_its_own_certificate_and_neighbours_round_trips(
     # a broader glob elsewhere could load the snippet too
     NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/*'),
     NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/maintenance.conf'),
+    # quoted or non-normalized forms nginx still resolves to the maintenance folder
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '"{dir}/*.conf"'),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', "'{dir}/*.conf'"),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/../igreja12-window//./*.conf'),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{link}/*.conf'),
+    # forms that cannot be judged statically refuse
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '/etc/nginx/$site/*.conf'),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '"/etc/nginx/a\\ b/*.conf"'),
 ])
 def test_nginx_snippet_reachable_from_another_system_refuses_before_any_effect(tmp_path, extra):
     ingress, fake = _certbot(tmp_path)
-    fake.extra = OPTIONS + extra.replace('{dir}', ingress.config.include_dir)
+    (tmp_path / 'alias').symlink_to(ingress.config.include_dir)  # another name for the same folder
+    fake.extra = OPTIONS + extra.replace('{dir}', ingress.config.include_dir).replace('{link}', str(tmp_path / 'alias'))
     for operation in ('observe', 'block', 'open'):
         with pytest.raises(Refused, match='^window-nginx-shared$'):
             getattr(ingress, operation)(SCOPE, timeout=5)

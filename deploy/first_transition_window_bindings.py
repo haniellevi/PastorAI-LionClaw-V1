@@ -240,18 +240,37 @@ def _validate_nginx_topology(text, config):
     return len(servers)
 
 
-def _glob_reaches(pattern, path):
-    """Whether an nginx ``include`` pattern (glob, relative to the prefix) can load ``path``."""
-    pattern = pattern if pattern.startswith('/') else NGINX_PREFIX + pattern
-    parts, target = pattern.split('/'), path.split('/')
+GLOB_CHARS = frozenset('*?[')
+
+
+def _include_target(argument):
+    """Absolute, normalized and symlink-resolved form of one ``include`` argument.
+
+    Quotes are removed as nginx does; ``..``, ``.`` and repeated slashes are normalized and the
+    literal directory prefix is resolved through symlinks. Variables and escapes cannot be judged
+    statically and refuse.
+    """
+    if len(argument) >= 2 and argument[0] == argument[-1] and argument[0] in '"\'':
+        argument = argument[1:-1]
+    require(argument and not set(argument) & set('"\'\\$'), 'window-nginx-shared')
+    path = os.path.normpath(argument if argument.startswith('/') else NGINX_PREFIX + argument)
+    parts = path.split('/')
+    literal = next((i for i, part in enumerate(parts) if set(part) & GLOB_CHARS), len(parts))
+    prefix = os.path.realpath('/'.join(parts[:literal]) or '/')
+    return '/'.join([prefix.rstrip('/'), *parts[literal:]]) if literal < len(parts) else prefix
+
+
+def _glob_reaches(argument, path):
+    """Whether an nginx ``include`` argument (glob, relative to the prefix) can load ``path``."""
+    parts, target = _include_target(argument).split('/'), os.path.realpath(path).split('/')
     return len(parts) == len(target) and all(fnmatch.fnmatchcase(t, p) for p, t in zip(parts, target))
 
 
 def _shared_nginx_guard(effective, config, snippet, servers):
     """The maintenance snippet can only reach THIS site: nothing else includes or names it."""
     plain = re.sub(r'#[^\n]*', '', effective)
-    includes = re.findall(r'(?:^|[;{}\s])include\s+([^;{}\s]+)\s*;', plain)
-    require(sum(1 for pattern in includes if _glob_reaches(pattern, str(snippet))) == 1
+    includes = re.findall(r'(?:^|[;{}\s])include\s+("[^"]*"|\'[^\']*\'|[^;{}\s]+)\s*;', plain)
+    require(sum(1 for argument in includes if _glob_reaches(argument, str(snippet))) == 1
             and plain.count(config.include_line) == 1, 'window-nginx-shared')
     require(sum(config.server_name.lower() in [token.strip("'\"").lower() for token in names.split()]
                 for names in re.findall(r'\bserver_name\s+([^;{}]+);', plain)) == servers,
