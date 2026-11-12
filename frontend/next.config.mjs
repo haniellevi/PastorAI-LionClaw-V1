@@ -1,9 +1,9 @@
 import { fileURLToPath } from "node:url";
 
-import { buildContentSecurityPolicy } from "./src/lib/csp.mjs";
-
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
+// A CSP em modo de teste (com nonce por documento) sai do middleware: ver
+// src/middleware.ts e src/lib/csp.mjs.
 const securityHeaders = [
   {
     key: "Content-Security-Policy",
@@ -16,14 +16,6 @@ const securityHeaders = [
   {
     key: "Permissions-Policy",
     value: "camera=(), geolocation=(), microphone=(self)",
-  },
-  {
-    // Modo de teste: só avisa no console do navegador, não bloqueia. Ver src/lib/csp.mjs.
-    key: "Content-Security-Policy-Report-Only",
-    value: buildContentSecurityPolicy({
-      apiUrl: process.env.NEXT_PUBLIC_API_URL,
-      dev: process.env.NODE_ENV === "development",
-    }),
   },
 ];
 

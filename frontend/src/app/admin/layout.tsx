@@ -9,9 +9,8 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-// Como o painel, é inteiramente client-side e auth-gated.
-export const dynamic = "force-static";
-
+// Como o painel, é inteiramente client-side e auth-gated. Renderiza a cada
+// acesso (herdado do root layout) para receber o nonce da CSP.
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return <AdminAuthProvider>{children}</AdminAuthProvider>;
 }

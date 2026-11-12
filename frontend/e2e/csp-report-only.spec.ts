@@ -17,6 +17,27 @@ test("CSP em modo de teste chega ao navegador e libera a API do build", async ({
     .map((part) => part.trim())
     .find((part) => part.startsWith("connect-src "));
   expect(connectSrc?.split(" ")).toContain(new URL(API_URL).origin);
+  // Scripts: nonce novo por documento no lugar de 'unsafe-inline'.
+  const scriptSrc = reportOnly
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("script-src "));
+  const nonce = scriptSrc?.match(/'nonce-([^']+)'/)?.[1];
+  expect(nonce).toBeTruthy();
+  expect(scriptSrc).toContain("'strict-dynamic'");
+  expect(scriptSrc).not.toContain("'unsafe-inline'");
+  const scriptNonces = await page
+    .locator("script")
+    .evaluateAll((scripts) => scripts.map((script) => (script as HTMLScriptElement).nonce));
+  expect(scriptNonces.length).toBeGreaterThan(0);
+  expect(new Set(scriptNonces)).toEqual(new Set([nonce]));
+  // Estilos: <style> só do painel ou com o nonce; inline só em atributos.
+  const styleSrcElem = reportOnly
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith("style-src-elem "));
+  expect(styleSrcElem?.split(" ")).toEqual(["style-src-elem", "'self'", `'nonce-${nonce}'`]);
+  expect(reportOnly).toContain("style-src-attr 'unsafe-inline'");
   // Modo de teste: o cabeçalho que bloqueia continua só com frame-ancestors.
   expect(response?.headers()["content-security-policy"]).toBe("frame-ancestors 'none'");
 

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { connection } from "next/server";
 
 // Webfonts self-hosted (Igreja 12 — F1). Servidas do node_modules via @fontsource;
 // o build empacota os woff2 localmente, sem chamadas externas. As famílias batem
@@ -49,9 +50,6 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
 };
 
-// O shell não contém dados de usuário no HTML do servidor: a sessão continua
-// resolvida no cliente pelo AuthProvider. Permitir pré-renderização estática
-// entrega a casca pela CDN e evita iniciar um render no servidor a cada acesso.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -62,7 +60,12 @@ export const viewport: Viewport = {
   colorScheme: "light",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// O shell não contém dados de usuário no HTML do servidor: a sessão continua
+// resolvida no cliente pelo AuthProvider. A casca renderiza a cada acesso só
+// para receber o nonce da CSP gerado pelo middleware (ver src/lib/csp.mjs);
+// uma página pré-renderizada teria scripts sem nonce.
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  await connection();
   return (
     <html lang="pt-BR">
       <body>{children}</body>

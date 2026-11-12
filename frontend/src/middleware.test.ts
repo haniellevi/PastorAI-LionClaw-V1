@@ -30,3 +30,35 @@ describe("middleware — documentos legais públicos", () => {
     );
   });
 });
+
+describe("middleware — CSP com nonce", () => {
+  const HEADER = "content-security-policy-report-only";
+
+  function nonceOf(policy: string | null) {
+    return policy?.match(/'nonce-([^']+)'/)?.[1];
+  }
+
+  it.each([
+    ["app.igreja12.com.br", "/"],
+    ["admin.igreja12.com.br", "/"],
+    ["painel.igreja12.com.br", "/igrejas"],
+    ["admin.igreja12.com.br", "/termos"],
+  ])("entrega o mesmo nonce ao Next e ao navegador em %s%s", (host, pathname) => {
+    const response = middleware(request(host, pathname));
+    const toBrowser = response.headers.get(HEADER);
+    const toNext = response.headers.get(`x-middleware-request-${HEADER}`);
+
+    expect(nonceOf(toBrowser)).toBeTruthy();
+    expect(toNext).toBe(toBrowser);
+    expect(response.headers.get("x-middleware-override-headers")).toContain(HEADER);
+    expect(toBrowser).toContain("'strict-dynamic'");
+    expect(toBrowser).not.toContain("'unsafe-inline' 'strict-dynamic'");
+  });
+
+  it("gera um nonce novo a cada documento", () => {
+    const first = nonceOf(middleware(request("app.igreja12.com.br", "/")).headers.get(HEADER));
+    const second = nonceOf(middleware(request("app.igreja12.com.br", "/")).headers.get(HEADER));
+
+    expect(first).not.toBe(second);
+  });
+});
