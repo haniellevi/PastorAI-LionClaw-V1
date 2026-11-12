@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.domain.permissions import ADMIN_ONLY, CENTRAL_ONLY, CENTRAL_ROLE
+from app.domain.conversations import INBOX_ROLES
+from app.domain.permissions import ADMIN_ONLY, CENTRAL_ONLY, CENTRAL_ROLE, INBOX_SCREEN
 
 # admin holds implicit access to every screen (mirrors deps.require_role).
 ADMIN_ROLE = "admin"
@@ -113,6 +114,9 @@ def allowed_screens_for_roles(
             if not is_central and tela in CENTRAL_ONLY:
                 continue
             if tela in {"universidade-vida", "capacitacao"} and role not in {"pastor", "lider_consol"}:
+                continue
+            # B3: Conversas só para os papéis fixos da inbox.
+            if tela == INBOX_SCREEN and role not in INBOX_ROLES:
                 continue
             allowed.add(tela)
     # dashboard is available to any authenticated panel user (delta-010).

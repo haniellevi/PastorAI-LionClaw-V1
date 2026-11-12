@@ -23,7 +23,6 @@ Lacunas restantes do PRD em 12/11/2026 (uma por linha):
 - RF-47: interface do assistente do sistema no painel.
 - RF-49: provisionamento automático da igreja após pagamento confirmado.
 - Decisão 21: encaminhar dúvida sem resposta ao responsável do setor e ao admin.
-- B3: remover da configuração a opção de acesso customizado à inbox.
 - B4: bloquear opt-out no envio humano; visitante em reunião passada só no painel.
 - Memória: checkpoint durável do LangGraph e provisionamento dos logins dedicados.
 - Especialistas completos por área no WhatsApp (Central e demais) e plataforma genérica de propostas.
@@ -169,7 +168,7 @@ significa ativa em produção.
 | Autenticação, RBAC e tenant (RF-01..05) | `IMPLEMENTADO / GATE OPERACIONAL` | Clerk, papéis por tela isolados por igreja (#536), logout no servidor (#568), fronteira privada D2A; RLS por `igreja_id` | MFA no console; cookie de sessão HttpOnly com revisão independente; CSP ainda em modo de teste; migration do logout e produção: não verificado |
 | Pessoas e responsabilidades | `IMPLEMENTADO / PARCIAL` | responsabilidade por setor com vigência (#530), pendências por responsabilidade (#534), gestão web (#539), vínculo Pessoa ↔ usuário (#543) | Composição completa por setor no Hoje; produção: não verificado |
 | Conexão WhatsApp (RF-06..09) | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário; sem idempotência no provedor se a Evolution der timeout |
-| Atendimento, conversas e handoff (RF-10..17) | `IMPLEMENTADO / GATE OPERACIONAL` | inbox, atribuição, devolução à IA, fila humana; resposta LLM com contexto curto; consultas públicas determinísticas | Aceite das 20 conversas; B3 (inbox só papéis fixos, remover opção customizada) decidido em 12/11 e não implementado |
+| Atendimento, conversas e handoff (RF-10..17) | `IMPLEMENTADO / GATE OPERACIONAL` | inbox, atribuição, devolução à IA, fila humana; resposta LLM com contexto curto; consultas públicas determinísticas | Aceite das 20 conversas; B3 implementado em código (Conversas só para os papéis fixos; a matriz remove, nunca concede), sem release |
 | Fundação do agente | `IMPLEMENTADO / PARCIAL` | LangGraph com contexto confiável D2B1, turno privilegiado com catálogo e roteador (`agent/privileged_turn.py`), propostas duráveis (`services/agent_action_proposals.py`) | Checkpointer não instalado (`agent/private_checkpoint.py` é só contrato fail-closed); especialistas completos por área; governança D2/D3/D6 a retomar após a primeira publicação |
 | Memória privada | `PARCIAL / GATE OPERACIONAL` | resumos privados por conversa (#526, #588), retomada pelo comando exato (#531), exclusão e pedido de exclusão (#509, #518, #535, #541, #561), logins dedicados (#583–#585, #590) | Checkpoint durável; logins não provisionados; tombstones; upload com resultado desconhecido; tudo desligado |
 | Conhecimento oficial | `IMPLEMENTADO / GATE OPERACIONAL` | base versionada, API e painel editorial, busca autorizada, exclusão admin e consulta WhatsApp (#513–#517, #524, #525), desligada | Decisão 21 (dúvida → responsável do setor; admin recebe sem responsável/escaladas) definida em 12/11 e não implementada; aceite pastoral |

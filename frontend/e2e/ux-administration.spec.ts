@@ -250,6 +250,11 @@ for (const width of [390, 1440]) {
     if (width < 760) {
       await page.getByRole("combobox", { name: "Responsabilidade" }).selectOption("membro");
       await expect(page.getByText("Restrito a pastor/admin", { exact: true })).toBeVisible();
+      // B3: Conversas não pode ser concedida a quem não atende.
+      await expect(page.getByText("Só para quem atende", { exact: true })).toBeVisible();
+      await expect(
+        page.getByRole("checkbox", { name: "Membro vê Conversas", exact: true }),
+      ).toHaveCount(0);
       await expect(
         page.getByRole("checkbox", { name: "Membro vê Central Célula", exact: true }),
       ).toHaveCount(0);

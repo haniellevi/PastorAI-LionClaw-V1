@@ -397,8 +397,12 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 - **em andamento:** dependências corrigidas e triadas (#463/#469/#470; Next 15.5.28 em #552);
   auditorias das dependências de produção registradas como limpas em 10/10, mas permaneciam cinco
   alertas altos nas ferramentas ligados a `braces`. Situação atual **não verificado**.
-- **falta (decidido em 12/11, implementar):** B3 inbox só para os papéis fixos
-  atuais, removendo da configuração a opção de acesso customizado; B4 envio
+- **feito (código, sem release):** B3 — a tela Conversas só existe para os
+  papéis fixos da inbox (pastor, líderes G12/consolidação/célula, operador;
+  admin implícito). Em #permissoes a opção some para os demais papéis; para os
+  fixos o admin ainda pode remover. Nenhum papel ganha acesso; o assistente do
+  painel segue a mesma regra.
+- **falta (decidido em 12/11, implementar):** B4 envio
   humano bloqueia contato com opt-out e visitante em reunião passada é aceito
   no painel e recusado no WhatsApp. Preservar opt-out global e regras por
   canal; refatoração não muda comportamento silenciosamente.
