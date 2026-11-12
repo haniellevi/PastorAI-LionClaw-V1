@@ -1044,10 +1044,11 @@ class CellAlert(Base):
         ForeignKey("celulas.id", ondelete="CASCADE"),
         nullable=False,
     )
-    pessoa_id: Mapped[uuid.UUID] = mapped_column(
+    # Nulo em alertas da célula inteira (relatório, meta, visitante sem cadastro).
+    pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("pessoas.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
     gatilho: Mapped[str | None] = mapped_column(Text, nullable=True)
     acao_esperada: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1056,6 +1057,36 @@ class CellAlert(Base):
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    # RF-26: regra que gerou o alerta + chave opaca do fato (idempotência).
+    regra_tipo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fato_chave: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CelulaAlertaRegra(Base):
+    """Regra de alerta ao líder configurada pelo admin (RF-26), uma por tipo."""
+
+    __tablename__ = "celula_alerta_regras"
+    __table_args__ = (UniqueConstraint("igreja_id", "tipo"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tipo: Mapped[str] = mapped_column(Text, nullable=False)
+    ativo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    parametros: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    atualizado_por: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    atualizado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("clock_timestamp()")
     )
 
 

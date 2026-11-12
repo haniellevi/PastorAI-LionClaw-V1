@@ -38,6 +38,7 @@ from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.services.billing_worker import run_pending_plan_changes
 from app.services.auth_sessions import purge_expired_auth_sessions
 from app.services.calendar_oauth_flows import purge_expired_flows
+from app.services.cell_alert_rules import run_cell_alert_cycle
 from app.services.cell_report_reminders import (
     purge_expired_cell_report_state,
 )
@@ -544,6 +545,20 @@ class CronWorker:
         self._record_progress()
         return purged, dispatched
 
+    def _run_cell_alert_cycle(self, *, now: dt.datetime) -> int:
+        """RF-26: avalia regras de alerta por estado do banco (gate por igreja).
+
+        Fronteira de erro própria: nunca derruba o tick. Sem igreja na lista
+        ``CELL_ALERT_ENABLED_IGREJA_IDS`` não abre sessão nenhuma.
+        """
+        try:
+            return run_cell_alert_cycle(self._session_factory, now=now)
+        except Exception:  # noqa: BLE001 - alertas não derrubam o tick
+            logger.exception("Cell alert cycle failed")
+            return 0
+        finally:
+            self._record_progress()
+
     def tick(self, now: dt.datetime | None = None) -> dict[str, int]:
         """Run one full cycle: purge + global SLA sweep + due crons.
 
@@ -556,6 +571,7 @@ class CronWorker:
         auth_sessions_purged = 0
         audio_purged = 0
         audio_dispatched = 0
+        cell_alerts_created = 0
         self._record_progress()
         session: Session = self._session_factory()
         try:
@@ -606,6 +622,7 @@ class CronWorker:
                 audio_purged, audio_dispatched = self._run_cell_report_audio_cycle(
                     now=reminder_now,
                 )
+                cell_alerts_created = self._run_cell_alert_cycle(now=now)
         return {
             "sla_handled": sla_handled,
             "crons_run": crons_run,
@@ -615,6 +632,8 @@ class CronWorker:
             "plan_changes_completed": plan_changes,
             "audio_purged": audio_purged,
             "audio_dispatched": audio_dispatched,
+            # RF-26: só aparece quando houve alerta novo (forma legada intacta).
+            **({"cell_alerts_created": cell_alerts_created} if cell_alerts_created else {}),
         }
 
     def run(self) -> None:

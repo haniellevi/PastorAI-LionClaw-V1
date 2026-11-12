@@ -133,10 +133,10 @@ def test_inbound_is_protected_before_worker_and_after_cancel(private_prayer):
         assert 'conteúdo pastoral' not in json.dumps(result)
         assert any(m['texto'] == MARKER for m in result['items'])
 
-@pytest.mark.parametrize('role', ['admin', 'secretaria', 'operador', 'lider_consol', 'lider_celula'])
+@pytest.mark.parametrize('role', ['admin', 'operador', 'lider_consol', 'lider_celula'])
 def test_inbox_masks_history_preview_and_media(private_prayer, role):
     p = private_prayer
-    if role in {'lider_consol', 'secretaria'}:
+    if role == 'lider_consol':
         import dataclasses
         base = p.actors['operador']
         p.actors[role] = dataclasses.replace(base, roles=frozenset({role}))
@@ -166,6 +166,18 @@ def test_inbox_masks_history_preview_and_media(private_prayer, role):
         assert response.status_code == 200
         assert response.json() == {'urls': {}}
         assert storage.paths == []
+
+def test_b3_matrix_grant_does_not_open_inbox_to_non_inbox_role(private_prayer):
+    # B3: a linha na matriz não concede a tela Conversas a papel fora da inbox.
+    import dataclasses
+    p = private_prayer
+    base = p.actors['operador']
+    p.actors['secretaria'] = dataclasses.replace(base, roles=frozenset({'secretaria'}))
+    with p.factory.begin() as db:
+        db.add(UserRole(igreja_id=TENANT, user_id=uuid.UUID(base.app_user_id), papel='secretaria'))
+    with client_for(p, 'secretaria') as client:
+        assert client.get(f'/conversations/{p.conv}/messages').status_code == 403
+        assert client.get('/conversations').status_code == 403
 
 def test_pastor_and_only_confirmed_nominal_leader_can_read(private_prayer):
     p = private_prayer
@@ -492,7 +504,7 @@ def test_reply_metadata_update_does_not_invert_handoff_locks(private_prayer):
     assert errors == []
 
 
-@pytest.mark.parametrize('role', ['admin', 'secretaria', 'pastor'])
+@pytest.mark.parametrize('role', ['admin', 'pastor'])
 @pytest.mark.parametrize('media', [False, True])
 def test_human_send_during_live_collection(private_prayer, monkeypatch, role, media):
     import dataclasses
@@ -500,11 +512,6 @@ def test_human_send_during_live_collection(private_prayer, monkeypatch, role, me
     from app.services.evolution import get_evolution_client
     from app.routers import conversations
     p = private_prayer
-    if role == 'secretaria':
-        base = p.actors['operador']
-        p.actors[role] = dataclasses.replace(base, roles=frozenset({role}))
-        with p.factory.begin() as db:
-            db.add(UserRole(igreja_id=TENANT, user_id=uuid.UUID(base.app_user_id), papel=role))
     send(p, 'Quero iniciar pedido de oração')
     with p.factory.begin() as db:
         db.get(Conversation, p.conv).estado = 'humano'

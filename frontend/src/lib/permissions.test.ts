@@ -14,6 +14,7 @@ import {
   canSee,
   CENTRAL_ONLY,
   CENTRAL_ROLE,
+  INBOX_ROLES,
   type PermissionMatrix,
 } from "./permissions";
 import type { Role } from "./roles";
@@ -163,4 +164,24 @@ it("CD restringe concessões legadas e permite coordenação/responsável", () =
   expect(canSee("capacitacao", ["pastor"])).toBe(true);
   expect(canSee("capacitacao", ["operador"], { operador: ["capacitacao"] })).toBe(false);
   expect(canSee("capacitacao", ["lider_g12"], { lider_g12: ["capacitacao"] })).toBe(false);
+});
+
+describe("B3 — Conversas só para os papéis fixos da inbox", () => {
+  it("matriz salva não concede Conversas a papel fora da inbox", () => {
+    const matrix: PermissionMatrix = { membro: ["inbox"], lider_mult: ["inbox", "g12"] };
+    expect(canSee("inbox", ["membro"], matrix)).toBe(false);
+    expect(canSee("inbox", ["lider_mult"], matrix)).toBe(false);
+    expect(allowedScreens(["lider_mult"], matrix)).toContain("g12");
+  });
+
+  it("papel fixo pode ter Conversas removida, sem ampliar", () => {
+    for (const role of INBOX_ROLES) {
+      expect(canSee("inbox", [role], { [role]: ["inbox"] })).toBe(true);
+      expect(canSee("inbox", [role], { [role]: ["dashboard"] })).toBe(false);
+    }
+  });
+
+  it("admin continua com acesso implícito", () => {
+    expect(canSee("inbox", ["admin"], {})).toBe(true);
+  });
 });

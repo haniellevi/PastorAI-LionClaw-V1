@@ -68,7 +68,7 @@ _HORARIO_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 # ---------------------------------------------------------------------------
 class AlertOut(BaseModel):
     id: str
-    pessoaId: str  # noqa: N815
+    pessoaId: str | None = None  # noqa: N815
     gatilho: str | None = None
     acaoEsperada: str | None = None  # noqa: N815
     tratado: bool
@@ -77,7 +77,7 @@ class AlertOut(BaseModel):
     def from_model(cls, a: CellAlert) -> "AlertOut":
         return cls(
             id=str(a.id),
-            pessoaId=str(a.pessoa_id),
+            pessoaId=str(a.pessoa_id) if a.pessoa_id else None,
             gatilho=a.gatilho,
             acaoEsperada=a.acao_esperada,
             tratado=a.tratado,
@@ -715,6 +715,90 @@ def led_cells_today(
             tema=f"{names[str(first.celula_id)]}: {first.tema or 'Reunião da célula'}",
         )
     return result
+
+
+class MyCellAlertOut(BaseModel):
+    id: str
+    celulaId: str  # noqa: N815
+    celulaNome: str  # noqa: N815
+    pessoaId: str | None = None  # noqa: N815
+    # Nome só quando o ator já veria essa Pessoa em /contacts (mesmo predicado).
+    pessoaNome: str | None = None  # noqa: N815
+    gatilho: str | None = None
+    acaoEsperada: str | None = None  # noqa: N815
+
+
+MY_CELL_ALERTS_LIMIT = 50
+
+
+def _visible_pessoa_names(
+    db: Session, current_user: CurrentUser, pessoa_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+    """Nomes das Pessoas que o ator pode ver na lista de Pessoas.
+
+    Reusa a visibilidade canônica de /contacts (``_contact_scope_conditions``)
+    e oculta arquivadas; Pessoa fora desse escopo fica sem nome.
+    """
+    if not pessoa_ids:
+        return {}
+    from app.services.contact_scope import _contact_scope_conditions
+
+    rows = db.execute(
+        select(Pessoa.id, Pessoa.nome).where(
+            Pessoa.id.in_(pessoa_ids),
+            Pessoa.arquivada_em.is_(None),
+            *_contact_scope_conditions(db, current_user),
+        )
+    ).all()
+    return {pid: nome for pid, nome in rows if nome}
+
+
+@router.get("/cells/me/alerts", response_model=list[MyCellAlertOut])
+def my_cell_alerts(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[MyCellAlertOut]:
+    """Alertas em aberto das células ATIVAS que o ator lidera diretamente (RF-26).
+
+    Mesma regra do detalhe para o líder: só o líder direto; superior na cadeia
+    não recebe. Pastor/admin consultam pela Central. ``igreja_id`` explícito
+    além da RLS.
+    """
+    tenant = uuid.UUID(current_user.igreja_id)
+    actor = _actor_pessoa_id(db, current_user)
+    if actor is None:
+        return []
+    rows = db.execute(
+        select(CellAlert, Celula.nome)
+        .join(
+            Celula,
+            (Celula.igreja_id == CellAlert.igreja_id) & (Celula.id == CellAlert.celula_id),
+        )
+        .where(
+            CellAlert.igreja_id == tenant,
+            Celula.igreja_id == tenant,
+            Celula.lider_id == uuid.UUID(actor),
+            Celula.ativo.is_(True),
+            CellAlert.tratado.is_(False),
+        )
+        .order_by(CellAlert.created_at.desc(), CellAlert.id)
+        .limit(MY_CELL_ALERTS_LIMIT)
+    ).all()
+    names = _visible_pessoa_names(
+        db, current_user, {a.pessoa_id for a, _ in rows if a.pessoa_id}
+    )
+    return [
+        MyCellAlertOut(
+            id=str(a.id),
+            celulaId=str(a.celula_id),
+            celulaNome=nome,
+            pessoaId=str(a.pessoa_id) if a.pessoa_id else None,
+            pessoaNome=names.get(a.pessoa_id) if a.pessoa_id else None,
+            gatilho=a.gatilho,
+            acaoEsperada=a.acao_esperada,
+        )
+        for a, nome in rows
+    ]
 
 
 class CellsSummaryOut(BaseModel):
