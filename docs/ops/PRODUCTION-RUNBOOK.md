@@ -869,7 +869,7 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 
 | Passo | O que acontece | SIM do Raniel |
 |---|---|---|
-| V1 | Leitura só de metadados do alvo: serviços e IDs, gates **por nome e valor** dos quatro processos antigos, cron do host, Redis, `release_preflight.py`, `migrate.py status`, duplicidades = 0. | **SIM 1** (leitura no alvo) |
+| V1 | Leitura só de metadados do alvo: serviços e IDs, gates **por nome e valor** dos quatro processos antigos, cron do host, Redis, `release_preflight.py`, `migrate.py status`, duplicidades = 0. Na sessão do aplicador (mesma DSN de `MIGRATION_DATABASE_URL`, sem `SET`): `SHOW statement_timeout` e `rolsuper`/`rolbypassrls` da role; a janela não confere nenhum dos dois e `migrate.py` herda o padrão da role. Timeout curto pode cortar backfill ou índice depois do ponto de não retorno: valor diferente de `0` exige decisão antes do SIM 3, sem alterar nada no SIM 1. | **SIM 1** (leitura no alvo) |
 | V2 | Conferir que o arquivo privado do candidato tem os mesmos gates por finalidade do antigo (piloto, agenda, V1a, V3). Os quatro gates principais ficam fechados nele; a A10 os sobrepõe com os valores antigos. Se algum gate por finalidade diferir, a verificação da A10 pode acusar cancelamento e conter. | dentro do SIM 1 |
 | V3 | Ensaio sintético verde no SHA escolhido e os quatro checks do CI. | — |
 | V4 | Aviso à equipe: todos serão deslogados; painel e WhatsApp ficam pausados durante a janela. | Raniel envia |
