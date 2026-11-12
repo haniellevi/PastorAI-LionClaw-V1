@@ -1,5 +1,8 @@
 # Decisões pendentes
 
+> **Histórico (arquivado em 11/11/2026).** Não é fonte ativa de planejamento;
+> o [ROADMAP](../../../ROADMAP.md) é o único roteiro vigente.
+
 Nenhuma destas escolhas deve ser resolvida por implementação silenciosa.
 
 ## D01. Quem é o admin principal

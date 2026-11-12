@@ -1,5 +1,8 @@
 # Plan Designer Igreja 12
 
+> **Histórico (arquivado em 11/11/2026).** Não é fonte ativa de planejamento;
+> o [ROADMAP](../../../ROADMAP.md) é o único roteiro vigente.
+
 Este diretório é o centro de planejamento integrado de UX, produto e experiência do PastorAI / Igreja 12.
 
 ## Regra de precedência
@@ -13,11 +16,11 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 
 ## Referência atual, 01/10/2026
 
-O [design system canônico](../DESIGN.md) incorpora o [conjunto expressivo v3 aprovado](../docs/design/UX-EXPRESSIVA-V3-APROVADA.md), com acesso split, assinatura mineral, títulos fortes e movimento decorativo acessível. A [execução v3](../docs/sprints/2026-10-01-ux-expressiva-v3.md) cobre todas as superfícies existentes e a publicação frontend autorizada. A base v2 aprovada mantém: contraste mais forte, corpo de 15 px, uma ação principal por cuidado e detalhes secundários sob demanda. [Design system e qualidade](07-DESIGN-SYSTEM-E-QUALIDADE.md) e [fluxos](10-FLUXOS-E-WIREFRAMES.md) conectam esse padrão ao planejamento.
+O [design system canônico](../../../DESIGN.md) incorpora o [conjunto expressivo v3 aprovado](../../design/UX-EXPRESSIVA-V3-APROVADA.md), com acesso split, assinatura mineral, títulos fortes e movimento decorativo acessível. A [execução v3](../../sprints/2026-10-01-ux-expressiva-v3.md) cobre todas as superfícies existentes e a publicação frontend autorizada. A base v2 aprovada mantém: contraste mais forte, corpo de 15 px, uma ação principal por cuidado e detalhes secundários sob demanda. [Design system e qualidade](07-DESIGN-SYSTEM-E-QUALIDADE.md) e [fluxos](10-FLUXOS-E-WIREFRAMES.md) conectam esse padrão ao planejamento.
 
-O [registro global v2](../docs/sprints/2026-10-01-ux-global-v2.md) consolida as 42 unidades aprovadas: acesso, navegação, Hoje, atendimento, pessoas, células, agenda, gestão, console e estados globais. A implementação preserva contratos, papéis, tenant e gates. As fontes que já atendiam à direção foram mantidas e verificadas; capacidades ausentes continuam explicitamente indisponíveis.
+O [registro global v2](../../sprints/2026-10-01-ux-global-v2.md) consolida as 42 unidades aprovadas: acesso, navegação, Hoje, atendimento, pessoas, células, agenda, gestão, console e estados globais. A implementação preserva contratos, papéis, tenant e gates. As fontes que já atendiam à direção foram mantidas e verificadas; capacidades ausentes continuam explicitamente indisponíveis.
 
-Os registros de [Hoje e Conversas](../docs/sprints/2026-09-30-ux-contraste-fluxo-v2.md) e [acesso F02](../docs/sprints/2026-09-30-ux-acesso-v2.md) preservam a evidência histórica. O estado geral do produto permanece na [Wiki](../docs/WIKI-IGREJA12.md) e na [matriz de cobertura](../docs/ai/PRD-COVERAGE.md). SHA e recibo da publicação pertencem à entrega global, sem inferir operação autenticada de provedores.
+Os registros de [Hoje e Conversas](../../sprints/2026-09-30-ux-contraste-fluxo-v2.md) e [acesso F02](../../sprints/2026-09-30-ux-acesso-v2.md) preservam a evidência histórica. O estado geral do produto permanece na [Wiki](../../WIKI-IGREJA12.md) e na [matriz de cobertura](../../ai/PRD-COVERAGE.md). SHA e recibo da publicação pertencem à entrega global, sem inferir operação autenticada de provedores.
 
 ## Histórico do programa, snapshot de 11/08/2026
 

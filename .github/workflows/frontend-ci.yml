@@ -7,10 +7,11 @@
 # executa-los na maquina local.
 #
 # Este job apenas EXECUTA os scripts que ja existem, na mesma ordem em que sao
-# rodados localmente. Nao altera `package.json`/`package-lock.json`, nao mexe
-# nos workflows existentes e nao define nenhuma variavel de ambiente: o
-# `next build` deste projeto conclui sem credencial (verificado com o lockfile
-# atual), entao nao ha secret a injetar nem valor falso a inventar.
+# rodados localmente. Nao altera `package.json`/`package-lock.json` e nao mexe
+# nos workflows existentes. O `next build` conclui sem credencial; a unica
+# variavel e `NEXT_PUBLIC_API_URL`, que o build de producao exige
+# (`src/lib/api-base.ts`). Aqui ela recebe um endereco sintetico `.test`, que
+# nao resolve e nao aponta para nenhum ambiente real.
 name: Frontend CI
 
 on:
@@ -63,6 +64,8 @@ jobs:
         run: npm test
 
       - name: Build de producao
+        env:
+          NEXT_PUBLIC_API_URL: https://synthetic-api.example.test
         run: npm run build
 
       - name: Smoke HTTP real dos headers de seguranca
