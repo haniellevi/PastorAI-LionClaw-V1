@@ -35,8 +35,10 @@ roteiro e dos registros históricos que digam o contrário.
   `37c7d68d`; ferramenta e painel no SHA da `main`. O painel só vai ao ar se o
   contrato da API for igual ao de `afdfb78d`; se não for, o J8 não publica nada
   (runbook §12.5). Conferido em 12/11 com a `main` que já tem a #665: contrato
-  idêntico. Kit da primeira virada: runbook §12.6. Falta o SIM da preparação da
-  VPS (V8/V9) antes do SIM 2.
+  idêntico. Kit da primeira virada: runbook §12.6. V8 feito; o primeiro
+  `rehearse-backup` (V9) recusou no restore (extensão `supabase_vault` ausente
+  na imagem oficial). Correção em PR; o V9 precisa ser refeito na VPS, com a
+  ferramenta atualizada, e fechar com `seconds` abaixo de 60 antes do SIM 2.
 - `statement_timeout` de 2 min na role do aplicador: não alterar a role. O
   caminho fixo da janela não repassa `PGOPTIONS` nem aceita `options` na URL;
   decisão em aberto com o orquestrador (runbook §12.6).

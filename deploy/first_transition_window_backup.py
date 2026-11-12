@@ -54,6 +54,24 @@ CLONE_ENV = 'POSTGRES_PASSWORD'
 RESTORE_ENV = 'PGPASSWORD'
 CLONE_DB = 'window_clone'
 Q_SOURCE_ROLES = "SELECT rolname FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY rolname COLLATE \"C\""
+CLONE_DUMP = '/tmp/igreja12-window.dump'
+CLONE_LIST = '/tmp/igreja12-window.list'
+MAX_LIST = 8 << 20
+STDERR_BOUND = 65536
+# pg_restore -l entry: "<dump id>; <catalog oid> <oid> <DESC> <namespace|-> <tag...> <owner|->"
+TOC_ENTRY = re.compile(r'(\d+); \d+ \d+ (.+)')
+TOC_VAULT_EXTENSION = re.compile(r'(?:EXTENSION - supabase_vault|COMMENT - EXTENSION supabase_vault)(?: \S+)?')
+TOC_VAULT_SCHEMA = re.compile(r'(?:ACL|DEFAULT ACL|COMMENT|SECURITY LABEL) (?:vault .*|- SCHEMA vault(?: \S+)?)')
+TOC_EVENT_TRIGGER = re.compile(r'EVENT TRIGGER - (\S+) (\S+)')
+TOC_EVENT_COMMENT = re.compile(r'COMMENT - EVENT TRIGGER (\S+)(?: \S+)?')
+# Fixed vocabulary of the object kind that stopped pg_restore (never a name, value or message text).
+RESTORE_KINDS = ('EXTENSION', 'EVENT TRIGGER', 'PUBLICATION TABLE', 'PUBLICATION', 'SCHEMA', 'TABLE DATA', 'TABLE',
+                 'FUNCTION', 'PROCEDURE', 'TRIGGER', 'VIEW', 'MATERIALIZED VIEW', 'POLICY', 'INDEX', 'FK CONSTRAINT',
+                 'CONSTRAINT', 'SEQUENCE', 'TYPE', 'DOMAIN', 'ACL', 'DEFAULT ACL', 'COMMENT', 'OWNER', 'RULE',
+                 'AGGREGATE', 'COLLATION', 'CAST', 'FOREIGN TABLE', 'SERVER', 'FOREIGN DATA WRAPPER', 'ROW SECURITY',
+                 'SEQUENCE OWNED BY', 'SEQUENCE SET', 'DEFAULT', 'STATISTICS', 'OPERATOR', 'SECURITY LABEL')
+TOC_ERROR = re.compile(rb'from TOC entry \d+; \d+ \d+ (' + b'|'.join(
+    re.escape(k.encode()) for k in sorted(RESTORE_KINDS, key=len, reverse=True)) + rb') ')
 TIMEOUTS = {'dump_s': 1800, 'ready_s': 180, 'restore_s': 1800, 'migration_s': 300, 'docker_s': 120}
 
 
@@ -167,6 +185,64 @@ def _psycopg2_clone(*, host, dbname, user, password, timeout):
                             application_name='igreja12-window-clone')
 
 
+def filter_restore_list(listing, superusers):
+    """Drop from a ``pg_restore -l`` listing ONLY what a plain PostgreSQL clone cannot restore.
+
+    1. ``supabase_vault`` (EXTENSION and its COMMENT) and the ACL/COMMENT entries inside schema ``vault``:
+       the official image has no such extension, whose objects are not in the dump either.
+    2. EVENT TRIGGERs (and their COMMENT) owned by a role that is not a clone superuser: PostgreSQL
+       refuses ``ALTER EVENT TRIGGER ... OWNER TO`` a non-superuser, and clone roles are mirrored
+       as NOLOGIN non-superusers. Event triggers owned by a superuser stay and fire during the replay.
+    Everything else (tables, data, policies, functions, publications, the ``public`` objects the catalog
+    fingerprint covers) is kept. Returns ``(lines, removed)``; ``removed`` holds counts only.
+    """
+    require(isinstance(listing, str) and isinstance(superusers, (tuple, frozenset)), 'window-backup-restore-list')
+    lines = listing.splitlines()
+    unsafe = {m.group(1) for line in lines if (e := TOC_ENTRY.fullmatch(line))
+              and (m := TOC_EVENT_TRIGGER.fullmatch(e.group(2))) and m.group(2) not in superusers}
+    kept, removed = [], dict(vault_extension=0, vault_schema=0, event_triggers=0)
+    for line in lines:
+        entry = TOC_ENTRY.fullmatch(line)
+        what = entry.group(2) if entry else ''
+        if TOC_VAULT_EXTENSION.fullmatch(what):
+            removed['vault_extension'] += 1
+        elif TOC_VAULT_SCHEMA.fullmatch(what):
+            removed['vault_schema'] += 1
+        elif (m := TOC_EVENT_TRIGGER.fullmatch(what)) and m.group(1) in unsafe \
+                or (m := TOC_EVENT_COMMENT.fullmatch(what)) and m.group(1) in unsafe:
+            removed['event_triggers'] += 1
+        else:
+            kept.append(line)
+    require(any(TOC_ENTRY.fullmatch(line) for line in kept), 'window-backup-restore-list')
+    return kept, removed
+
+
+def restore_error_code(stderr):
+    """Reduce pg_restore stderr to ``window-backup-restore-failed[-<kind>]``: only the object kind from the
+    first ``from TOC entry`` line, matched against a fixed vocabulary. No message, name or value leaves."""
+    match = TOC_ERROR.search(stderr or b'')
+    if match:
+        return 'window-backup-restore-failed-' + match.group(1).decode('ascii').lower().replace(' ', '-')
+    return 'window-backup-restore-failed'
+
+
+# Every code this module can raise, for first_transition_window.CODES (the entry point hides all others).
+BACKUP_CODES = frozenset({
+    'window-backup-already-used', 'window-backup-argv', 'window-backup-cleanup-failed', 'window-backup-clone-failed',
+    'window-backup-clone-inspect', 'window-backup-clone-is-source', 'window-backup-clone-migration-failed',
+    'window-backup-clone-not-ready', 'window-backup-clone-shape', 'window-backup-command', 'window-backup-config',
+    'window-backup-config-keys', 'window-backup-dump-failed', 'window-backup-dump-format',
+    'window-backup-final-invalid-index', 'window-backup-final-ledger', 'window-backup-image-unpinned',
+    'window-backup-network', 'window-backup-network-failed', 'window-backup-output', 'window-backup-paths',
+    'window-backup-plan', 'window-backup-request', 'window-backup-restore-catalog', 'window-backup-restore-failed',
+    'window-backup-restore-invalid-index', 'window-backup-restore-ledger', 'window-backup-restore-list',
+    'window-backup-restore-list-failed', 'window-backup-roles', 'window-backup-root-missing',
+    'window-backup-run-exists', 'window-backup-secret', 'window-backup-source-roles', 'window-backup-spawn-failed',
+    'window-backup-timeout', 'window-backup-timeouts', 'window-backup-workdir-missing',
+    *('window-backup-restore-failed-' + k.lower().replace(' ', '-') for k in RESTORE_KINDS),
+})
+
+
 class WindowBackup:
     """``backup_proof(request) -> receipt`` for exactly one window; see the module docstring.
 
@@ -188,7 +264,7 @@ class WindowBackup:
         self.used = False
 
     # -- process plumbing -----------------------------------------------------------------------
-    def _docker(self, args, *, timeout, env=None, stdin=None, stdout=None, capture=False):
+    def _docker(self, args, *, timeout, env=None, stdin=None, stdout=None, capture=False, stderr_out=False):
         """Docker CLI with explicit config/endpoint, constructed env, no shell; output discarded or bounded."""
         require(type(args) is tuple and args and all(type(a) is str and 0 < len(a) <= 4096 and '\x00' not in a
                                                      for a in args), 'window-backup-argv')
@@ -200,7 +276,7 @@ class WindowBackup:
         try:
             done = run(argv, stdin=stdin if stdin is not None else subprocess.DEVNULL,
                        stdout=stdout if stdout is not None else (subprocess.PIPE if capture else subprocess.DEVNULL),
-                       stderr=subprocess.DEVNULL, env=child_env, timeout=timeout, close_fds=True, shell=False,
+                       stderr=subprocess.PIPE if stderr_out else subprocess.DEVNULL, env=child_env, timeout=timeout, close_fds=True, shell=False,
                        check=False)
         except subprocess.TimeoutExpired:
             outcome = 'window-backup-timeout'
@@ -211,6 +287,9 @@ class WindowBackup:
             out = getattr(done, 'stdout', b'') or b''
             require(isinstance(out, bytes) and len(out) <= 4096, 'window-backup-output')
             return done.returncode, out.decode('utf-8', 'replace').strip()
+        if stderr_out:  # bounded and only ever reduced by restore_error_code; never stored or printed
+            err = getattr(done, 'stderr', b'') or b''
+            return done.returncode, err[:STDERR_BOUND] if isinstance(err, bytes) else b''
         return done.returncode, None
 
     def _ok(self, args, code, **kwargs):
@@ -292,12 +371,38 @@ class WindowBackup:
             cur.execute(sql.SQL('CREATE DATABASE {} TEMPLATE template0').format(sql.Identifier(CLONE_DB)))
         return created
 
-    def _restore(self, name, path, password):
-        with open(path, 'rb') as handle:
-            self._ok(('exec', '-i', '-e', RESTORE_ENV, name, 'pg_restore', '-h', '127.0.0.1',
-                      '-U', self.config.restore_user, '-d', CLONE_DB, '--exit-on-error', '--single-transaction',
-                      '--no-password'), 'window-backup-restore-failed', timeout=self.config.timeout('restore_s'),
-                     env={RESTORE_ENV: password}, stdin=handle)
+    def _restore(self, name, path, password, run_dir):
+        """Restore with the content list filtered by ``filter_restore_list`` (see there for what and why)."""
+        full = run_dir / 'restore-full.list'
+        fd = os.open(full, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'wb') as out, open(path, 'rb') as dump:
+            rc, _ = self._docker(('exec', '-i', name, 'pg_restore', '-l'), timeout=self.config.timeout('restore_s'),
+                                 stdin=dump, stdout=out)
+        require(rc == 0, 'window-backup-restore-list-failed')
+        size = os.lstat(full).st_size
+        require(0 < size <= MAX_LIST, 'window-backup-restore-list')
+        try:
+            listing = full.read_bytes().decode('utf-8')
+        except UnicodeError:
+            raise Refused('window-backup-restore-list') from None
+        superusers = frozenset((self.config.restore_user, *self.config.clone_superusers))
+        lines, removed = filter_restore_list(listing, superusers)
+        kept = run_dir / 'restore.list'
+        fd = os.open(kept, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as out:
+            out.write('\n'.join(lines) + '\n')
+        # A seekable copy inside the clone: -L restores in list order, which a pipe cannot always serve.
+        for source, target, code in ((path, CLONE_DUMP, 'window-backup-restore-failed'),
+                                     (kept, CLONE_LIST, 'window-backup-restore-list-failed')):
+            with open(source, 'rb') as handle:
+                self._ok(('exec', '-i', name, 'sh', '-c', 'umask 077; cat > "$0"', target), code,
+                         timeout=self.config.timeout('restore_s'), stdin=handle)
+        rc, err = self._docker(('exec', '-e', RESTORE_ENV, name, 'pg_restore', '-h', '127.0.0.1',
+                                '-U', self.config.restore_user, '-d', CLONE_DB, '--exit-on-error', '--single-transaction',
+                                '--no-password', '-L', CLONE_LIST, CLONE_DUMP),
+                               timeout=self.config.timeout('restore_s'), env={RESTORE_ENV: password}, stderr_out=True)
+        require(rc == 0, restore_error_code(err))
+        return removed
 
     def _state(self, address, password):
         conn = self.clone_connect(host=address, dbname=CLONE_DB, user=self.config.admin_user,
@@ -360,7 +465,7 @@ class WindowBackup:
             created = self._prepare_clone(admin, roles, password)
             admin.close()
             admin = None
-            self._restore(name, path, password)
+            removed = self._restore(name, path, password, run_dir)
             restored = self._state(address, password)
             require(restored['ledger'] == self.plan.baseline, 'window-backup-restore-ledger')
             require(restored['invalid'] == 0, 'window-backup-restore-invalid-index')
@@ -384,6 +489,6 @@ class WindowBackup:
                         concurrent=sum(m.concurrent for m in self.plan.pending),
                         sql_digest=digest([(m.name, m.sha256) for m in self.plan.pending]),
                         final_schema_digest=final['catalog'], restored_catalog=restored['catalog'],
-                        roles_created=created, clone_image=self.config.clone_image,
+                        roles_created=created, restore_excluded=removed, clone_image=self.config.clone_image,
                         dump_image=self.config.dump_image),
                     seconds=round(self.clock() - started, 1))

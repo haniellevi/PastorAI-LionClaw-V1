@@ -29,7 +29,7 @@ from first_transition_adapter import digest, prepare
 from first_transition_candidate import (CLOSED_GATES, CandidatePort, CandidateRunner, topology_contract,
                                         verify_candidate_release, write_candidate_release, write_hold_override)
 from first_transition_orchestrator import assemble, load_config
-from first_transition_window_backup import REHEARSAL_SCHEMA, WindowBackup, WindowBackupConfig
+from first_transition_window_backup import BACKUP_CODES, REHEARSAL_SCHEMA, WindowBackup, WindowBackupConfig
 from first_transition_window_bindings import (UnknownWriters, bindings_from_dict, validate_bindings_config)
 from initial_transition_files import Journal, read_regular
 from initial_transition_ops import Refused, require
@@ -65,7 +65,7 @@ CODES = frozenset({
     'window-backup-image-unpinned', 'window-backup-paths', 'window-backup-timeouts',
     'package-identity-mismatch', 'candidate-layout-not-prepared', 'candidate-hold-mismatch', 'layout-mismatch',
     'window-a10-token',
-})
+}) | BACKUP_CODES  # literal, secret-free codes of the backup provider (cause of a failed rehearsal/window)
 
 
 def _code(exc):

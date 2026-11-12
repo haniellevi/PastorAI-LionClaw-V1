@@ -1198,8 +1198,15 @@ Esperado: `prepare-layout` com `files` 144; `prepare` imprime `plan_digest`
 e `window_digest` (anotar os dois); `check` com `same_database` e `ddl_free`
 `ok` nas duas leituras; `check-bindings` com as duas entradas `open` e
 `unknown_writers` 0; `rehearse-backup` termina com recibo e as 51 migrations
-no clone. Qualquer `refused`: parar e trazer o código para a equipe; nada foi
-alterado no sistema antigo. O `rehearse-backup` guarda uma cópia do banco em
+no clone (o recibo traz `restore_excluded`: quantas entradas do dump o restore
+deixou de fora, só números). O restore usa uma lista de conteúdo filtrada:
+fora ficam só a extensão `supabase_vault` (e o que está no schema `vault`) e
+os event triggers cujo dono não é superusuário no clone, porque a imagem
+oficial do Postgres não restaura isso. Tabelas, dados, policies, funções,
+publication e o schema `public` (que o catálogo confere) ficam. Qualquer
+`refused`: parar e trazer o código inteiro para a equipe (por exemplo
+`window-backup-restore-failed-extension`; o sufixo é o tipo de objeto que
+parou o restore, nunca nome ou valor); nada foi alterado no sistema antigo. O `rehearse-backup` guarda uma cópia do banco em
 `window-backups` (root 0700); ela fica até o fim da janela.
 
 #### Roteiro do dia

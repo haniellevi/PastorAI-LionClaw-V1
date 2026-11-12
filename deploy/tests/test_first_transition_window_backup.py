@@ -2,8 +2,10 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import types
 
@@ -23,6 +25,23 @@ IMAGE = 'registry.invalid/postgres@sha256:' + 'a' * 64
 CLONE_IMAGE = 'registry.invalid/clone@sha256:' + 'b' * 64
 DUMP = b'PGDMP' + b'synthetic custom archive'
 RESTORED_ROWS = [('relation', 'igrejas', '0' * 32), ('policy', 'igrejas.tenant', '1' * 32)]
+LISTING = '\n'.join([
+    ';', '; Archive created at 2026-11-12 00:00:00 UTC', ';     dbname: synthetic', ';',
+    '4001; 2615 2200 SCHEMA - public pg_database_owner',
+    '4002; 3079 16385 EXTENSION - supabase_vault postgres',
+    '4003; 0 0 COMMENT - EXTENSION supabase_vault postgres',
+    '4004; 0 0 ACL - SCHEMA vault supabase_admin',
+    '4005; 0 0 ACL vault FUNCTION create_secret(text) supabase_admin',
+    '4006; 1259 16390 TABLE public igrejas postgres',
+    '4007; 0 16390 TABLE DATA public igrejas postgres',
+    '4008; 1255 16400 FUNCTION extensions grant_pg_net_access() supabase_admin',
+    '4009; 3466 16410 EVENT TRIGGER - issue_pg_net_access supabase_admin',
+    '4010; 0 0 COMMENT - EVENT TRIGGER issue_pg_net_access supabase_admin',
+    '4011; 3466 16411 EVENT TRIGGER - ensure_rls postgres',
+    '4012; 6104 16420 PUBLICATION - supabase_realtime postgres',
+    '4013; 6106 16421 PUBLICATION TABLE public igrejas postgres',
+]) + '\n'
+DUMP_BODY = b'synthetic custom archive'
 FINAL_ROWS = RESTORED_ROWS + [('relation', 'novas', '2' * 32)]
 
 
@@ -83,6 +102,8 @@ class Host:
     def __init__(self, plan, *, fail=None, catalog=None, invalid=False, leftover=False):
         self.plan, self.fail, self.invalid, self.leftover = plan, fail or set(), invalid, leftover
         self.calls, self.migrations, self.sql, self.restored = [], [], [], False
+        self.listing, self.copied, self.restore_args = LISTING, {}, None
+        self.restore_stderr = b'pg_restore: from TOC entry 4002; 3079 16385 EXTENSION - supabase_vault postgres\n'
         self.catalog_override = catalog
 
     def ledger(self):
@@ -101,9 +122,19 @@ class Host:
         args = argv[5:]
         self.calls.append((tuple(args), dict(env)))
         verb = 'dump' if args[:2] == ['run', '--rm'] else 'clone' if args[:2] == ['run', '-d'] else args[0]
+        stderr_out, tail = b'', ()
         if verb == 'exec':
-            assert stdin.read().startswith(b'PGDMP')
-            self.restored = 'restore' not in self.fail
+            tail = tuple(args[[a.startswith('igreja12-window-clone-') for a in args].index(True) + 1:])
+            if tail == ('pg_restore', '-l'):
+                assert stdin.read().startswith(b'PGDMP')
+                stdout.write(self.listing.encode())
+            elif tail[:2] == ('sh', '-c'):
+                self.copied[tail[-1]] = stdin.read()
+            else:
+                assert stdin is subprocess.DEVNULL and '-L' in tail and self.copied.get(tail[-1]) == DUMP
+                self.restore_args = tail
+                self.restored = 'restore' not in self.fail
+                stderr_out = self.restore_stderr if 'restore' in self.fail else b''
         out = b''
         if verb == 'dump' and 'dump' not in self.fail:
             stdout.write(DUMP)
@@ -111,8 +142,11 @@ class Host:
             out = b'172.30.0.2\n'
         if verb == 'ps' and self.leftover:
             out = b'abc123\n'
-        failed = {'dump': 'dump', 'clone': 'clone', 'exec': 'restore'}.get(verb) in self.fail
-        return types.SimpleNamespace(returncode=1 if failed else 0, stdout=out)
+        failed = {'dump': 'dump', 'clone': 'clone'}.get(verb) in self.fail
+        if verb == 'exec':
+            failed = ('list' if tail == ('pg_restore', '-l') else 'restore' if tail[:1] == ('pg_restore',)
+                      else '') in self.fail
+        return types.SimpleNamespace(returncode=1 if failed else 0, stdout=out, stderr=stderr_out)
 
     def migrate(self, argv, **kwargs):
         self.migrations.append((tuple(argv), dict(kwargs['env'])))
@@ -259,7 +293,8 @@ def test_dump_failure_starts_no_clone(plan, tmp_path):
 
 
 @pytest.mark.parametrize('kwargs, code', [
-    (dict(fail={'restore'}), 'window-backup-restore-failed'),
+    (dict(fail={'restore'}), 'window-backup-restore-failed-extension'),
+    (dict(fail={'list'}), 'window-backup-restore-list-failed'),
     (dict(catalog=[('relation', 'outra', '9' * 32)]), 'window-backup-restore-catalog'),
     (dict(invalid=True), 'window-backup-restore-invalid-index'),
     (dict(fail={'migration'}), 'window-backup-clone-migration-failed'),
@@ -376,3 +411,60 @@ def test_new_clone_roles_are_minimal_noinherit_without_altering_existing_roles(p
     assert 'private_storage_runtime' in str(creates[0]) and 'postgres' not in str(creates[0])
     assert not any('ALTER ROLE' in str(q) and 'private_storage_runtime' in str(q) for q in host.sql)
     assert any('SUPERUSER' in str(q) and 'postgres' in str(q) for q in host.sql)
+
+
+def test_restore_uses_a_filtered_list_without_vault_and_foreign_owned_event_triggers(plan, tmp_path):
+    host, expected = Host(plan), expectation(plan)
+    receipt = provider(plan, tmp_path, host, expected)(request(plan, expected))
+    kept = host.copied[wb.CLONE_LIST].decode().splitlines()
+    text = '\n'.join(kept)
+    assert 'supabase_vault' not in text and 'SCHEMA vault' not in text and 'ACL vault' not in text
+    assert 'issue_pg_net_access' not in text  # owned by a role that is not a clone superuser
+    # Everything else stays: public objects, data, policies/functions, own event trigger, publication.
+    for entry in ('TABLE public igrejas', 'TABLE DATA public igrejas', 'FUNCTION extensions grant_pg_net_access()',
+                  'EVENT TRIGGER - ensure_rls postgres', 'PUBLICATION - supabase_realtime',
+                  'PUBLICATION TABLE public igrejas', 'SCHEMA - public'):
+        assert entry in text
+    assert host.restore_args[-3:] == ('-L', wb.CLONE_LIST, wb.CLONE_DUMP)
+    assert '--exit-on-error' in host.restore_args and '--single-transaction' in host.restore_args
+    assert receipt['clone_rehearsal']['restore_excluded'] == dict(vault_extension=2, vault_schema=2, event_triggers=2)
+    assert host.copied[wb.CLONE_DUMP] == DUMP
+
+
+def test_event_triggers_owned_by_a_clone_superuser_are_kept(plan, tmp_path):
+    host, expected = Host(plan), expectation(plan)
+    provider(plan, tmp_path, host, expected, clone_superusers=('postgres', 'supabase_admin'))(request(plan, expected))
+    text = host.copied[wb.CLONE_LIST].decode()
+    assert 'EVENT TRIGGER - issue_pg_net_access supabase_admin' in text and 'supabase_vault' not in text
+
+
+def test_filter_never_removes_other_entries_and_refuses_an_empty_result():
+    lines, removed = wb.filter_restore_list(LISTING, frozenset({'postgres'}))
+    assert len(lines) == len(LISTING.splitlines()) - 6 and sum(removed.values()) == 6
+    with pytest.raises(Refused, match='^window-backup-restore-list$'):
+        wb.filter_restore_list('; only comments\n', frozenset())
+
+
+@pytest.mark.parametrize('stderr,code', [
+    (b'pg_restore: from TOC entry 9; 1 2 TABLE DATA public secret_name owner\nDETAIL: Failing row (SENTINEL)',
+     'window-backup-restore-failed-table-data'),
+    (b'pg_restore: from TOC entry 9; 1 2 EVENT TRIGGER - x supabase_admin', 'window-backup-restore-failed-event-trigger'),
+    (b'pg_restore: from TOC entry 9; 1 2 ALIEN thing x', 'window-backup-restore-failed'),
+    (b'ERROR: SENTINEL only', 'window-backup-restore-failed'), (b'', 'window-backup-restore-failed'),
+])
+def test_restore_failure_reduces_stderr_to_a_fixed_kind_code(plan, tmp_path, stderr, code):
+    host = Host(plan, fail={'restore'})
+    host.restore_stderr = stderr
+    with pytest.raises(Refused) as caught:
+        provider(plan, tmp_path, host)(request(plan, expectation(plan)))
+    assert str(caught.value) == code and 'SENTINEL' not in str(caught.value) and code in wb.BACKUP_CODES
+
+
+def test_every_backup_code_literal_is_published_and_escapes_the_entry_point():
+    source = (ROOT / 'deploy' / 'first_transition_window_backup.py').read_text()
+    literals = set(re.findall(r"'(window-backup-[a-z-]+)'", source)) - {'window-backup-restore-failed-'}
+    assert literals <= wb.BACKUP_CODES and wb.BACKUP_CODES <= window.CODES
+    for code in ('window-backup-restore-failed-extension', 'window-backup-dump-failed', 'window-backup-clone-failed'):
+        assert window._code(Refused(code)) == code
+    assert window._code(Refused('window-backup-injected-SENTINEL')) == 'window-refused'
+    assert window._code(ValueError('window-backup-dump-failed')) == 'window-refused'
