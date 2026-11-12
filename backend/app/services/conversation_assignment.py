@@ -31,13 +31,18 @@ def assign_conversation_locked(
     *,
     conversation: Conversation,
     target_user_id: uuid.UUID,
+    igreja_id: uuid.UUID,
 ) -> AppUser:
     """Coloca a conversa sob controle humano do destino, revalidando-o agora.
 
+    ``igreja_id`` é a igreja de quem pede (servidor) e precisa ser a da conversa.
     O destino precisa ser usuário ativo da MESMA igreja da conversa e ter papel
     com acesso ao inbox. Respostas do agente ainda não enviadas são cercadas.
     """
-    igreja_id = uuid.UUID(str(conversation.igreja_id))
+    igreja_id = uuid.UUID(str(igreja_id))
+    if uuid.UUID(str(conversation.igreja_id)) != igreja_id:
+        # Defesa além da RLS: conversa de outra igreja nunca é atribuída.
+        raise AssignmentTargetNotFound("conversa de outra igreja")
     target = session.execute(
         select(AppUser).where(
             AppUser.id == target_user_id,

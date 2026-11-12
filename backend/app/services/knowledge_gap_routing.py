@@ -26,7 +26,10 @@ from app.services.conversation_assignment import (
     AssignmentTargetWithoutInbox,
     assign_conversation_locked,
 )
-from app.services.conversation_handoff import mark_conversation_for_handoff_locked
+from app.services.conversation_handoff import (
+    fence_agent_replies_for_handoff,
+    mark_conversation_for_handoff_locked,
+)
 from app.services.responsabilidades import vigentes_em
 
 logger = logging.getLogger(__name__)
@@ -58,16 +61,26 @@ def route_unanswered_question_locked(
 ) -> str:
     """Encaminha a conversa travada e devolve a rota escolhida (sem PII)."""
     if conversation.estado == "humano" and conversation.assumido_por is not None:
-        # Alguém já atende: não troca o dono da conversa.
+        # Alguém já atende: não troca o dono, mas cerca respostas pendentes.
+        fence_agent_replies_for_handoff(
+            session,
+            igreja_id=conversation.igreja_id,
+            conversation_id=conversation.id,
+        )
         return ROTA_JA_ASSUMIDA
     target = _responsible_user_id(session, conversation.igreja_id)
     if target is not None:
         # O serviço valida o destino antes de alterar a conversa.
         try:
             assign_conversation_locked(
-                session, conversation=conversation, target_user_id=target
+                session,
+                conversation=conversation,
+                target_user_id=target,
+                igreja_id=conversation.igreja_id,
             )
-        except (AssignmentTargetNotFound, AssignmentTargetWithoutInbox):
+        except AssignmentTargetNotFound:
+            logger.info("conhecimento: responsável do setor não encontrado; fila comum")
+        except AssignmentTargetWithoutInbox:
             logger.info("conhecimento: responsável do setor sem inbox; fila comum")
         else:
             return ROTA_RESPONSAVEL

@@ -434,3 +434,27 @@ def test_d21_answered_question_is_not_routed(knowledge_turn):
     with p.factory() as s:
         conv = s.get(Conversation, p.conv)
         assert conv.estado == 'ia' and conv.assumido_por is None
+
+
+def test_d21_inactive_responsible_falls_back_to_admin_queue(knowledge_turn):
+    p = knowledge_turn
+    _knowledge_responsible(p)
+    with p.factory.begin() as s:
+        s.execute(text("update app_users set status='revogado' where id=:u"), dict(u=p.v['outsider']))
+    send(p, 'CONHECIMENTO buscar termo inexistente')
+    with p.factory() as s:
+        conv = s.get(Conversation, p.conv)
+        assert conv.estado == 'humano' and conv.assumido_por is None and conv.espera_desde is not None
+
+
+def test_d21_already_assigned_conversation_keeps_owner(knowledge_turn):
+    from app.services.knowledge_gap_routing import ROTA_JA_ASSUMIDA, route_unanswered_question_locked
+    p = knowledge_turn
+    _knowledge_responsible(p)
+    with p.factory.begin() as s:
+        conv = s.get(Conversation, p.conv)
+        conv.estado, conv.assumido_por = 'humano', p.v['uid']
+        assert route_unanswered_question_locked(s, conversation=conv) == ROTA_JA_ASSUMIDA
+    with p.factory() as s:
+        conv = s.get(Conversation, p.conv)
+        assert (conv.estado, conv.assumido_por) == ('humano', p.v['uid'])

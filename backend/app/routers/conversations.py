@@ -429,7 +429,10 @@ def transfer_conversation(
     target_id = uuid.UUID(payload.toUserId)
     try:
         target = assign_conversation_locked(
-            db, conversation=conv, target_user_id=target_id
+            db,
+            conversation=conv,
+            target_user_id=target_id,
+            igreja_id=uuid.UUID(current_user.igreja_id),
         )
     except AssignmentTargetNotFound as exc:
         raise HTTPException(
