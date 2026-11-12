@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import datas
 from app.db.models import Igreja, PlatformAuditLog, PlatformJevSettings
 from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
@@ -161,7 +162,7 @@ def put_jev_config(
     if ids and dpa is None:
         # Modo sombra envia texto pastoral a processador terceiro (AGENTS.md).
         raise _invalido("Informe a data do DPA com a TypeSafe antes de listar igrejas.")
-    if dpa is not None and dpa > dt.date.today():
+    if dpa is not None and dpa > datas.hoje_da_igreja():
         raise _invalido("A data do DPA não pode estar no futuro.")
     if ids:
         existentes = {

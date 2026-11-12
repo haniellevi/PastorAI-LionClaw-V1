@@ -343,6 +343,15 @@ def _process_operation(
     sub = db.get(Subscription, op.subscription_id)
     if sub is None:
         return False
+    if sub.igreja_id != igreja_id:
+        # A sessão já é tenant-scoped (RLS); isto é a defesa no backend. Uma
+        # operação que aponta para assinatura de outra igreja nunca é tocada.
+        logger.error(
+            "Plan change %s points to a subscription outside igreja %s",
+            op.id,
+            igreja_id,
+        )
+        return False
 
     # Prefixo canônico compartilhado com trigger/master: Igreja -> Planos.
     # Este lock precisa anteceder o retarget e qualquer chamada ao helper de

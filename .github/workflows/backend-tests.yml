@@ -15,6 +15,16 @@
 #
 # NAO modifica o job rls-integration nem qualquer runtime de producao: so
 # adiciona config de CI + reusa a suite de teste ja existente.
+#
+# Desde o plano de qualidade de 11/11/2026 (PR 5) o job roda em quatro partes
+# paralelas, cada uma com o próprio runner e a mesma preparação
+# (.github/actions/backend-ci-setup):
+#   backend-suite          suíte offline, monitor de produção e pacote do SHA
+#   backend-static         pip-audit e Ruff
+#   backend-deploy-release imagem Docker, A3 simulado e cortes/rollback do deploy
+#   backend-deploy-pg17    adaptador da primeira transição e inventário em PG17
+# O job `backend-tests` (nome exigido na proteção da main) só passa quando as
+# quatro passam. Antes, tudo rodava em série (11–16 min na main em 10–11/11).
 name: Backend Tests
 
 on:
@@ -31,9 +41,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend-tests:
+  suite:
+    name: backend-suite
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -46,46 +57,47 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: ./.github/actions/backend-ci-setup
         with:
-          node-version: "24.19.0"
+          ffmpeg: "true"
 
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Rodar suite backend offline (tudo exceto rls_integration)
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -m "not rls_integration" --durations=25
+
+      - name: Rodar testes do monitor de produção
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/monitoring/tests
+          node --test ../deploy/monitoring/tests/maintain_incident.test.js
+
+      - name: Validar pacote real do SHA do CI (sem executar backend empacotado)
+        env:
+          PACKAGE_SHA: ${{ github.sha }}
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" ../deploy/package_backend_release.py \
+            --repo .. --sha "$PACKAGE_SHA" --output "$RUNNER_TEMP/reviewed-backend-package.tar.gz"
+          rm -- "$RUNNER_TEMP/reviewed-backend-package.tar.gz"
+
+  static:
+    name: backend-static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: "3.13.14"
-          cache: "pip"
-          cache-dependency-path: |
-            backend/requirements.lock
-            backend/requirements-audit.lock
-            backend/requirements-ci-ffmpeg.lock
+          # O adaptador verifica SQL e executor pelos commits revisados.
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Criar ambiente runtime limpo (lock e hashes exatos)
-        run: |
-          python -m venv "$RUNNER_TEMP/backend-runtime-venv"
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip install --require-hashes -r requirements.lock
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip check
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" scripts/verify_manifest_requirements.py requirements.txt
+      - uses: ./.github/actions/backend-ci-setup
 
-      - name: Instalar FFmpeg estático para áudio V1b
+      - name: Auditar dependências (pip-audit)
         run: |
-          runtime_python="$RUNNER_TEMP/backend-runtime-venv/bin/python"
-          "$runtime_python" -m pip install --require-hashes --no-deps --only-binary=:all: \
-            -r requirements-ci-ffmpeg.lock
-          ffmpeg_path="$("$runtime_python" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
-          test -x "$ffmpeg_path"
-          mkdir -p "$RUNNER_TEMP/ffmpeg-bin"
-          ln -sfn "$ffmpeg_path" "$RUNNER_TEMP/ffmpeg-bin/ffmpeg"
-          # O teste de fronteira do decodificador V1b usa o caminho da imagem de produção.
-          sudo ln -sfn "$ffmpeg_path" /usr/bin/ffmpeg
-          printf '%s\n' "$RUNNER_TEMP/ffmpeg-bin" >> "$GITHUB_PATH"
-          command -v prlimit
-
-      - name: Criar ambiente de auditoria limpo e auditar
-        run: |
-          python -m venv "$RUNNER_TEMP/pip-audit-venv"
-          "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip install --require-hashes -r requirements-audit.lock
-          "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip check
-          "$RUNNER_TEMP/pip-audit-venv/bin/python" scripts/verify_manifest_requirements.py requirements-audit.in
           "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip_audit --require-hashes --disable-pip -r requirements.lock
           "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip_audit --require-hashes --disable-pip -r requirements-audit.lock
 
@@ -99,6 +111,33 @@ jobs:
       - name: Verificar erros estáticos no backend (Ruff)
         working-directory: .
         run: PATH="$RUNNER_TEMP/pip-audit-venv/bin:$PATH" ruff check backend
+
+      # Fuso (DTZ), except amplo (BLE001) e import sem uso (F401) só nas linhas
+      # novas ou alteradas: o código antigo tem centenas de casos e não muda aqui.
+      # Em pull_request o checkout é o merge do PR, então HEAD^1 é a base atual.
+      - name: Ruff ampliado em linhas novas ou alteradas
+        working-directory: .
+        run: >-
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" backend/scripts/ruff_changed_lines.py
+          --base HEAD^1 --ruff "$RUNNER_TEMP/pip-audit-venv/bin/ruff"
+
+  deploy-release:
+    name: backend-deploy-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # O adaptador verifica SQL e executor pelos commits revisados.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/backend-ci-setup
 
       - name: Build da imagem backend (sem publicar)
         run: docker build --tag pastorai-backend:ci .
@@ -140,6 +179,36 @@ jobs:
             deploy/tests/test_first_transition_candidate_network_docker.py \
             deploy/tests/test_first_transition_libpq_environment.py
 
+      - name: Validar cortes e rollback do deploy manual
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release_package.py \
+            ../deploy/tests/test_backend_workflow.py
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release.py
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_release_topology.py \
+            ../deploy/tests/test_release_topology_compose.py
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_coordination.py
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_pipeline.py
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover -s ../deploy/tests -p test_maintenance_schema.py -v
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover -s ../deploy/tests -p test_maintenance_release.py -v
+
+  deploy-pg17:
+    name: backend-deploy-pg17
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # O adaptador verifica SQL e executor pelos commits revisados.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/backend-ci-setup
+
       - name: Validar adaptador da primeira transição em PG17 descartável
         working-directory: .
         run: |
@@ -174,35 +243,6 @@ jobs:
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" deploy/rehearse_first_transition_database.py \
             --python "$RUNNER_TEMP/backend-runtime-venv/bin/python"
 
-      - name: Rodar suite backend offline (tudo exceto rls_integration)
-        run: |
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -m "not rls_integration" --durations=25
-
-      - name: Rodar testes do monitor de produção
-        run: |
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/monitoring/tests
-          node --test ../deploy/monitoring/tests/maintain_incident.test.js
-
-      - name: Validar pacote real do SHA do CI (sem executar backend empacotado)
-        env:
-          PACKAGE_SHA: ${{ github.sha }}
-        run: |
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" ../deploy/package_backend_release.py \
-            --repo .. --sha "$PACKAGE_SHA" --output "$RUNNER_TEMP/reviewed-backend-package.tar.gz"
-          rm -- "$RUNNER_TEMP/reviewed-backend-package.tar.gz"
-
-      - name: Validar cortes e rollback do deploy manual
-        run: |
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release_package.py \
-            ../deploy/tests/test_backend_workflow.py
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_backend_release.py
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_release_topology.py \
-            ../deploy/tests/test_release_topology_compose.py
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_coordination.py
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest ../deploy/tests/test_dev_pipeline.py
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover -s ../deploy/tests -p test_maintenance_schema.py -v
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover -s ../deploy/tests -p test_maintenance_release.py -v
-
       - name: Validar inventário read-only do release em PG17 isolado
         env:
           BACKEND_INVENTORY_PG17_SYNTHETIC: "1"
@@ -225,3 +265,19 @@ jobs:
           [[ "$ready" == true ]]
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m unittest discover \
             -s ../deploy/tests -p test_backend_inventory_pg17.py -v
+
+  # Nome exigido pela proteção da main: só passa se todas as partes passarem.
+  backend-tests:
+    name: backend-tests
+    needs: [suite, static, deploy-release, deploy-pg17]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Exigir sucesso de todas as partes
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$NEEDS_JSON" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          printf '%s' "$NEEDS_JSON" | jq -e 'length == 4 and all(.[]; .result == "success")' >/dev/null

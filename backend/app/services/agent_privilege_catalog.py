@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
+from app import datas
 from app.config import get_settings
 from app.db.models import (
     AppUser,
@@ -1512,6 +1513,10 @@ def build_catalog(session: Session, context):
         query = select(Celula).where(Celula.igreja_id == tenant, Celula.ativo.is_(True))
         # A superset is filtered by the same hierarchy rule used by the panel.
         cells = session.execute(query.order_by(Celula.id).limit(64)).scalars().all()
+        # Janela de ±14 dias no dia civil da igreja, calculada uma vez.
+        hoje = datas.hoje_da_igreja()
+        janela_inicio = hoje - dt.timedelta(days=14)
+        janela_fim = hoje + dt.timedelta(days=14)
         targets = []
         for cell in cells:
             if (cell_names[_label_key(cell.nome)] != 1
@@ -1519,13 +1524,13 @@ def build_catalog(session: Session, context):
                 continue
             meeting_dates = Counter(session.execute(select(CelulaReuniao.data).where(
                 CelulaReuniao.igreja_id == tenant, CelulaReuniao.celula_id == cell.id,
-                CelulaReuniao.data >= dt.date.today() - dt.timedelta(days=14),
-                CelulaReuniao.data <= dt.date.today() + dt.timedelta(days=14),
+                CelulaReuniao.data >= janela_inicio,
+                CelulaReuniao.data <= janela_fim,
             )).scalars())
             meetings = session.execute(select(CelulaReuniao).where(
                 CelulaReuniao.igreja_id == tenant, CelulaReuniao.celula_id == cell.id,
-                CelulaReuniao.data >= dt.date.today() - dt.timedelta(days=14),
-                CelulaReuniao.data <= dt.date.today() + dt.timedelta(days=14),
+                CelulaReuniao.data >= janela_inicio,
+                CelulaReuniao.data <= janela_fim,
             ).order_by(CelulaReuniao.data, CelulaReuniao.id).limit(4)).scalars().all()
             members = session.execute(select(Pessoa).join(CelulaMembro,
                 (CelulaMembro.pessoa_id == Pessoa.id) & (CelulaMembro.igreja_id == Pessoa.igreja_id))
