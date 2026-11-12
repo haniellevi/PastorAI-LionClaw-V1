@@ -80,7 +80,7 @@ ajustes de fixtures entraram pelas #634 a #636. O controlador A8/C2 e a
 contenção de escritores serão retomados após a primeira publicação (decisão de
 12/11 acima).
 
-A10 da primeira virada (12/11): implementada em `deploy/first_transition_a10.py`
+A10 da primeira virada (12/11, [PR #659](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/659)): implementada em `deploy/first_transition_a10.py`
 e ensaiada só em simulação. O `run` fotografa os gates dos quatro processos
 antigos antes da contenção; `first_transition_window.py a10`, com SIM próprio,
 recria os workers com esses valores, sobe o cron por último, abre as entradas
