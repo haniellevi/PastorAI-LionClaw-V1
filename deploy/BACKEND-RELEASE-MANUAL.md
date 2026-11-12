@@ -82,8 +82,13 @@ antigo antes de contê-los, mantém o cron novo sem rodar até a A10 e, na A10
 da foto antes do primeiro ciclo do cron. Assim a virada não cancela
 pendências que o sistema antigo não cancelaria. Sequência completa, pontos de
 SIM, ponto de não retorno e riscos aceitos: seção 12 do
-[runbook de produção](../docs/ops/PRODUCTION-RUNBOOK.md). Para os releases
-seguintes, a regra acima continua valendo sem mudança.
+[runbook de produção](../docs/ops/PRODUCTION-RUNBOOK.md). Depois do SIM 4
+(A10 verde), a mesma janela publica o painel com `vercel --prod` num checkout
+limpo do **mesmo SHA** do backend, faz o smoke do painel contra a API nova e,
+se falhar, volta só o painel ao deployment anterior pela Vercel, sem tocar no
+backend: passo J8, **SIM 5**, pré-requisitos e janela de incompatibilidade na
+seção 12.5 do runbook. Para os releases seguintes, a regra acima continua
+valendo sem mudança.
 
 Sequência obrigatória para um release futuro, sempre com autorizações próprias:
 
