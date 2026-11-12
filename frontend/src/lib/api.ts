@@ -15,7 +15,7 @@ import { fetchWithDeadline } from "./request-with-deadline";
 import { parsePermissionMatrix } from "./permission-matrix";
 import type { PermissionMatrix } from "./permissions";
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+import { API_BASE } from "./api-base";
 
 export interface MeResult {
   appUserId: string;

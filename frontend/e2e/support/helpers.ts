@@ -36,6 +36,8 @@ export interface BrowserSafety {
   consoleErrors: string[];
   pageErrors: string[];
   externalRequests: string[];
+  /** Violações da CSP, inclusive do modo de teste (Report-Only). */
+  cspViolations: string[];
 }
 
 export interface LoginMetrics {
@@ -68,7 +70,21 @@ export async function armBrowserSafety(page: Page): Promise<BrowserSafety> {
     consoleErrors: [],
     pageErrors: [],
     externalRequests: [],
+    cspViolations: [],
   };
+
+  // A CSP ainda está em modo de teste (não bloqueia); este gate faz qualquer
+  // fluxo E2E que a violaria falhar antes de a política passar a bloquear.
+  await page.exposeFunction("__e2eCspViolation", (violation: string) => {
+    safety.cspViolations.push(violation);
+  });
+  await page.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+      const report = (window as unknown as { __e2eCspViolation?: (v: string) => void })
+        .__e2eCspViolation;
+      report?.(`${event.disposition} ${event.effectiveDirective} ${event.blockedURI}`);
+    });
+  });
 
   page.on("console", (message) => {
     if (message.type() !== "error") return;
@@ -100,6 +116,7 @@ export function expectCleanBrowser(safety: BrowserSafety): void {
   expect(safety.externalRequests, "requisições externas bloqueadas").toEqual([]);
   expect(safety.pageErrors, "erros JavaScript não tratados").toEqual([]);
   expect(safety.consoleErrors, "console.error no navegador").toEqual([]);
+  expect(safety.cspViolations, "violações da CSP").toEqual([]);
 }
 
 export async function expectDashboardContextReady(page: Page): Promise<void> {
