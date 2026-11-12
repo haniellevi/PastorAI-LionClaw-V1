@@ -11,6 +11,10 @@ ingress ones an ``entry``, and every method takes ``(scope, *, timeout)``.
   probes the real server block through 127.0.0.1 with the public name: ``blocked`` needs the exact
   snippet and a 503 carrying the marker, ``open`` needs no snippet and no marker; anything else
   refuses. The one-time include edit of the production site is NOT done here.
+  nginx is shared with other systems of the same VPS: the reload is the only host-wide effect
+  (graceful; their files are untouched), the site keeps its OWN certificate lines (never moved
+  to the shared ``http`` context) and the snippet path must be reachable only through the one
+  include of this site; any other include that could load it refuses (``window-nginx-shared``).
 * ``BridgePortIngress`` (entry ``evolution-backend``): Evolution reaches the backend over the
   shared Docker bridge, and without br_netfilter bridged frames never cross iptables (so a
   DOCKER-USER rule would not see them). The block is therefore an nftables ``bridge`` family
@@ -36,6 +40,7 @@ construction. Tests use fakes and synthetic namespaces only.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import fnmatch
 import ipaddress
 import json
 import os
@@ -68,6 +73,15 @@ SNIPPET = (
     'default_type application/json;\n'
     "return 503 '{\"detail\":\"maintenance\"}';\n").encode()
 PROBE_PATH = '/igreja12-window-probe'
+NGINX_PREFIX = '/etc/nginx/'
+LETSENCRYPT_OPTIONS = '/etc/letsencrypt/options-ssl-nginx.conf'
+PROXY_PASS = 'proxy_pass http://127.0.0.1:8000;'
+REDIRECT_RETURN = 'return 301 https://$host$request_uri;'
+# Optional lines of the site's own HTTPS server (certbot layout, per-site certificate) and location.
+LOCATION_OPTIONAL = frozenset({
+    'proxy_http_version 1.1;', 'proxy_set_header Host $host;', 'proxy_set_header X-Real-IP $remote_addr;',
+    'proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;', 'proxy_set_header X-Forwarded-Proto $scheme;'})
+IPV6_LISTENS = ('listen [::]:443 ssl;', 'listen [::]:443 ssl ipv6only=on;')
 
 NFT_COMMENT = 'igreja12-window'
 
@@ -160,15 +174,30 @@ class NginxConfig:
         return 'include ' + self.include_dir + '/*.conf;'
 
 
+def _https_optional(name):
+    return frozenset({*IPV6_LISTENS, 'include ' + LETSENCRYPT_OPTIONS + ';',
+                      'ssl_certificate /etc/letsencrypt/live/' + name + '/fullchain.pem;',
+                      'ssl_certificate_key /etc/letsencrypt/live/' + name + '/privkey.pem;',
+                      'ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;'})
+
+
 def _validate_nginx_topology(text, config):
     """Pure, deliberately narrow nominal grammar; other site formats need manual review.
 
-    Only a single HTTPS server and its single root proxy location are supported. Comments
-    occupy whole lines; quotes, escapes, inline blocks and extra directives are not inferred.
-    The maintenance include belongs to the server rewrite phase, before the location.
+    One HTTPS server with its single root proxy location, optionally with its own certificate
+    lines (certbot layout) and the usual proxy headers, plus at most one plain HTTP server that
+    only redirects to HTTPS. Comments occupy whole lines; quotes, escapes, inline blocks and
+    extra directives are not inferred. The maintenance include belongs to the HTTPS server
+    rewrite phase, before the location. Returns the number of server blocks.
     """
-    stack, seen = [], set()
-    server_commands = {'server_name ' + config.server_name + ';', config.include_line, 'listen 443 ssl;'}
+    name = config.server_name
+    server_name = 'server_name ' + name + ';'
+    https_required = {server_name, config.include_line, 'listen 443 ssl;'}
+    https_allowed = https_required | _https_optional(name) | LOCATION_OPTIONAL | {'location', 'proxy'}
+    redirect_required = {'listen 80;', server_name, REDIRECT_RETURN}
+    redirect_allowed = redirect_required | {'listen [::]:80;'}
+    server_lines = https_required | _https_optional(name) | redirect_allowed
+    stack, servers, seen = [], [], set()
     # Only LF ends a line/comment in this grammar; Unicode separators cannot
     # manufacture directives hidden inside one nginx comment.
     for raw in text.split('\n'):
@@ -176,8 +205,9 @@ def _validate_nginx_topology(text, config):
         if not line or line.startswith('#'):
             continue
         if line == 'server {':
-            require(not stack and 'server' not in seen, 'window-nginx-topology')
-            seen.add('server')
+            require(not stack, 'window-nginx-topology')
+            seen = set()
+            servers.append(seen)
             stack.append('server')
         elif line == 'location / {':
             require(stack == ['server'] and config.include_line in seen and 'location' not in seen,
@@ -187,16 +217,52 @@ def _validate_nginx_topology(text, config):
         elif line == '}':
             require(bool(stack), 'window-nginx-topology')
             stack.pop()
-        elif stack == ['server'] and line in server_commands:
+        elif stack == ['server'] and line in server_lines:
             require(line not in seen and (line != config.include_line or 'location' not in seen),
                     'window-nginx-topology')
             seen.add(line)
-        elif stack == ['server', 'location'] and line == 'proxy_pass http://127.0.0.1:8000;':
-            require('proxy' not in seen, 'window-nginx-topology')
-            seen.add('proxy')
+        elif stack == ['server', 'location'] and (line == PROXY_PASS or line in LOCATION_OPTIONAL):
+            key = 'proxy' if line == PROXY_PASS else line
+            require(key not in seen, 'window-nginx-topology')
+            seen.add(key)
         else:
             raise Refused('window-nginx-topology')
-    require(not stack and seen == server_commands | {'server', 'location', 'proxy'}, 'window-nginx-topology')
+    require(not stack, 'window-nginx-topology')
+    https = [s for s in servers if 'listen 443 ssl;' in s]
+    redirects = [s for s in servers if 'listen 443 ssl;' not in s]
+    require(len(https) == 1 and len(redirects) <= 1, 'window-nginx-topology')
+    main = https[0]
+    certificate = {line for line in main if line.startswith(('ssl_certificate ', 'ssl_certificate_key '))}
+    require(https_required | {'location', 'proxy'} <= main <= https_allowed
+            and sum(listen in main for listen in IPV6_LISTENS) <= 1 and len(certificate) in (0, 2),
+            'window-nginx-topology')
+    require(all(redirect_required <= r <= redirect_allowed for r in redirects), 'window-nginx-topology')
+    return len(servers)
+
+
+def _glob_reaches(pattern, path):
+    """Whether an nginx ``include`` pattern (glob, relative to the prefix) can load ``path``."""
+    pattern = pattern if pattern.startswith('/') else NGINX_PREFIX + pattern
+    parts, target = pattern.split('/'), path.split('/')
+    return len(parts) == len(target) and all(fnmatch.fnmatchcase(t, p) for p, t in zip(parts, target))
+
+
+def _shared_nginx_guard(effective, config, snippet, servers):
+    """The maintenance snippet can only reach THIS site: nothing else includes or names it."""
+    plain = re.sub(r'#[^\n]*', '', effective)
+    includes = re.findall(r'(?:^|[;{}\s])include\s+([^;{}\s]+)\s*;', plain)
+    require(sum(1 for pattern in includes if _glob_reaches(pattern, str(snippet))) == 1
+            and plain.count(config.include_line) == 1, 'window-nginx-shared')
+    require(sum(config.server_name.lower() in [token.strip("'\"").lower() for token in names.split()]
+                for names in re.findall(r'\bserver_name\s+([^;{}]+);', plain)) == servers,
+            'window-nginx-topology')
+    marker = '# configuration file ' + LETSENCRYPT_OPTIONS + ':\n'
+    if marker in effective:
+        # Shared certbot options file: TLS settings only, never routing.
+        options = effective.split(marker, 1)[1].split('# configuration file ', 1)[0]
+        require(all(line.startswith('ssl_') and line.endswith(';') and not set(line) & set('{}')
+                    for line in (raw.strip() for raw in options.splitlines()) if line and not line.startswith('#')),
+                'window-nginx-topology')
 
 
 class NginxMaintenanceIngress(_Binding):
@@ -226,18 +292,15 @@ class NginxMaintenanceIngress(_Binding):
         """Constrained nominal site only; complex/ambiguous server routing refuses for review."""
         deadline = _deadline(timeout)
         text = self._include_present()
-        _validate_nginx_topology(text, self.config)
+        servers = _validate_nginx_topology(text, self.config)
         rc, out = self._run((self.config.nginx_binary, '-T'), deadline, code='window-nginx-topology')
         require(rc == 0, 'window-nginx-topology')
         marker = '# configuration file ' + self.config.site_path + ':\n'
         effective = out.decode('utf-8')
         require(effective.count(marker) == 1, 'window-nginx-topology')
         selected = effective.split(marker, 1)[1].split('# configuration file ', 1)[0]
-        require(selected.strip() == text.strip()
-                and sum(self.config.server_name.lower() in [token.strip("'\"").lower() for token in names.split()]
-                        for names in re.findall(
-                    r'\bserver_name\s+([^;{}]+);', re.sub(r'#[^\n]*', '', effective))) == 1,
-                'window-nginx-topology')
+        require(selected.strip() == text.strip(), 'window-nginx-topology')
+        _shared_nginx_guard(effective, self.config, self.snippet, servers)
 
     def _directory(self):
         try:

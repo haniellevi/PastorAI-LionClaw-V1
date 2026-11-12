@@ -90,6 +90,16 @@ backend: passo J8, **SIM 5**, pré-requisitos e janela de incompatibilidade na
 seção 12.5 do runbook. Para os releases seguintes, a regra acima continua
 valendo sem mudança.
 
+**A VPS é compartilhada com outros sistemas do Raniel** (`olaki-whatsapp`,
+`sites-api`, `site-emcorr`, `worker` do GravAI, site Fowler e `hermes-gateway`).
+Todo release, inclusive a primeira virada, mexe só nos contêineres `pastorai_*`,
+no site nginx da API da Igreja 12 e no cron `/etc/cron.d/pastorai-backup`.
+Nunca parar ou reiniciar `nginx`, `docker`, `containerd` ou `cron`, nem usar
+`docker compose down`, `prune`, `ufw` ou reboot. Antes e depois de cada release,
+fazer a foto só de leitura dos outros sistemas (contêineres, saúde e código
+HTTP de cada um) com o bloco da seção 12.0 do runbook e comparar as duas:
+qualquer diferença para o release e é avisada ao Raniel.
+
 Sequência obrigatória para um release futuro, sempre com autorizações próprias:
 
 1. Obter autorização nominal de Raniel para o fechamento e registrar o

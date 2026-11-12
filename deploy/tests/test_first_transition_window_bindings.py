@@ -33,6 +33,7 @@ class Nginx:
 
     def __init__(self, snippet, test_rc=0):
         self.snippet, self.test_rc, self.live, self.calls = snippet, test_rc, False, []
+        self.extra = ''  # other files of the shared nginx, as ``nginx -T`` prints them
 
     def __call__(self, argv, *, timeout, stdin=None):
         self.calls.append(argv)
@@ -40,7 +41,7 @@ class Nginx:
         if argv[0].endswith('nginx'):
             if argv[1:] == ('-T',):
                 site = self.snippet.parent.parent / 'site'
-                return 0, ('# configuration file ' + str(site) + ':\n' + site.read_text()).encode()
+                return 0, ('# configuration file ' + str(site) + ':\n' + site.read_text() + self.extra).encode()
             assert argv[1:] == ('-t', '-q')
             return self.test_rc, b''
         if argv[0].endswith('systemctl'):
@@ -179,6 +180,114 @@ def test_nginx_nominal_comments_and_blank_lines_pass(tmp_path):
     path.write_text('# synthetic server { return 200; }\n\n' + path.read_text())
     ingress.verify_topology(timeout=5)
     assert fake.calls == [(ingress.config.nginx_binary, '-T')]
+
+
+# The production site in certbot layout after the one-time edit: own certificate, IPv6 listen,
+# proxy headers and the plain HTTP redirect, with the include and without inline comments.
+CERTBOT_SITE = """server {{
+    server_name api.example.test;
+    {include}
+
+    location / {{
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+
+    listen [::]:443 ssl ipv6only=on;
+    listen 443 ssl;
+    ssl_certificate /etc/letsencrypt/live/api.example.test/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.example.test/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+}}
+server {{
+    listen 80;
+    listen [::]:80;
+    server_name api.example.test;
+    return 301 https://$host$request_uri;
+}}
+"""
+OPTIONS = ('# configuration file /etc/letsencrypt/options-ssl-nginx.conf:\n# synthetic certbot options\n'
+           'ssl_session_cache shared:le_nginx_SSL:10m;\nssl_protocols TLSv1.2 TLSv1.3;\n')
+# Other systems of the same VPS, each with its own server block and certificate.
+NEIGHBOURS = ('# configuration file /etc/nginx/sites-enabled/other-a:\nserver {\n    listen 443 ssl;\n'
+              '    server_name a.example.test;\n    ssl_certificate /srv/a/fullchain.pem;\n'
+              '    location / { proxy_pass http://127.0.0.1:8087; }\n}\n'
+              '# configuration file /etc/nginx/sites-enabled/other-b:\nserver {\n    listen 80;\n'
+              '    server_name b.example.test;\n    include /etc/nginx/proxy_params;\n    return 404;\n}\n')
+
+
+def _certbot(tmp_path, extra=OPTIONS + NEIGHBOURS):
+    ingress, fake = _nginx(tmp_path)
+    Path(ingress.config.site_path).write_text(CERTBOT_SITE.format(include=ingress.config.include_line))
+    fake.extra = extra
+    return ingress, fake
+
+
+def test_nginx_certbot_site_with_its_own_certificate_and_neighbours_round_trips(tmp_path):
+    ingress, fake = _certbot(tmp_path)
+    assert ingress.observe(SCOPE, timeout=5) == 'open'
+    assert ingress.block(SCOPE, timeout=5) is True and ingress.observe(SCOPE, timeout=5) == 'blocked'
+    assert ingress.open(SCOPE, timeout=5) is True and ingress.observe(SCOPE, timeout=5) == 'open'
+    # The only host-wide effect is the graceful reload; no other file is ever written.
+    effects = {c[1:] for c in fake.calls if not c[0].endswith('curl')}
+    assert effects == {('-T',), ('-t', '-q'), ('reload', 'nginx.service')}
+    assert sorted(os.listdir(tmp_path)) == ['igreja12-window', 'site']
+
+
+@pytest.mark.parametrize('extra', [
+    # another system includes the maintenance folder: its site would also answer 503
+    NEIGHBOURS.replace('    return 404;', '    include {dir}/*.conf;\n    return 404;'),
+    # a broader glob elsewhere could load the snippet too
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/*'),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/maintenance.conf'),
+])
+def test_nginx_snippet_reachable_from_another_system_refuses_before_any_effect(tmp_path, extra):
+    ingress, fake = _certbot(tmp_path)
+    fake.extra = OPTIONS + extra.replace('{dir}', ingress.config.include_dir)
+    for operation in ('observe', 'block', 'open'):
+        with pytest.raises(Refused, match='^window-nginx-shared$'):
+            getattr(ingress, operation)(SCOPE, timeout=5)
+    assert all(c[1:] == ('-T',) for c in fake.calls) and not ingress.snippet.exists()
+
+
+@pytest.mark.parametrize('fault', [
+    'name-elsewhere', 'options-routing', 'other-certificate', 'half-certificate', 'two-ipv6',
+    'redirect-location', 'redirect-only', 'two-redirects', 'redirect-other-target', 'header-in-server',
+])
+def test_nginx_certbot_variants_outside_the_grammar_refuse(tmp_path, fault):
+    ingress, fake = _certbot(tmp_path)
+    path = Path(ingress.config.site_path)
+    text = path.read_text()
+    redirect = text[text.index('server {\n    listen 80;'):]
+    if fault == 'name-elsewhere':
+        fake.extra = OPTIONS + NEIGHBOURS.replace('b.example.test', 'b.example.test api.example.test')
+    elif fault == 'options-routing':
+        fake.extra = OPTIONS + 'return 200;\n' + NEIGHBOURS
+    elif fault == 'other-certificate':
+        text = text.replace('live/api.example.test/fullchain', 'live/a.example.test/fullchain')
+    elif fault == 'half-certificate':
+        text = text.replace('    ssl_certificate_key /etc/letsencrypt/live/api.example.test/privkey.pem;\n', '')
+    elif fault == 'two-ipv6':
+        text = text.replace('    listen 443 ssl;\n', '    listen 443 ssl;\n    listen [::]:443 ssl;\n')
+    elif fault == 'redirect-location':
+        text = text.replace('    return 301', '    location / {\n        proxy_pass http://127.0.0.1:8000;\n    }\n    return 301')
+    elif fault == 'redirect-only':  # the include moved to the HTTP server, no HTTPS server left
+        text = redirect.replace('    server_name', '    ' + ingress.config.include_line + '\n    server_name')
+    elif fault == 'two-redirects':
+        text += redirect
+    elif fault == 'redirect-other-target':
+        text = text.replace('return 301 https://$host$request_uri;', 'return 301 https://a.example.test;')
+    else:
+        text = text.replace('    listen 443 ssl;\n', '    listen 443 ssl;\n    proxy_set_header Host $host;\n')
+    path.write_text(text)
+    with pytest.raises(Refused, match='^window-nginx-topology$'):
+        ingress.block(SCOPE, timeout=5)
+    assert not ingress.snippet.exists() and not any(c[0].endswith('systemctl') for c in fake.calls)
 
 
 class Nft:
