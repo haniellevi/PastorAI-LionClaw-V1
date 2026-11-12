@@ -166,10 +166,7 @@ export interface FinishResult {
  * 202 = callback ainda não estacionou o code OU outro finish do mesmo fluxo
  * ainda está processando. É recuperável e não deve virar polling.
  */
-export async function finishConnection(
-  token: string,
-  flowSecret: string,
-): Promise<FinishResult> {
+export async function finishConnection(token: string, flowSecret: string): Promise<FinishResult> {
   if (!flowSecret) {
     throw new ApiError(409, "Não foi possível concluir a conexão com o Google.");
   }
@@ -207,10 +204,7 @@ export async function finishConnection(
         : isRecord(detail) && typeof detail.message === "string"
           ? detail.message
           : null;
-    throw new ApiError(
-      res.status,
-      message ?? "Não foi possível concluir a conexão com o Google.",
-    );
+    throw new ApiError(res.status, message ?? "Não foi possível concluir a conexão com o Google.");
   }
   const d = (await res.json()) as {
     status?: string;
@@ -270,18 +264,19 @@ export async function fetchCalendarList(token: string): Promise<CalendarList> {
       connectionVersion?: string | null;
     } | null;
   };
-  const connection = d.connection && typeof d.connection === "object"
-    ? {
-        connected: Boolean(d.connection.connected),
-        calendarId: d.connection.calendarId ?? null,
-        googleAccountEmail: d.connection.googleAccountEmail ?? null,
-        connectionVersion:
-          typeof d.connection.connectionVersion === "string" &&
-          d.connection.connectionVersion.length > 0
-            ? d.connection.connectionVersion
-            : null,
-      }
-    : null;
+  const connection =
+    d.connection && typeof d.connection === "object"
+      ? {
+          connected: Boolean(d.connection.connected),
+          calendarId: d.connection.calendarId ?? null,
+          googleAccountEmail: d.connection.googleAccountEmail ?? null,
+          connectionVersion:
+            typeof d.connection.connectionVersion === "string" &&
+            d.connection.connectionVersion.length > 0
+              ? d.connection.connectionVersion
+              : null,
+        }
+      : null;
   return {
     calendars: d.calendars ?? [],
     connectionVersion:

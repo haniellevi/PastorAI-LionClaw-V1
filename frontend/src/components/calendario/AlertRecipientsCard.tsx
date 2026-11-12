@@ -135,11 +135,10 @@ export function AlertRecipientsCard() {
       {recipients.length > 0 ? (
         <ul className="alert-recipient-list">
           {recipients.map((r) => (
-            <li
-              key={r.id}
-              className="conn-row alert-recipient-row"
-            >
-              <span className={r.ativo ? "alert-recipient-name" : "alert-recipient-name is-inactive"}>
+            <li key={r.id} className="conn-row alert-recipient-row">
+              <span
+                className={r.ativo ? "alert-recipient-name" : "alert-recipient-name is-inactive"}
+              >
                 {r.nome} · {r.telefone}
                 {r.ativo ? null : <span className="pill alert-recipient-pill">inativo</span>}
               </span>
@@ -168,7 +167,9 @@ export function AlertRecipientsCard() {
       )}
 
       <div className="ds-flex ds-gap-2 ds-wrap">
-        <label className="sr-only" htmlFor="alert-recipient-nome">Nome</label>
+        <label className="sr-only" htmlFor="alert-recipient-nome">
+          Nome
+        </label>
         <input
           id="alert-recipient-nome"
           className="input alert-recipient-input"
@@ -176,7 +177,9 @@ export function AlertRecipientsCard() {
           value={nome}
           onChange={(e) => setNome(e.target.value)}
         />
-        <label className="sr-only" htmlFor="alert-recipient-telefone">Telefone (WhatsApp)</label>
+        <label className="sr-only" htmlFor="alert-recipient-telefone">
+          Telefone (WhatsApp)
+        </label>
         <input
           id="alert-recipient-telefone"
           className="input alert-recipient-input alert-recipient-input--tel"
@@ -185,10 +188,7 @@ export function AlertRecipientsCard() {
           onChange={(e) => setTelefone(e.target.value)}
           inputMode="tel"
         />
-        <DsButton
-          onClick={() => void add()}
-          disabled={adding || !nome.trim() || !telefone.trim()}
-        >
+        <DsButton onClick={() => void add()} disabled={adding || !nome.trim() || !telefone.trim()}>
           <Icon name="plus" />
           <span>{adding ? "Adicionando…" : "Adicionar"}</span>
         </DsButton>

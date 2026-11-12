@@ -31,11 +31,7 @@ import {
   promoteContact,
   type Contact,
 } from "@/lib/contacts-api";
-import {
-  ApiError,
-  clearAuthedResponseCache,
-  type Cell,
-} from "@/lib/dashboard-api";
+import { ApiError, clearAuthedResponseCache, type Cell } from "@/lib/dashboard-api";
 import { Icon, type IconKey } from "@/lib/icons";
 import { isAdmin } from "@/lib/roles";
 import { navigateToAdminRoute } from "@/lib/surface";
@@ -62,17 +58,10 @@ function maskPhone(phone: string): string {
 export function GanharScreen() {
   const { token, user, expireSession } = useAuth();
   const canOpenContact = user ? isAdmin(user.roles) : false;
-  const canLinkCell =
-    user?.roles.some((role) => role === "admin" || role === "pastor") ?? false;
+  const canLinkCell = user?.roles.some((role) => role === "admin" || role === "pastor") ?? false;
   const canAdvancePipeline =
-    user?.roles.some((role) =>
-      [
-        "admin",
-        "pastor",
-        "lider_g12",
-        "lider_consol",
-      ].includes(role),
-    ) ?? false;
+    user?.roles.some((role) => ["admin", "pastor", "lider_g12", "lider_consol"].includes(role)) ??
+    false;
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
@@ -88,7 +77,14 @@ export function GanharScreen() {
   const loadGeneration = useRef(0);
   const loadedQueryKey = useRef("");
   const dataKey = `${tab}:${pageNumber}:${query}:${user?.churchId ?? ""}`;
-  useEffect(() => { if (search.trim() === query) return; const timer = window.setTimeout(() => { setQuery(search.trim()); setPageNumber(1); },250); return () => window.clearTimeout(timer); },[search,query]);
+  useEffect(() => {
+    if (search.trim() === query) return;
+    const timer = window.setTimeout(() => {
+      setQuery(search.trim());
+      setPageNumber(1);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search, query]);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [linkTarget, setLinkTarget] = useState<Contact | null>(null);
@@ -120,14 +116,16 @@ export function GanharScreen() {
       setLoading(true);
       if (mode === "initial" && loadedQueryKey.current !== dataKey) setLoaded(false);
       if (mode === "retry") {
-        clearAuthedResponseCache(
-          token,
-          canLinkCell ? ["/pipeline?", "/cells?"] : ["/pipeline?"],
-        );
+        clearAuthedResponseCache(token, canLinkCell ? ["/pipeline?", "/cells?"] : ["/pipeline?"]);
       }
       setError(null);
       try {
-        const page = await fetchGanharPage(token, {page:pageNumber,pageSize:50,group:tab,...(query ? {q:query} : {})});
+        const page = await fetchGanharPage(token, {
+          page: pageNumber,
+          pageSize: 50,
+          group: tab,
+          ...(query ? { q: query } : {}),
+        });
         if (generation !== loadGeneration.current) return;
         setContacts(page.items);
         setTotal(page.total);
@@ -138,9 +136,7 @@ export function GanharScreen() {
         if (generation !== loadGeneration.current) return;
         if (handleSessionError(err)) return;
         setError(
-          err instanceof ApiError
-            ? err.message
-            : "Não foi possível carregar a base de entrada.",
+          err instanceof ApiError ? err.message : "Não foi possível carregar a base de entrada.",
         );
       } finally {
         if (generation === loadGeneration.current) setLoading(false);
@@ -151,7 +147,9 @@ export function GanharScreen() {
 
   useEffect(() => {
     void load("initial");
-    return () => { loadGeneration.current += 1; };
+    return () => {
+      loadGeneration.current += 1;
+    };
   }, [load]);
 
   const toastTimer = useRef<number | null>(null);
@@ -187,7 +185,12 @@ export function GanharScreen() {
     const semAcomp = visitantes.filter((v) => !v.celulaId).length;
     const comDecisao = visitantes.filter((v) => v.aceitouJesus).length;
     return [
-      { icon: "user" as const, label: "Novos contatos", value: summary?.novosContatos ?? novos.length, delta: "redes e WhatsApp" },
+      {
+        icon: "user" as const,
+        label: "Novos contatos",
+        value: summary?.novosContatos ?? novos.length,
+        delta: "redes e WhatsApp",
+      },
       {
         icon: "user" as const,
         label: "Visitantes sem acompanhamento",
@@ -195,8 +198,18 @@ export function GanharScreen() {
         delta: "conectar a uma célula",
         alert: semAcomp > 0,
       },
-      { icon: "check" as const, label: "Visitantes com decisão", value: summary?.visitantesComDecisao ?? comDecisao, delta: "aceitaram Jesus" },
-      { icon: "ganhar" as const, label: "Base de entrada", value: summary?.total ?? contacts.length, delta: "no estágio Ganhar" },
+      {
+        icon: "check" as const,
+        label: "Visitantes com decisão",
+        value: summary?.visitantesComDecisao ?? comDecisao,
+        delta: "aceitaram Jesus",
+      },
+      {
+        icon: "ganhar" as const,
+        label: "Base de entrada",
+        value: summary?.total ?? contacts.length,
+        delta: "no estágio Ganhar",
+      },
     ];
   }, [novos, visitantes, contacts.length, summary]);
 
@@ -216,8 +229,17 @@ export function GanharScreen() {
         await promoteContact(token, c.id, "consolidar");
         setContacts((prev) => prev.filter((p) => p.id !== c.id));
         const removed = summarizeGanhar([c]);
-        setSummary(current => current ? Object.fromEntries(Object.entries(current).map(([key,value]) => [key,Math.max(0,value - removed[key as keyof GanharSummary])])) as unknown as GanharSummary : null);
-        setTotal(current => Math.max(0,current - 1));
+        setSummary((current) =>
+          current
+            ? (Object.fromEntries(
+                Object.entries(current).map(([key, value]) => [
+                  key,
+                  Math.max(0, value - removed[key as keyof GanharSummary]),
+                ]),
+              ) as unknown as GanharSummary)
+            : null,
+        );
+        setTotal((current) => Math.max(0, current - 1));
         flashToast({ kind: "ok", text: `${c.nome} promovido para Consolidar.` });
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -242,14 +264,24 @@ export function GanharScreen() {
         setContacts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
         const before = summarizeGanhar([linkTarget]);
         const after = summarizeGanhar([updated]);
-        setSummary(current => current ? Object.fromEntries(Object.entries(current).map(([key,value]) => [key,Math.max(0,value + after[key as keyof GanharSummary] - before[key as keyof GanharSummary])])) as unknown as GanharSummary : null);
+        setSummary((current) =>
+          current
+            ? (Object.fromEntries(
+                Object.entries(current).map(([key, value]) => [
+                  key,
+                  Math.max(
+                    0,
+                    value + after[key as keyof GanharSummary] - before[key as keyof GanharSummary],
+                  ),
+                ]),
+              ) as unknown as GanharSummary)
+            : null,
+        );
         flashToast({ kind: "ok", text: `${updated.nome} conectado à célula.` });
         setLinkTarget(null);
       } catch (err) {
         if (handleSessionError(err)) return;
-        setLinkError(
-          err instanceof ApiError ? err.message : "Não foi possível conectar à célula.",
-        );
+        setLinkError(err instanceof ApiError ? err.message : "Não foi possível conectar à célula.");
       } finally {
         setBusyId(null);
       }
@@ -347,68 +379,63 @@ export function GanharScreen() {
           return (
             <div className="people-next-action" onKeyDown={(e) => e.stopPropagation()}>
               <p className="people-meta">
-                {canPromote ? "Critério para Consolidar atendido" : "Precisa de 3 presenças ou decisão por Jesus"}
+                {canPromote
+                  ? "Critério para Consolidar atendido"
+                  : "Precisa de 3 presenças ou decisão por Jesus"}
               </p>
               <div className="row-actions">
-              {canLinkCell && !c.celulaId ? (
-                <button
-                  type="button"
-                  className={`btn btn-sm${!canPromote || !canAdvancePipeline ? " btn-primary" : ""}`}
-                  disabled={busyId === c.id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setLinkError(null);
-                    setLinkTarget(c);
-                  }}
-                >
-                  Vincular célula
-                </button>
-              ) : null}
-              {canAdvancePipeline ? (
-                <button
-                  type="button"
-                  className={`btn btn-sm${canPromote ? " btn-primary" : ""}`}
-                  disabled={!canPromote || busyId === c.id}
-                  aria-disabled={!canPromote || undefined}
-                  title={
-                    canPromote
-                      ? undefined
-                      : "Visitante só pode ser promovido com 3+ presenças em célula ou decisão por Jesus"
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (canPromote) void handlePromote(c);
-                  }}
-                >
-                  Avançar para Consolidar
-                </button>
-              ) : null}
-              {canOpenContact ? (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openContact(c);
-                  }}
-                >
-                  Ver contato
-                </button>
-              ) : null}
+                {canLinkCell && !c.celulaId ? (
+                  <button
+                    type="button"
+                    className={`btn btn-sm${!canPromote || !canAdvancePipeline ? " btn-primary" : ""}`}
+                    disabled={busyId === c.id}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLinkError(null);
+                      setLinkTarget(c);
+                    }}
+                  >
+                    Vincular célula
+                  </button>
+                ) : null}
+                {canAdvancePipeline ? (
+                  <button
+                    type="button"
+                    className={`btn btn-sm${canPromote ? " btn-primary" : ""}`}
+                    disabled={!canPromote || busyId === c.id}
+                    aria-disabled={!canPromote || undefined}
+                    title={
+                      canPromote
+                        ? undefined
+                        : "Visitante só pode ser promovido com 3+ presenças em célula ou decisão por Jesus"
+                    }
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (canPromote) void handlePromote(c);
+                    }}
+                  >
+                    Avançar para Consolidar
+                  </button>
+                ) : null}
+                {canOpenContact ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openContact(c);
+                    }}
+                  >
+                    Ver contato
+                  </button>
+                ) : null}
               </div>
             </div>
           );
         },
       },
     ],
-    [
-      busyId,
-      canAdvancePipeline,
-      canLinkCell,
-      canOpenContact,
-      handlePromote,
-      openContact,
-    ],
+    [busyId, canAdvancePipeline, canLinkCell, canOpenContact, handlePromote, openContact],
   );
 
   return (
@@ -446,27 +473,53 @@ export function GanharScreen() {
         </div>
       ) : null}
 
-      <div className="field"><label htmlFor="ganhar-search">Buscar nome, telefone ou e-mail</label><input id="ganhar-search" type="search" value={search} onChange={event => setSearch(event.target.value)} /></div>
+      <div className="field">
+        <label htmlFor="ganhar-search">Buscar nome, telefone ou e-mail</label>
+        <input
+          id="ganhar-search"
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </div>
       <div className="card">
         <div className="panel-title">
           Pessoas que chegaram
           <div className="right">
-            <div className="tabs people-filter-group" role="group" aria-label="Filtrar contatos e visitantes">
+            <div
+              className="tabs people-filter-group"
+              role="group"
+              aria-label="Filtrar contatos e visitantes"
+            >
               <button
                 type="button"
                 aria-pressed={tab === "novos-contatos"}
                 className={`tab${tab === "novos-contatos" ? " active" : ""}`}
-                onClick={() => { setTab("novos-contatos"); setPageNumber(1); }}
+                onClick={() => {
+                  setTab("novos-contatos");
+                  setPageNumber(1);
+                }}
               >
-                Novos contatos {loaded ? <span className="num">{summary?.novosContatos ?? novos.length}</span> : null}
+                Novos contatos{" "}
+                {loaded ? (
+                  <span className="num">{summary?.novosContatos ?? novos.length}</span>
+                ) : null}
               </button>
               <button
                 type="button"
                 aria-pressed={tab === "visitantes"}
                 className={`tab${tab === "visitantes" ? " active" : ""}`}
-                onClick={() => { setTab("visitantes"); setPageNumber(1); }}
+                onClick={() => {
+                  setTab("visitantes");
+                  setPageNumber(1);
+                }}
               >
-                Visitantes {loaded ? <span className="num">{summary ? summary.total - summary.novosContatos : visitantes.length}</span> : null}
+                Visitantes{" "}
+                {loaded ? (
+                  <span className="num">
+                    {summary ? summary.total - summary.novosContatos : visitantes.length}
+                  </span>
+                ) : null}
               </button>
             </div>
           </div>
@@ -512,31 +565,57 @@ export function GanharScreen() {
         )}
       </div>
 
-      {loaded && total > 50 ? <div className="people-toolbar"><button type="button" className="btn btn-sm" disabled={loading || pageNumber <= 1} onClick={() => setPageNumber(value => value - 1)}>Página anterior</button><span role="status">Página {pageNumber} de {Math.ceil(total / 50)} · {total} pessoas nesta aba</span><button type="button" className="btn btn-sm" disabled={loading || pageNumber * 50 >= total} onClick={() => setPageNumber(value => value + 1)}>Próxima página</button></div> : null}
-      {loaded || showSkeleton ? <details className="people-disclosure people-overview">
-        <summary>Resumo da base de entrada</summary>
-      <div className="stat-grid">
-        {showSkeleton
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div className="stat skeleton" key={i}>
-                <div className="sk-line sk-sm" />
-                <div className="sk-line sk-lg" />
-              </div>
-            ))
-          : stats.map((s) => (
-              <div className={`stat${s.alert ? " alert" : ""}`} key={s.label}>
-                <div className="lbl">
-                  <Icon name={s.icon} />
-                  {s.label}
-                </div>
-                <div className="val num">{s.value}</div>
-                <div className="delta">{s.delta}</div>
-              </div>
-            ))}
-      </div>
+      {loaded && total > 50 ? (
+        <div className="people-toolbar">
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={loading || pageNumber <= 1}
+            onClick={() => setPageNumber((value) => value - 1)}
+          >
+            Página anterior
+          </button>
+          <span role="status">
+            Página {pageNumber} de {Math.ceil(total / 50)} · {total} pessoas nesta aba
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={loading || pageNumber * 50 >= total}
+            onClick={() => setPageNumber((value) => value + 1)}
+          >
+            Próxima página
+          </button>
+        </div>
+      ) : null}
+      {loaded || showSkeleton ? (
+        <details className="people-disclosure people-overview">
+          <summary>Resumo da base de entrada</summary>
+          <div className="stat-grid">
+            {showSkeleton
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <div className="stat skeleton" key={i}>
+                    <div className="sk-line sk-sm" />
+                    <div className="sk-line sk-lg" />
+                  </div>
+                ))
+              : stats.map((s) => (
+                  <div className={`stat${s.alert ? " alert" : ""}`} key={s.label}>
+                    <div className="lbl">
+                      <Icon name={s.icon} />
+                      {s.label}
+                    </div>
+                    <div className="val num">{s.value}</div>
+                    <div className="delta">{s.delta}</div>
+                  </div>
+                ))}
+          </div>
 
-        <p className="people-meta">Contagens de toda a base neste filtro, dentro do seu acesso atual.</p>
-      </details> : null}
+          <p className="people-meta">
+            Contagens de toda a base neste filtro, dentro do seu acesso atual.
+          </p>
+        </details>
+      ) : null}
 
       {canLinkCell && linkTarget ? (
         <LinkCellModal

@@ -1,14 +1,22 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { fetchChurchCadastroCapability, getChurchCadastro, saveChurchCadastro } from "./church-cadastro-api";
+import {
+  fetchChurchCadastroCapability,
+  getChurchCadastro,
+  saveChurchCadastro,
+} from "./church-cadastro-api";
 import { SessionExpiredError } from "./api";
 
 let fetchMock: ReturnType<typeof vi.fn>;
-beforeEach(() => { fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock); });
+beforeEach(() => {
+  fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+});
 afterEach(() => vi.unstubAllGlobals());
 
 it("só reconhece capability version:1 e não usa cache", async () => {
-  fetchMock.mockResolvedValueOnce(Response.json({ version: 1 }))
+  fetchMock
+    .mockResolvedValueOnce(Response.json({ version: 1 }))
     .mockResolvedValueOnce(Response.json({ version: 2 }))
     .mockResolvedValueOnce(new Response(null, { status: 404 }));
   expect(await fetchChurchCadastroCapability("token-a")).toBe(true);
@@ -23,10 +31,13 @@ it("só reconhece capability version:1 e não usa cache", async () => {
 });
 
 it("falha fechada em erro e preserva expiração de sessão", async () => {
-  fetchMock.mockRejectedValueOnce(new Error("offline"))
+  fetchMock
+    .mockRejectedValueOnce(new Error("offline"))
     .mockResolvedValueOnce(new Response(null, { status: 401 }));
   expect(await fetchChurchCadastroCapability("token-a")).toBe(false);
-  await expect(fetchChurchCadastroCapability("token-a")).rejects.toBeInstanceOf(SessionExpiredError);
+  await expect(fetchChurchCadastroCapability("token-a")).rejects.toBeInstanceOf(
+    SessionExpiredError,
+  );
 });
 
 it("GET e PUT usam apenas o cadastro institucional da sessão", async () => {

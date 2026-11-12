@@ -155,10 +155,7 @@ describe("ConversationThread — sem interesse ⇒ IA pausada (CONV-AI-1)", () =
   });
 
   it("atendimento humano não oferece devolução para agente global inativo", () => {
-    render(
-      conv({ semInteresse: false, estado: "humano", assumidoPor: "me" }),
-      "paused_by_church",
-    );
+    render(conv({ semInteresse: false, estado: "humano", assumidoPor: "me" }), "paused_by_church");
     const text = container.textContent ?? "";
     expect(text).toContain("Encerrar atendimento");
     expect(text).not.toContain("Devolver para a IA");
@@ -173,32 +170,58 @@ describe("ConversationThread — sem interesse ⇒ IA pausada (CONV-AI-1)", () =
   });
 });
 
-
 it("renders the server pastoral marker as text without media controls", () => {
-  render(conv({ ultimaMensagem: "Mensagem pastoral protegida" }), "active", [{
-    id: "private-synthetic", direcao: "in", autor: "contato", autorNome: null,
-    tipo: "texto", texto: "Mensagem pastoral protegida",
-    mediaUrl: null, mediaMime: null, mediaNome: null, criadoEm: "2026-10-18T12:00:00Z",
-  }]);
-  expect(container.querySelector('[role="note"][aria-label="Mensagem pastoral protegida"]')).not.toBeNull();
+  render(conv({ ultimaMensagem: "Mensagem pastoral protegida" }), "active", [
+    {
+      id: "private-synthetic",
+      direcao: "in",
+      autor: "contato",
+      autorNome: null,
+      tipo: "texto",
+      texto: "Mensagem pastoral protegida",
+      mediaUrl: null,
+      mediaMime: null,
+      mediaNome: null,
+      criadoEm: "2026-10-18T12:00:00Z",
+    },
+  ]);
+  expect(
+    container.querySelector('[role="note"][aria-label="Mensagem pastoral protegida"]'),
+  ).not.toBeNull();
   expect(container.textContent).toContain("Encaminhe o atendimento ao pastor.");
   expect(container.querySelector(".msg-img, audio, a[download]")).toBeNull();
 });
 
 it("exibe conteúdo entregue pelo servidor sem inferir leitura pelo papel", () => {
-  render(conv({}), "active", [{
-    id: "authorized", direcao: "in", autor: "contato", autorNome: null,
-    tipo: "texto", texto: "Oração sintética autorizada", mediaUrl: null,
-    mediaMime: null, mediaNome: null, criadoEm: "2026-10-18T12:00:00Z",
-  }]);
+  render(conv({}), "active", [
+    {
+      id: "authorized",
+      direcao: "in",
+      autor: "contato",
+      autorNome: null,
+      tipo: "texto",
+      texto: "Oração sintética autorizada",
+      mediaUrl: null,
+      mediaMime: null,
+      mediaNome: null,
+      criadoEm: "2026-10-18T12:00:00Z",
+    },
+  ]);
   expect(container.textContent).toContain("Oração sintética autorizada");
   expect(container.textContent).not.toContain("Encaminhe o atendimento ao pastor.");
 });
 
 it("foca o cabeçalho só ao abrir/trocar e anuncia novas entradas sem reler histórico", () => {
   const message = (id: string): ChatMessage => ({
-    id, direcao: "in", autor: "contato", autorNome: null, tipo: "texto",
-    texto: "Texto sintético", mediaUrl: null, mediaMime: null, mediaNome: null,
+    id,
+    direcao: "in",
+    autor: "contato",
+    autorNome: null,
+    tipo: "texto",
+    texto: "Texto sintético",
+    mediaUrl: null,
+    mediaMime: null,
+    mediaNome: null,
     criadoEm: "2026-10-20T12:00:00Z",
   });
   render(conv({}), "active", [message("one")]);
@@ -220,11 +243,17 @@ it("foca o cabeçalho só ao abrir/trocar e anuncia novas entradas sem reler his
   expect(document.activeElement).toBe(container.querySelector("h2"));
 });
 
-
 it("anuncia a primeira entrada numa conversa vazia e repete avisos iguais só para IDs novos", () => {
   const message: ChatMessage = {
-    id: "new-one", direcao: "in", autor: "contato", autorNome: null, tipo: "texto",
-    texto: "Texto sintético", mediaUrl: null, mediaMime: null, mediaNome: null,
+    id: "new-one",
+    direcao: "in",
+    autor: "contato",
+    autorNome: null,
+    tipo: "texto",
+    texto: "Texto sintético",
+    mediaUrl: null,
+    mediaMime: null,
+    mediaNome: null,
     criadoEm: "2026-10-20T12:00:00Z",
   };
   render(conv({}));
@@ -240,24 +269,43 @@ it("anuncia a primeira entrada numa conversa vazia e repete avisos iguais só pa
   expect(status.firstChild).toBe(second);
 });
 
-it.each([true, false])("anuncia envio e resultado sem conteúdo privado (sucesso=%s)", async (ok) => {
-  let finish!: (result: boolean) => void;
-  const pending = new Promise<boolean>((resolve) => { finish = resolve; });
-  render(conv({ estado: "humano", assumidoPor: "me" }), "active", [], {
-    draft: "Resposta sintética", onSend: () => pending,
-  });
-  act(() => container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
-  const status = container.querySelector('.thread-head [role="status"]')!;
-  expect(status.textContent).toBe("Enviando mensagem…");
-  await act(async () => finish(ok));
-  expect(status.textContent).toBe(ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.");
-  expect(status.textContent).not.toContain("Resposta sintética");
-});
+it.each([true, false])(
+  "anuncia envio e resultado sem conteúdo privado (sucesso=%s)",
+  async (ok) => {
+    let finish!: (result: boolean) => void;
+    const pending = new Promise<boolean>((resolve) => {
+      finish = resolve;
+    });
+    render(conv({ estado: "humano", assumidoPor: "me" }), "active", [], {
+      draft: "Resposta sintética",
+      onSend: () => pending,
+    });
+    act(() =>
+      container
+        .querySelector("form")!
+        .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+    );
+    const status = container.querySelector('.thread-head [role="status"]')!;
+    expect(status.textContent).toBe("Enviando mensagem…");
+    await act(async () => finish(ok));
+    expect(status.textContent).toBe(
+      ok ? "Mensagem enviada." : "Não foi possível enviar a mensagem. Tente novamente.",
+    );
+    expect(status.textContent).not.toContain("Resposta sintética");
+  },
+);
 
 it("aguarda o snapshot inicial e silencia histórico após retry", () => {
   const message = (id: string): ChatMessage => ({
-    id, direcao: "in", autor: "contato", autorNome: null, tipo: "texto",
-    texto: "Texto sintético", mediaUrl: null, mediaMime: null, mediaNome: null,
+    id,
+    direcao: "in",
+    autor: "contato",
+    autorNome: null,
+    tipo: "texto",
+    texto: "Texto sintético",
+    mediaUrl: null,
+    mediaMime: null,
+    mediaNome: null,
     criadoEm: "2026-10-20T12:00:00Z",
   });
   const status = () => container.querySelector('.thread-head [role="status"]')?.textContent;
@@ -271,6 +319,11 @@ it("aguarda o snapshot inicial e silencia histórico após retry", () => {
   render(conv({}), "active", [], { messagesInitialized: false, messagesLoading: true });
   render(conv({}), "active", [message("history"), message("new"), message("retry-history")]);
   expect(status()).toBe("");
-  render(conv({}), "active", [message("history"), message("new"), message("retry-history"), message("after-retry")]);
+  render(conv({}), "active", [
+    message("history"),
+    message("new"),
+    message("retry-history"),
+    message("after-retry"),
+  ]);
   expect(status()).toBe("1 nova mensagem recebida.");
 });

@@ -159,7 +159,7 @@ def instrument_session_factory(factory: Any) -> None:
         timing = _current.get()
         if timing is None or not timing.sampled or timing.closed:
             return None
-        attempt = {"timing": timing, "started": time.perf_counter(), "acquired": False}
+        attempt: dict[str, Any] = {"timing": timing, "started": time.perf_counter(), "acquired": False}
         token = _acquisition.set(attempt)
         try:
             return state.invoke_statement()

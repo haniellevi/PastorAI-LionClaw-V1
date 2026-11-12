@@ -34,7 +34,10 @@ vi.mock("@/lib/contacts-api", async (importOriginal) => {
   return {
     ...actual,
     fetchPipeline: apiMock.fetchPipeline,
-    fetchGanharPage: async (token: string) => { const page = await apiMock.fetchPipeline(token, "ganhar"); return {...page, summary:actual.summarizeGanhar(page.items)}; },
+    fetchGanharPage: async (token: string) => {
+      const page = await apiMock.fetchPipeline(token, "ganhar");
+      return { ...page, summary: actual.summarizeGanhar(page.items) };
+    },
     linkContactCell: vi.fn(),
     promoteContact: apiMock.promoteContact,
   };
@@ -114,8 +117,8 @@ function buttonWithText(text: string): HTMLButtonElement | undefined {
 }
 
 function openVisitantesTab() {
-  const tab = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent?.replace(/\s+/g, " ").trim().startsWith("Visitantes"),
+  const tab = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+    button.textContent?.replace(/\s+/g, " ").trim().startsWith("Visitantes"),
   );
   act(() => tab?.click());
 }
@@ -203,31 +206,24 @@ describe("GanharScreen — autorização para vincular célula", () => {
 
     expect(vincularCelula()).toBeDefined();
     expect(apiMock.fetchCells).not.toHaveBeenCalled();
-
   });
 
-  it.each([
-    "lider_g12",
-    "lider_consol",
-    "lider_celula",
-    "lider_mult",
-    "operador",
-    "membro",
-  ])("bloqueia vínculo para %s", async (role) => {
-    authState.roles = [role];
-    await renderScreen();
+  it.each(["lider_g12", "lider_consol", "lider_celula", "lider_mult", "operador", "membro"])(
+    "bloqueia vínculo para %s",
+    async (role) => {
+      authState.roles = [role];
+      await renderScreen();
 
-    expect(vincularCelula()).toBeUndefined();
-    expect(apiMock.fetchCells).not.toHaveBeenCalled();
-  });
+      expect(vincularCelula()).toBeUndefined();
+      expect(apiMock.fetchCells).not.toHaveBeenCalled();
+    },
+  );
 
   it("invalida o cache de células no retry somente quando autorizado", async () => {
     await renderScreen();
 
     act(() => {
-      buttonWithText("Atualizar")?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
+      buttonWithText("Atualizar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
 
@@ -241,15 +237,11 @@ describe("GanharScreen — autorização para vincular célula", () => {
     await renderScreen();
 
     act(() => {
-      buttonWithText("Atualizar")?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
+      buttonWithText("Atualizar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await flush();
 
-    expect(apiMock.clearAuthedResponseCache).toHaveBeenCalledWith("tok-1", [
-      "/pipeline?",
-    ]);
+    expect(apiMock.clearAuthedResponseCache).toHaveBeenCalledWith("tok-1", ["/pipeline?"]);
   });
 
   it("remove o modal e não o restaura após revogação residual", async () => {
@@ -326,7 +318,7 @@ describe("GanharScreen — autorização para promover no pipeline", () => {
       });
       await renderScreen();
       openVisitantesTab();
-    await flush();
+      await flush();
 
       expect(buttonWithText("Avançar para Consolidar")).toBeUndefined();
       expect(apiMock.promoteContact).not.toHaveBeenCalled();

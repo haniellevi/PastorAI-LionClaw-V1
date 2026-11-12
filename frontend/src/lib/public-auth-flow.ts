@@ -5,11 +5,7 @@ export const PUBLIC_AUTH_RESPONSE_HEADERS = {
 } as const;
 
 export type PublicAuthFlow = "ativar" | "redefinir-senha";
-export type RootAuthStatus =
-  | "loading"
-  | "authenticated"
-  | "unauthenticated"
-  | "unavailable";
+export type RootAuthStatus = "loading" | "authenticated" | "unauthenticated" | "unavailable";
 export type RootSurface = "loading" | "app" | "unavailable" | "login";
 
 export function isPublicAuthFlowRoute(route: string): boolean {
@@ -21,10 +17,7 @@ export function isPublicAuthFlowRoute(route: string): boolean {
   );
 }
 
-export function resolveRootSurface(
-  status: RootAuthStatus,
-  route: string,
-): RootSurface {
+export function resolveRootSurface(status: RootAuthStatus, route: string): RootSurface {
   if (isPublicAuthFlowRoute(route)) return "login";
   if (status === "loading") return "loading";
   if (status === "authenticated") return "app";

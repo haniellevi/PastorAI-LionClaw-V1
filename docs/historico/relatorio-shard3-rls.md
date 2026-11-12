@@ -1,5 +1,8 @@
 # Relatório curto: RLS shard 3
 
+> **Histórico (arquivado em 11/11/2026).** Não é fonte ativa de planejamento;
+> o [ROADMAP](../../ROADMAP.md) é o único roteiro vigente.
+
 Causa raiz: `test_auth_session_revocation_pg.py` importava `migrated_database` do módulo UV, mas sua fixture `rls_database_url` usava `RLS_TEST_DATABASE_URL`. As migrations completas eram aplicadas em `rls_disposable`, tornando `pessoas.telefone` obrigatório e quebrando seeds posteriores.
 
 Correção: logout agora usa e valida `UV_TURMAS_DATABASE_URL` em `uv_turmas_test`. A fixture operacional semeia a sessão sintética ativa do JTI usado pelo `FakeClerk`, mantendo as verificações de papel e status.

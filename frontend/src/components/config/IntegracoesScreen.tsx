@@ -34,23 +34,26 @@ export function IntegracoesScreen() {
       ) : null}
 
       <section className="admin-section" aria-labelledby="calendar-connection-title">
-      <h3 id="calendar-connection-title">Conta e importação</h3>
-      <p className="sub">Conectar o Google autoriza a integração. Eventos importados precisam de confirmação na Agenda.</p>
-      <CalendarConnectCard
-        onImported={(r: ImportResult) =>
-          setMsg(
-            r.created > 0
-              ? `${r.created} evento(s) importado(s)${r.skipped ? ` · ${r.skipped} ignorado(s)` : ""}. Confirme na Agenda, aba "A confirmar".`
-              : r.skipped
-                ? `Nada novo: ${r.skipped} evento(s) já existentes.`
-                : "Nenhum evento novo no Google.",
-          )
-        }
-      />
+        <h3 id="calendar-connection-title">Conta e importação</h3>
+        <p className="sub">
+          Conectar o Google autoriza a integração. Eventos importados precisam de confirmação na
+          Agenda.
+        </p>
+        <CalendarConnectCard
+          onImported={(r: ImportResult) =>
+            setMsg(
+              r.created > 0
+                ? `${r.created} evento(s) importado(s)${r.skipped ? ` · ${r.skipped} ignorado(s)` : ""}. Confirme na Agenda, aba "A confirmar".`
+                : r.skipped
+                  ? `Nada novo: ${r.skipped} evento(s) já existentes.`
+                  : "Nenhum evento novo no Google.",
+            )
+          }
+        />
       </section>
       <section className="admin-section" aria-labelledby="calendar-alert-title">
-      <h3 id="calendar-alert-title">Quem recebe os alertas</h3>
-      <AlertRecipientsCard />
+        <h3 id="calendar-alert-title">Quem recebe os alertas</h3>
+        <AlertRecipientsCard />
       </section>
     </div>
   );

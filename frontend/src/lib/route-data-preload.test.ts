@@ -77,10 +77,10 @@ describe("preloadRouteData — capacidades do dashboard", () => {
       }
       expect(apiMock.fetchTeamLookup).not.toHaveBeenCalled();
       expect(apiMock.fetchOverview).toHaveBeenCalledTimes(hasWorkQueue ? 1 : 0);
-      expect(apiMock.fetchUpcomingEvents).toHaveBeenCalledTimes(
-        canSeeCalendar ? 1 : 0,
-      );
-      expect(apiMock.fetchPipeline).toHaveBeenCalledWith("tok-1", "ganhar",50,{group:"novos-contatos"});
+      expect(apiMock.fetchUpcomingEvents).toHaveBeenCalledTimes(canSeeCalendar ? 1 : 0);
+      expect(apiMock.fetchPipeline).toHaveBeenCalledWith("tok-1", "ganhar", 50, {
+        group: "novos-contatos",
+      });
       expect(apiMock.fetchCells).not.toHaveBeenCalled();
     },
   );
@@ -105,12 +105,7 @@ describe("preloadRouteData — capacidades do dashboard", () => {
   });
 
   it("usa a mesma matriz efetiva da sessão ao decidir o preload opcional", async () => {
-    await preloadRouteData(
-      "tok-1",
-      "dashboard",
-      ["membro"],
-      { membro: ["dashboard"] },
-    );
+    await preloadRouteData("tok-1", "dashboard", ["membro"], { membro: ["dashboard"] });
 
     expect(apiMock.fetchUpcomingEvents).not.toHaveBeenCalled();
   });
@@ -118,9 +113,7 @@ describe("preloadRouteData — capacidades do dashboard", () => {
   it("mantém falhas de prefetch silenciosas com allSettled", async () => {
     apiMock.fetchWorkQueuePage.mockRejectedValueOnce(new Error("offline"));
 
-    await expect(
-      preloadRouteData("tok-1", "dashboard", ["lider_celula"]),
-    ).resolves.toBeUndefined();
+    await expect(preloadRouteData("tok-1", "dashboard", ["lider_celula"])).resolves.toBeUndefined();
     expect(apiMock.fetchOverview).toHaveBeenCalledOnce();
   });
 });

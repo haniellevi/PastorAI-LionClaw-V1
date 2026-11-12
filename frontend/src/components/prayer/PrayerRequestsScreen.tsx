@@ -26,8 +26,7 @@ export function PrayerRequestsScreen() {
         if (!abort.signal.aborted) setData({ token, rows });
       })
       .catch(() => {
-        if (!abort.signal.aborted)
-          setError("Não foi possível carregar os pedidos autorizados.");
+        if (!abort.signal.aborted) setError("Não foi possível carregar os pedidos autorizados.");
       });
     return () => abort.abort();
   }, [token]);
@@ -36,11 +35,9 @@ export function PrayerRequestsScreen() {
     setBusy(id);
     setError(null);
     try {
-      const updated = await prayerFetch<PrayerRequest>(
-        token,
-        `/${id}/${action}`,
-        { method: "POST" },
-      );
+      const updated = await prayerFetch<PrayerRequest>(token, `/${id}/${action}`, {
+        method: "POST",
+      });
       setData((previous) =>
         previous?.token === token
           ? {
@@ -67,23 +64,14 @@ export function PrayerRequestsScreen() {
       </header>
       {error ? <p role="alert">{error}</p> : null}
       {!rows && !error ? <p role="status">Carregando pedidos…</p> : null}
-      {rows?.length === 0 ? (
-        <p>Nenhum pedido autorizado para você neste momento.</p>
-      ) : null}
+      {rows?.length === 0 ? <p>Nenhum pedido autorizado para você neste momento.</p> : null}
       {rows?.map((row) => (
-        <article
-          className="card"
-          key={row.id}
-          style={{ padding: 20, marginBottom: 16 }}
-        >
+        <article className="card" key={row.id} style={{ padding: 20, marginBottom: 16 }}>
           <h2>{row.pessoa_nome}</h2>
           <p>
-            {STATES[row.state]} ·{" "}
-            {new Date(row.created_at).toLocaleDateString("pt-BR")}
+            {STATES[row.state]} · {new Date(row.created_at).toLocaleDateString("pt-BR")}
           </p>
-          <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
-            {row.summary}
-          </p>
+          <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{row.summary}</p>
           <button
             type="button"
             className="btn"
@@ -114,8 +102,7 @@ export function PrayerRequestsScreen() {
               Assumir
             </button>
           ) : null}
-          {row.state === "assigned" &&
-          row.responsavel_id === user?.appUserId ? (
+          {row.state === "assigned" && row.responsavel_id === user?.appUserId ? (
             <button
               type="button"
               className="btn btn-primary"

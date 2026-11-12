@@ -4,7 +4,7 @@ set -eu
 TEST_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DEPLOY_DIR=$(CDPATH= cd -- "$TEST_DIR/../.." && pwd)
 INSTALL_SCRIPT="$DEPLOY_DIR/install-legacy-backup.sh"
-SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/pastorai-backup-secret-test.XXXXXX")
+SANDBOX=$(mktemp -d /root/pastorai-backup-secret-test.XXXXXX)
 SIGNAL_PGID=""
 cleanup_sandbox() {
   if [ -n "$SIGNAL_PGID" ]; then
@@ -16,7 +16,6 @@ trap cleanup_sandbox EXIT INT TERM
 
 SECRET='postgresql://synthetic-user:synthetic-secret@example.invalid/database?sslmode=require'
 PASSWORD='synthetic-secret'
-BACKUP_ROOT="$SANDBOX/backups"
 ENV_FILE="$SANDBOX/deploy.env"
 COMPOSE_FILE="$SANDBOX/docker-compose.yml"
 BIN_DIR="$SANDBOX/bin"
@@ -26,7 +25,7 @@ HELPER_DIR="$LEGACY_ROOT/usr/local/libexec/pastorai-backup"
 HELPER="$HELPER_DIR/prepare-database-service.py"
 HELPER_SHA256="$HELPER.sha256"
 REAL_PYTHON=$(command -v python3)
-mkdir -p "$BACKUP_ROOT" "$BIN_DIR"
+mkdir -p "$BIN_DIR"
 printf 'DATABASE_URL=%s\nSUPABASE_URL=https://unused.invalid\nSUPABASE_SERVICE_ROLE_KEY=unused\n' "$SECRET" >"$ENV_FILE"
 printf 'services: {}\n' >"$COMPOSE_FILE"
 chmod 0600 "$ENV_FILE" "$COMPOSE_FILE"
@@ -41,7 +40,10 @@ set -eu
 
 phase=
 case "${1##*/}" in
-  prepare-database-service.py) phase=prepare ;;
+  prepare-database-service.py)
+    if [ "${2:-}" = prepare-run ]; then exec "$REAL_PYTHON" "$@"; fi
+    phase=prepare
+    ;;
   -) phase=storage ;;
   *) exec "$REAL_PYTHON" "$@" ;;
 esac
@@ -176,6 +178,7 @@ assert_no_secret() {
 start_backup() {
   inspect_dir=$1
   mode=$2
+  BACKUP_ROOT="$inspect_dir/backups"
   mkdir -p "$inspect_dir"
   (
     export PATH="$BIN_DIR:$PATH"
@@ -235,14 +238,17 @@ set -e
 [ "$status" -eq 24 ]
 assert_no_secret "$SECOND"
 
-if find "$BACKUP_ROOT" -maxdepth 1 -name '.pg-credentials.*' -print -quit | grep -q .; then
-  echo "temporary libpq credentials leaked after error" >&2
-  exit 1
-fi
+for root in "$FIRST/backups" "$SECOND/backups"; do
+  if find "$root" -maxdepth 1 -name '.pg-credentials.*' -print -quit | grep -q .; then
+    echo "temporary libpq credentials leaked after error" >&2
+    exit 1
+  fi
+done
 
 # Signal cleanup uses an isolated process group so a blocked descendant cannot
 # outlive the script.  The script's EXIT trap must still remove its credentials.
 SIGNAL="$SANDBOX/inspect-signal"
+BACKUP_ROOT="$SIGNAL/backups"
 mkdir -p "$SIGNAL"
 set +e
 # --fork --wait keeps a new session alive while providing a parent that the
@@ -269,12 +275,12 @@ setsid --fork --wait env \
 signal_runner=$!
 set -e
 for _ in $(seq 1 200); do
-  if find "$BACKUP_ROOT" -maxdepth 1 -name '.pg-credentials.*' -print -quit | grep -q .; then
+  if [ -d "$BACKUP_ROOT" ] && find "$BACKUP_ROOT" -maxdepth 1 -name '.pg-credentials.*' -print -quit | grep -q .; then
     break
   fi
   sleep 0.01
 done
-if ! find "$BACKUP_ROOT" -maxdepth 1 -name '.pg-credentials.*' -print -quit | grep -q .; then
+if [ ! -d "$BACKUP_ROOT" ] || ! find "$BACKUP_ROOT" -maxdepth 1 -name '.pg-credentials.*' -print -quit | grep -q .; then
   echo "signal test did not create temporary credentials" >&2
   exit 1
 fi

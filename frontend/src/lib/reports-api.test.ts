@@ -14,7 +14,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionExpiredError } from "./api";
 import { ApiError } from "./dashboard-api";
-import { fetchReports, previousIsoWeekInSaoPaulo, splitReports, type ReportItem } from "./reports-api";
+import {
+  fetchReports,
+  previousIsoWeekInSaoPaulo,
+  splitReports,
+  type ReportItem,
+} from "./reports-api";
 
 describe("previousIsoWeekInSaoPaulo", () => {
   it("na virada da semana ISO usa o dia civil de São Paulo, não o de UTC", () => {

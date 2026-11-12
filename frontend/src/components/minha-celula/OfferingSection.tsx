@@ -61,8 +61,7 @@ export function OfferingSection({
       onToast({ kind: "ok", text: "Relatório salvo." });
       onSaved();
     } catch (err) {
-      const text =
-        err instanceof ApiError ? err.message : "Não foi possível salvar o relatório.";
+      const text = err instanceof ApiError ? err.message : "Não foi possível salvar o relatório.";
       setError(text);
       onToast({ kind: "err", text });
     } finally {

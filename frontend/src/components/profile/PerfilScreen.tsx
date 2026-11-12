@@ -147,7 +147,12 @@ export function PerfilScreen() {
               setNomeStatus("idle");
             }}
           />
-          <Button type="submit" variant="primary" loading={nomeStatus === "loading"} loadingText="Salvando…">
+          <Button
+            type="submit"
+            variant="primary"
+            loading={nomeStatus === "loading"}
+            loadingText="Salvando…"
+          >
             Salvar nome
           </Button>
         </form>
@@ -155,8 +160,8 @@ export function PerfilScreen() {
         <form className="card card-pad" onSubmit={saveChatNome}>
           <h3>Nome no chat do WhatsApp</h3>
           <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
-            Aparece nas suas respostas no WhatsApp (ex.: “Pastor Raniel Levi”). Em
-            branco, usa seu nome: <strong>{user?.nome}</strong>.
+            Aparece nas suas respostas no WhatsApp (ex.: “Pastor Raniel Levi”). Em branco, usa seu
+            nome: <strong>{user?.nome}</strong>.
           </p>
           {chatError ? (
             <div className="error-banner" role="alert">
@@ -173,7 +178,12 @@ export function PerfilScreen() {
               setChatStatus("idle");
             }}
           />
-          <Button type="submit" variant="primary" loading={chatStatus === "loading"} loadingText="Salvando…">
+          <Button
+            type="submit"
+            variant="primary"
+            loading={chatStatus === "loading"}
+            loadingText="Salvando…"
+          >
             Salvar
           </Button>
         </form>
@@ -210,7 +220,12 @@ export function PerfilScreen() {
             value={nw2}
             onChange={(e) => setNw2(e.target.value)}
           />
-          <Button type="submit" variant="primary" loading={pwStatus === "loading"} loadingText="Alterando…">
+          <Button
+            type="submit"
+            variant="primary"
+            loading={pwStatus === "loading"}
+            loadingText="Alterando…"
+          >
             Alterar senha
           </Button>
         </form>

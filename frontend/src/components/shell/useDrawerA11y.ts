@@ -85,12 +85,15 @@ export function useDrawerA11y(open: boolean, onClose: () => void) {
     // Conteúdo atrás inerte: irmãos do drawer no .app (main, bottom-nav…),
     // exceto o backdrop — que precisa continuar clicável para fechar.
     const inerted: Element[] = [];
-    drawer.closest(".app")?.querySelectorAll(":scope > *").forEach((el) => {
-      if (el === drawer || el.classList.contains("drawer-backdrop")) return;
-      if (el.hasAttribute("inert")) return;
-      el.setAttribute("inert", "");
-      inerted.push(el);
-    });
+    drawer
+      .closest(".app")
+      ?.querySelectorAll(":scope > *")
+      .forEach((el) => {
+        if (el === drawer || el.classList.contains("drawer-backdrop")) return;
+        if (el.hasAttribute("inert")) return;
+        el.setAttribute("inert", "");
+        inerted.push(el);
+      });
 
     // Foco inicial: primeiro focável; fallback no próprio drawer (tabIndex=-1).
     const focusables = getFocusable(drawer);

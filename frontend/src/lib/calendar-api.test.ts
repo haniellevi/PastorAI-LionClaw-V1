@@ -217,11 +217,7 @@ describe("fetchImportPreview — revisão da conexão", () => {
       }),
     );
 
-    const result = await fetchImportPreview(
-      "tok",
-      "2026-08-03T00:00:00Z",
-      "2026-08-04T00:00:00Z",
-    );
+    const result = await fetchImportPreview("tok", "2026-08-03T00:00:00Z", "2026-08-04T00:00:00Z");
 
     expect(result.connectionVersion).toBe(connectionVersion);
     const [request] = fetchMock.mock.calls[0] ?? [];

@@ -216,10 +216,15 @@ def parse_message_event(payload: dict[str, Any]) -> ParsedMessage | None:
     if isinstance(remote_jid, str) and remote_jid.count("@") == 1 and remote_jid.endswith("@s.whatsapp.net"):
         phone_jid = remote_jid
     elif isinstance(remote_jid, str) and remote_jid.count("@") == 1 and remote_jid.endswith("@lid"):
-        phone_jid = key.get("remoteJidAlt")
-        if not isinstance(phone_jid, str) or phone_jid.count("@") != 1 or not phone_jid.endswith("@s.whatsapp.net"):
+        alternate_jid = key.get("remoteJidAlt")
+        if (
+            not isinstance(alternate_jid, str)
+            or alternate_jid.count("@") != 1
+            or not alternate_jid.endswith("@s.whatsapp.net")
+        ):
             logger.warning("Ignoring WhatsApp LID message without a valid phone alternate")
             return None
+        phone_jid = alternate_jid
     else:
         # Never log a provider JID or phone number.
         logger.warning("Ignoring WhatsApp message with unsupported remote JID")

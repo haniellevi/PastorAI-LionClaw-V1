@@ -61,7 +61,11 @@ function Harness({ drawer, a, b }: { drawer: boolean; a: boolean; b: boolean }) 
       { id: SHELL_DRAWER_ID, className: "sidebar", tabIndex: -1, key: "nav" },
       btn("nav1", "Painel de Hoje"),
     ),
-    h("main", { className: "main", key: "main" }, h("div", { className: "screen" }, btn("atras", "Atrás"))),
+    h(
+      "main",
+      { className: "main", key: "main" },
+      h("div", { className: "screen" }, btn("atras", "Atrás")),
+    ),
     h(Dialog, { open: a, onClose: noop, title: "A", key: "a", children: btn("ca", "Ação A") }),
     h(Dialog, { open: b, onClose: noop, title: "B", key: "b", children: btn("cb", "Ação B") }),
   );

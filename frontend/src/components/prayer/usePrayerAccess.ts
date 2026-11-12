@@ -14,8 +14,7 @@ export function usePrayerAccess(token: string | null): boolean | null {
       signal: abort.signal,
     })
       .then((r) => {
-        if (!abort.signal.aborted)
-          setResult({ token, allowed: r.allowed === true });
+        if (!abort.signal.aborted) setResult({ token, allowed: r.allowed === true });
       })
       .catch(() => {
         if (!abort.signal.aborted) setResult({ token, allowed: false });

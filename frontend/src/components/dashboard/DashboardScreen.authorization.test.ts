@@ -182,8 +182,12 @@ beforeEach(() => {
     total: 0,
   });
   apiMock.getCentralDashboard.mockResolvedValue({
-    relatorios_pendentes: 3, solicitacoes_aguardando: 2, celulas_com_alerta: 1,
-    multiplicacoes_pendentes: 1, avisos_recentes: 0, materiais_recentes: 0,
+    relatorios_pendentes: 3,
+    solicitacoes_aguardando: 2,
+    celulas_com_alerta: 1,
+    multiplicacoes_pendentes: 1,
+    avisos_recentes: 0,
+    materiais_recentes: 0,
   });
   apiMock.getNextMeeting.mockResolvedValue({ meeting: null });
   apiMock.getLedCellsTodayContext.mockResolvedValue({ cells: [], meeting: null });
@@ -222,9 +226,7 @@ describe("DashboardScreen — autorização para conectar à célula", () => {
     expect(buttonWithText("Conectar à célula")).toBeDefined();
   });
 
-  const blockedRoleCases: Array<
-    [role: string, keepsQueue: boolean, canAssignQueue: boolean]
-  > = [
+  const blockedRoleCases: Array<[role: string, keepsQueue: boolean, canAssignQueue: boolean]> = [
     ["lider_g12", true, true],
     ["lider_consol", true, true],
     ["lider_celula", true, false],
@@ -253,18 +255,14 @@ describe("DashboardScreen — autorização para conectar à célula", () => {
   it.each([
     ["admin", ["admin"], true, true],
     ["líder de célula", ["lider_celula"], false, false],
-  ] as Array<
-    [label: string, roles: string[], includesCells: boolean, includesTeam: boolean]
-  >)(
+  ] as Array<[label: string, roles: string[], includesCells: boolean, includesTeam: boolean]>)(
     "invalida o cache correto no retry para %s",
     async (_label, roles, includesCells, includesTeam) => {
       authState.roles = roles;
       await renderScreen();
 
       act(() => {
-        buttonWithText("Atualizar")?.dispatchEvent(
-          new MouseEvent("click", { bubbles: true }),
-        );
+        buttonWithText("Atualizar")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
       await flush();
 
@@ -274,10 +272,7 @@ describe("DashboardScreen — autorização para conectar à célula", () => {
         ...(includesCells ? ["/cells?"] : []),
         "/dashboard/overview",
       ];
-      expect(apiMock.clearAuthedResponseCache).toHaveBeenCalledWith(
-        "tok-1",
-        expectedPaths,
-      );
+      expect(apiMock.clearAuthedResponseCache).toHaveBeenCalledWith("tok-1", expectedPaths);
     },
   );
 
@@ -370,9 +365,7 @@ describe("DashboardScreen — autorização para atribuir fila", () => {
     await renderScreen();
 
     act(() => {
-      buttonWithText("Atribuir")?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
+      buttonWithText("Atribuir")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
 
@@ -454,13 +447,7 @@ describe("DashboardScreen — autorização para atribuir fila", () => {
           status: null,
           papeis: ["pastor"],
           pessoaId: "p2",
-          tiposFila: [
-            "visitante",
-            "atendimento",
-            "relatorio",
-            "conectar_celula",
-            "fonovisita",
-          ],
+          tiposFila: ["visitante", "atendimento", "relatorio", "conectar_celula", "fonovisita"],
         },
       ],
       page: 1,
@@ -478,18 +465,12 @@ describe("DashboardScreen — autorização para atribuir fila", () => {
         ) as HTMLButtonElement | null
       )?.click(),
     );
-    act(() =>
-      (container.querySelector(".dh-picker-row") as HTMLButtonElement | null)?.click(),
-    );
+    act(() => (container.querySelector(".dh-picker-row") as HTMLButtonElement | null)?.click());
     await flush();
-    act(() =>
-      (container.querySelector(".ds-dialog-close") as HTMLButtonElement | null)?.click(),
-    );
+    act(() => (container.querySelector(".ds-dialog-close") as HTMLButtonElement | null)?.click());
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     const assignmentButtons = [
-      ...container.querySelectorAll<HTMLButtonElement>(
-        '[aria-label^="Atribuir responsável:"]',
-      ),
+      ...container.querySelectorAll<HTMLButtonElement>('[aria-label^="Atribuir responsável:"]'),
     ];
     expect(assignmentButtons).toHaveLength(2);
     expect(assignmentButtons.every((button) => button.disabled)).toBe(true);
@@ -501,9 +482,7 @@ describe("DashboardScreen — autorização para atribuir fila", () => {
 
     expect(container.textContent).not.toContain(workItem.titulo);
     expect(container.textContent).toContain("Outra ação sob cuidado");
-    expect(document.activeElement).toBe(
-      container.querySelector("#dashboard-queue-title"),
-    );
+    expect(document.activeElement).toBe(container.querySelector("#dashboard-queue-title"));
   });
 });
 
@@ -520,17 +499,21 @@ describe("DashboardScreen — composição por responsabilidades", () => {
     await renderScreen();
 
     expect(buttonWithText("Atualizar")?.getAttribute("aria-busy")).toBe("true");
-    expect(Array.from(container.querySelectorAll('[role="status"]')).map(node => node.textContent).join(" ")).toContain(
-      "Atualizando as informações de hoje.",
-    );
+    expect(
+      Array.from(container.querySelectorAll('[role="status"]'))
+        .map((node) => node.textContent)
+        .join(" "),
+    ).toContain("Atualizando as informações de hoje.");
 
     firstPage.resolve({ items: [workItem], page: 1, pageSize: 25, total: 1 });
     await flush();
 
     expect(buttonWithText("Atualizar")?.hasAttribute("aria-busy")).toBe(false);
-    expect(Array.from(container.querySelectorAll('[role="status"]')).map(node => node.textContent).join(" ")).toContain(
-      "1 ação disponível.",
-    );
+    expect(
+      Array.from(container.querySelectorAll('[role="status"]'))
+        .map((node) => node.textContent)
+        .join(" "),
+    ).toContain("1 ação disponível.");
   });
 
   it("mostra Agenda, próxima reunião e avisos reais ao membro sem carregar fila", async () => {
@@ -849,9 +832,7 @@ describe("DashboardScreen — composição por responsabilidades", () => {
       pageSize: 25,
       total: 8,
     });
-    apiMock.fetchRemainingWorkQueuePages.mockRejectedValue(
-      new Error("página 2 offline"),
-    );
+    apiMock.fetchRemainingWorkQueuePages.mockRejectedValue(new Error("página 2 offline"));
 
     await renderScreen();
 
@@ -1003,9 +984,7 @@ describe("DashboardScreen — composição por responsabilidades", () => {
 
     await renderScreen();
 
-    expect(container.textContent).toContain(
-      "Não foi possível carregar agenda, reunião e avisos.",
-    );
+    expect(container.textContent).toContain("Não foi possível carregar agenda, reunião e avisos.");
     expect(container.textContent).toContain("Agenda indisponível agora");
     expect(container.textContent).toContain("Reunião indisponível agora");
     expect(container.textContent).toContain("Avisos indisponíveis agora");
@@ -1015,13 +994,20 @@ describe("DashboardScreen — composição por responsabilidades", () => {
   });
 });
 
-it.each(["admin", "pastor", "membro", "operador"])("restringe indicador privado em Hoje para %s", async role => {
-  authState.roles = [role];
-  await renderScreen();
-  expect(Boolean(container.querySelector('[aria-label="Memória privada"]'))).toBe(role === "admin");
-  expect(apiMock.authedFetch.mock.calls.filter(call => call[1] === "/operations/private-memory").length)
-    .toBe(role === "admin" ? 1 : 0);
-});
+it.each(["admin", "pastor", "membro", "operador"])(
+  "restringe indicador privado em Hoje para %s",
+  async (role) => {
+    authState.roles = [role];
+    await renderScreen();
+    expect(Boolean(container.querySelector('[aria-label="Memória privada"]'))).toBe(
+      role === "admin",
+    );
+    expect(
+      apiMock.authedFetch.mock.calls.filter((call) => call[1] === "/operations/private-memory")
+        .length,
+    ).toBe(role === "admin" ? 1 : 0);
+  },
+);
 
 it.each(["admin", "pastor"])("compõe Central em Hoje para %s", async (role) => {
   authState.roles = [role];
@@ -1030,12 +1016,15 @@ it.each(["admin", "pastor"])("compõe Central em Hoje para %s", async (role) => 
   expect(apiMock.fetchWorkQueuePage).toHaveBeenCalledWith("tok-1", 1, 25, { hoje: true });
   expect(container.textContent).toContain("3 relatórios pendentes");
 });
-it.each(["lider_g12", "lider_consol", "lider_celula", "lider_mult", "operador", "membro"])("não consulta nem exibe contadores da Central para %s", async (role) => {
-  authState.roles = [role];
-  await renderScreen();
-  expect(apiMock.getCentralDashboard).not.toHaveBeenCalled();
-  expect(container.textContent).not.toContain("Pendências da Central");
-});
+it.each(["lider_g12", "lider_consol", "lider_celula", "lider_mult", "operador", "membro"])(
+  "não consulta nem exibe contadores da Central para %s",
+  async (role) => {
+    authState.roles = [role];
+    await renderScreen();
+    expect(apiMock.getCentralDashboard).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Pendências da Central");
+  },
+);
 it("remove contadores imediatamente ao perder papel da Central", async () => {
   await renderScreen();
   expect(container.textContent).toContain("3 relatórios pendentes");

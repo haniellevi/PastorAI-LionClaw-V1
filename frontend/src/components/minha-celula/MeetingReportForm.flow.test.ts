@@ -98,13 +98,17 @@ describe("MeetingReportForm, fluxo guiado", () => {
     expect(container.textContent).toContain("Relatório em andamento");
     expect(container.textContent).toContain("1 de 2 presentes");
     expect(container.textContent).toContain("Contato sem nome");
-    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("1");
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "1",
+    );
 
     act(() => triggers[1]!.click());
 
     expect(triggers[0]!.getAttribute("aria-expanded")).toBe("false");
     expect(triggers[1]!.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("2");
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "2",
+    );
   });
 
   it("mostra o estado enviado sem ação de envio ou alerta de pendência", async () => {
@@ -150,8 +154,10 @@ describe("MeetingReportForm, fluxo guiado", () => {
     expect(text).not.toContain("Contato sem nome");
     expect(container.querySelector('input, textarea, select, [role="switch"]')).toBeNull();
     expect(container.querySelector("[aria-expanded]")).toBeNull();
-    expect([...container.querySelectorAll("button")].some((button) =>
-      button.textContent?.includes("Enviar relatório"),
-    )).toBe(false);
+    expect(
+      [...container.querySelectorAll("button")].some((button) =>
+        button.textContent?.includes("Enviar relatório"),
+      ),
+    ).toBe(false);
   });
 });

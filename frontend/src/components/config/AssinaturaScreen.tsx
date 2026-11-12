@@ -179,9 +179,7 @@ export function AssinaturaScreen() {
   }, [load]);
 
   const uiState = useMemo(() => subscriptionUiState(sub), [sub]);
-  const hasOutstandingRecovery = Boolean(
-    sub?.recoveryInvoiceUrl || sub?.recoveryRequired,
-  );
+  const hasOutstandingRecovery = Boolean(sub?.recoveryInvoiceUrl || sub?.recoveryRequired);
 
   const contract = useCallback(
     async (plano: PlanCode) => {
@@ -340,25 +338,26 @@ export function AssinaturaScreen() {
   const nextPlan = complimentary
     ? null
     : currentIndex >= 0
-      ? catalog[currentIndex + 1] ?? null
+      ? (catalog[currentIndex + 1] ?? null)
       : null;
-  const frozenCheckoutRecovery = planoSalvoForaDoCatalogo && sub ? (
-    <div className="card-pad admin-card-divider">
-      <p className="sub ds-muted ds-mt-0">
-        A contratação do plano <strong>{sub.plano}</strong> ficou incompleta e esse
-        plano não está mais no catálogo. Você pode retomá-la
-        {catalog.length > 0 ? " ou escolher um dos planos abaixo" : ""}.
-      </p>
-      <DsButton
-        variant="secondary"
-        onClick={() => void contract(sub.plano)}
-        disabled={checkoutPlan != null}
-        loading={checkoutPlan === sub.plano}
-      >
-        {checkoutPlan === sub.plano ? "Abrindo…" : "Retomar contratação"}
-      </DsButton>
-    </div>
-  ) : null;
+  const frozenCheckoutRecovery =
+    planoSalvoForaDoCatalogo && sub ? (
+      <div className="card-pad admin-card-divider">
+        <p className="sub ds-muted ds-mt-0">
+          A contratação do plano <strong>{sub.plano}</strong> ficou incompleta e esse plano não está
+          mais no catálogo. Você pode retomá-la
+          {catalog.length > 0 ? " ou escolher um dos planos abaixo" : ""}.
+        </p>
+        <DsButton
+          variant="secondary"
+          onClick={() => void contract(sub.plano)}
+          disabled={checkoutPlan != null}
+          loading={checkoutPlan === sub.plano}
+        >
+          {checkoutPlan === sub.plano ? "Abrindo…" : "Retomar contratação"}
+        </DsButton>
+      </div>
+    ) : null;
 
   return (
     <div className="screen admin-screen subscription-screen administration-ux" key="assinatura">
@@ -372,11 +371,7 @@ export function AssinaturaScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <DsButton
-            variant="secondary"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
           </DsButton>
         </div>
@@ -387,8 +382,8 @@ export function AssinaturaScreen() {
         <div className="error-banner ds-mb-4" role="status">
           <Icon name="clock" />
           <span>
-            <strong>Aguardando confirmação do pagamento.</strong> O acesso completo
-            é liberado assim que o Asaas confirmar a cobrança.
+            <strong>Aguardando confirmação do pagamento.</strong> O acesso completo é liberado assim
+            que o Asaas confirmar a cobrança.
           </span>
         </div>
       ) : null}
@@ -400,8 +395,8 @@ export function AssinaturaScreen() {
         <div className="error-banner ds-mb-4" role="alert">
           <Icon name="alert" />
           <span>
-            <strong>Regularização anterior pendente.</strong> Conclua essa cobrança
-            para liberar o acesso da igreja.
+            <strong>Regularização anterior pendente.</strong> Conclua essa cobrança para liberar o
+            acesso da igreja.
           </span>
           {sub.recoveryInvoiceUrl ? (
             <a
@@ -431,8 +426,7 @@ export function AssinaturaScreen() {
         <div className="error-banner ds-mb-4" role="alert">
           <Icon name="alert" />
           <span>
-            <strong>Pagamento em atraso.</strong> Regularize para manter o acesso da
-            igreja ativo.
+            <strong>Pagamento em atraso.</strong> Regularize para manter o acesso da igreja ativo.
           </span>
           {sub.invoiceUrl ? (
             <a
@@ -513,7 +507,13 @@ export function AssinaturaScreen() {
               value={cpfCnpj}
               onChange={(event) => setCpfCnpj(event.target.value)}
               aria-describedby="subscription-cpf-cnpj-help"
-              aria-invalid={cpfCnpj.length > 0 && cpfCnpj.replace(/\D/g, "").length !== 11 && cpfCnpj.replace(/\D/g, "").length !== 14 ? true : undefined}
+              aria-invalid={
+                cpfCnpj.length > 0 &&
+                cpfCnpj.replace(/\D/g, "").length !== 11 &&
+                cpfCnpj.replace(/\D/g, "").length !== 14
+                  ? true
+                  : undefined
+              }
             />
             <p id="subscription-cpf-cnpj-help" className="helper">
               Usado somente para criar a cobrança no Asaas; não fica salvo no painel.
@@ -573,9 +573,7 @@ export function AssinaturaScreen() {
                         : "Setup pendente"}
                   </div>
                   {complimentary ? (
-                    <p className="helper ds-m-0 ds-mt-2">
-                      {COMPLIMENTARY_ADMIN_MESSAGE}
-                    </p>
+                    <p className="helper ds-m-0 ds-mt-2">{COMPLIMENTARY_ADMIN_MESSAGE}</p>
                   ) : null}
                 </div>
                 <SubscriptionPill state={uiState} />
@@ -624,16 +622,12 @@ export function AssinaturaScreen() {
                 {sub.setupPago ? (
                   <StatusPill tone="ok">{complimentary ? "Isento" : "Pago"}</StatusPill>
                 ) : (
-                  <span className="mono num">
-                    {BRL.format(sub.setupFeeContracted ?? setupFee)}
-                  </span>
+                  <span className="mono num">{BRL.format(sub.setupFeeContracted ?? setupFee)}</span>
                 )}
               </div>
               {!complimentary && sub.setupRecoveryRequired ? (
                 <div className="config-row">
-                  <span className="ds-muted">
-                    Setup em aberto sem cobrança ativa
-                  </span>
+                  <span className="ds-muted">Setup em aberto sem cobrança ativa</span>
                   <DsButton
                     variant="secondary"
                     onClick={() => void emitSetupCharge()}
@@ -654,17 +648,15 @@ export function AssinaturaScreen() {
           <div className="empty-state ds-p-6">
             <Icon name="card" />
             <p>
-              <strong>Nenhum plano contratado.</strong> Escolha um plano em
-              “Planos por porte” para ativar a igreja.
+              <strong>Nenhum plano contratado.</strong> Escolha um plano em “Planos por porte” para
+              ativar a igreja.
             </p>
           </div>
         )
       ) : catalog.length === 0 ? (
         <>
           {frozenCheckoutRecovery ? (
-            <div className="card ds-mb-4">
-              {frozenCheckoutRecovery}
-            </div>
+            <div className="card ds-mb-4">{frozenCheckoutRecovery}</div>
           ) : null}
           <div className="empty-state ds-p-6">
             <Icon name="card" />
@@ -732,10 +724,18 @@ export function AssinaturaScreen() {
                 const retomar = placeholder && sub?.plano === plan.code;
                 return (
                   <tr key={plan.code}>
-                    <td className="nm" data-label="Plano">{plan.label}</td>
-                    <td className="num" data-label="Até">{formatLimit(plan.limite)}</td>
-                    <td className="num" data-label="Mensalidade">{BRL.format(plan.preco)}</td>
-                    <td className="num" data-label="Setup">{BRL.format(setupFee)}</td>
+                    <td className="nm" data-label="Plano">
+                      {plan.label}
+                    </td>
+                    <td className="num" data-label="Até">
+                      {formatLimit(plan.limite)}
+                    </td>
+                    <td className="num" data-label="Mensalidade">
+                      {BRL.format(plan.preco)}
+                    </td>
+                    <td className="num" data-label="Setup">
+                      {BRL.format(setupFee)}
+                    </td>
                     <td data-label="Ações">
                       {isCurrent ? (
                         <StatusPill tone="accent">Plano atual</StatusPill>

@@ -63,7 +63,9 @@ export function RequestsPanel({
         setSelectedId((prev) => (prev && page.items.some((i) => i.id === prev) ? prev : null));
         setLoaded(true);
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar as solicitações.");
+        setError(
+          err instanceof ApiError ? err.message : "Não foi possível carregar as solicitações.",
+        );
       } finally {
         setLoading(false);
       }
@@ -117,7 +119,10 @@ export function RequestsPanel({
             ))}
           </div>
         ) : items.length === 0 ? (
-          <DsEmptyState illustration={<Icon name="check" />} title="Nenhuma solicitação aguardando." />
+          <DsEmptyState
+            illustration={<Icon name="check" />}
+            title="Nenhuma solicitação aguardando."
+          />
         ) : (
           <div>
             {items.map((req) => (
@@ -130,7 +135,10 @@ export function RequestsPanel({
               >
                 <span style={{ minWidth: 0 }}>
                   <span className="nm" style={{ display: "block" }}>
-                    {typeLabel(req.tipo)}{req.tipo === "nomear_lider" ? ` · ${req.candidato_nome ?? "Candidato"} → ${req.celula_nome ?? "Célula"}` : ""}
+                    {typeLabel(req.tipo)}
+                    {req.tipo === "nomear_lider"
+                      ? ` · ${req.candidato_nome ?? "Candidato"} → ${req.celula_nome ?? "Célula"}`
+                      : ""}
                   </span>
                   {req.created_at ? (
                     <span className="sub">{formatPublishedAt(req.created_at)}</span>

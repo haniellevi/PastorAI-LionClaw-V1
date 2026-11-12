@@ -68,8 +68,8 @@ export function NextMeetingCard({
         <div className="empty-state mc-empty-state">
           <Icon name="calendar" />
           <p>
-            <strong>Próxima reunião ainda não definida.</strong> Assim que a
-            liderança planejar, ela aparece aqui.
+            <strong>Próxima reunião ainda não definida.</strong> Assim que a liderança planejar, ela
+            aparece aqui.
           </p>
           <div className="meeting-actions" aria-hidden="true">
             <Button variant="default" disabled>

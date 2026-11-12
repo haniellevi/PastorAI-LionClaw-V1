@@ -51,36 +51,57 @@ export function DeleteConversationDialog({
             {receipt ? "Fechar" : "Cancelar"}
           </DsButton>
           {receipt ? (
-            <DsButton variant="secondary" loading={busy} onClick={onRefresh}>Atualizar recibo</DsButton>
-          ) : <DsButton variant="danger" loading={busy} onClick={onConfirm}>
-            <Icon name="trash" />
-            <span>{busy ? "Excluindo…" : "Excluir conversa"}</span>
-          </DsButton>}
+            <DsButton variant="secondary" loading={busy} onClick={onRefresh}>
+              Atualizar recibo
+            </DsButton>
+          ) : (
+            <DsButton variant="danger" loading={busy} onClick={onConfirm}>
+              <Icon name="trash" />
+              <span>{busy ? "Excluindo…" : "Excluir conversa"}</span>
+            </DsButton>
+          )}
         </>
       }
     >
-      {receipt ? <section aria-label="Recibo da exclusão privada">
-        <div role="status">
-          <strong>{receipt.estado === "concluido" ? "Exclusão concluída" : receipt.estado === "pendente_envio" ? "Exclusão pendente: envio em andamento" : "Exclusão pendente: limpeza de mídia"}</strong>
-          <p>Recibo: {receipt.id}</p>
-        </div>
-        <p>O histórico foi removido do inbox. A limpeza externa pode continuar pendente. Este recibo não cobre backups nem cópias do provedor.</p>
-        <ul>{Object.entries(receipt.camadas).map(([layer, counts]) => (
-          <li key={layer}>{layer}: {counts.apagadas} apagadas; {counts.pendentes} pendentes; {counts.falhas} falhas.</li>
-        ))}</ul>
-      </section> : <p className="ib-dialog-text">
-        Excluir a conversa com <strong>{displayName(conversation)}</strong>? Apaga
-        as mensagens e solicita a limpeza privada das mídias <strong>desta conversa</strong>. Esta
-        ação não pode ser desfeita.
-      </p>}
+      {receipt ? (
+        <section aria-label="Recibo da exclusão privada">
+          <div role="status">
+            <strong>
+              {receipt.estado === "concluido"
+                ? "Exclusão concluída"
+                : receipt.estado === "pendente_envio"
+                  ? "Exclusão pendente: envio em andamento"
+                  : "Exclusão pendente: limpeza de mídia"}
+            </strong>
+            <p>Recibo: {receipt.id}</p>
+          </div>
+          <p>
+            O histórico foi removido do inbox. A limpeza externa pode continuar pendente. Este
+            recibo não cobre backups nem cópias do provedor.
+          </p>
+          <ul>
+            {Object.entries(receipt.camadas).map(([layer, counts]) => (
+              <li key={layer}>
+                {layer}: {counts.apagadas} apagadas; {counts.pendentes} pendentes; {counts.falhas}{" "}
+                falhas.
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : (
+        <p className="ib-dialog-text">
+          Excluir a conversa com <strong>{displayName(conversation)}</strong>? Apaga as mensagens e
+          solicita a limpeza privada das mídias <strong>desta conversa</strong>. Esta ação não pode
+          ser desfeita.
+        </p>
+      )}
 
       <div className="preserve-note" role="note">
         <Icon name="shield" />
         <span>
-          O contato <strong>não é excluído</strong>. O cadastro (nome e tipo) e os
-          vínculos ministeriais — célula, liderança, consolidação e histórico — são
-          preservados. Se a pessoa escrever de novo, uma nova conversa é aberta com o
-          mesmo cadastro.
+          O contato <strong>não é excluído</strong>. O cadastro (nome e tipo) e os vínculos
+          ministeriais — célula, liderança, consolidação e histórico — são preservados. Se a pessoa
+          escrever de novo, uma nova conversa é aberta com o mesmo cadastro.
         </span>
       </div>
 

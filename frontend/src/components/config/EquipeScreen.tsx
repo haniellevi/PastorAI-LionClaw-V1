@@ -94,16 +94,25 @@ export function EquipeScreen() {
   const [inviting, setInviting] = useState(false);
 
   const [invPessoa, setInvPessoa] = useState<ContactLookup | null>(null);
-  const loadPessoas = useCallback((q: string, page: number, signal: AbortSignal) =>
-    fetchContactLookupPage(token ?? "", { q, page, signal }), [token]);
-  const pessoasLookup = useLookupPage(loadPessoas, invPessoaQuery,
-    inviteOpen && invMode === "existente" && !!token && podeConvidar);
+  const loadPessoas = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      fetchContactLookupPage(token ?? "", { q, page, signal }),
+    [token],
+  );
+  const pessoasLookup = useLookupPage(
+    loadPessoas,
+    invPessoaQuery,
+    inviteOpen && invMode === "existente" && !!token && podeConvidar,
+  );
   const pessoasFiltradas = pessoasLookup.result?.items ?? [];
   const pessoasLoading = pessoasLookup.loading;
   const pessoasError = pessoasLookup.error instanceof Error ? pessoasLookup.error.message : null;
   const resetPessoasPage = pessoasLookup.setPage;
   useEffect(() => {
-    setInvPessoaId(null); setInvPessoa(null); setInvEmail(""); setInvNome("");
+    setInvPessoaId(null);
+    setInvPessoa(null);
+    setInvEmail("");
+    setInvNome("");
     setInviteOpen(false);
     setLinking(null);
   }, [token]);
@@ -300,7 +309,9 @@ export function EquipeScreen() {
       if (err instanceof TeamConflictError) {
         setEditError(err.message);
       } else {
-        setEditError(err instanceof ApiError ? err.message : "Não foi possível atualizar os papéis.");
+        setEditError(
+          err instanceof ApiError ? err.message : "Não foi possível atualizar os papéis.",
+        );
       }
     } finally {
       setSavingRoles(false);
@@ -308,15 +319,14 @@ export function EquipeScreen() {
   }, [token, editing, editRoles, flashToast, closeEdit, load, handleSessionError]);
 
   const toggle = useCallback(
-    (setFn: React.Dispatch<React.SetStateAction<Set<Role>>>) =>
-      (role: Role, on: boolean) => {
-        setFn((prev) => {
-          const next = new Set(prev);
-          if (on) next.add(role);
-          else next.delete(role);
-          return next;
-        });
-      },
+    (setFn: React.Dispatch<React.SetStateAction<Set<Role>>>) => (role: Role, on: boolean) => {
+      setFn((prev) => {
+        const next = new Set(prev);
+        if (on) next.add(role);
+        else next.delete(role);
+        return next;
+      });
+    },
     [],
   );
 
@@ -429,8 +439,13 @@ export function EquipeScreen() {
         width: "1px",
         cell: (m) => (
           <div className="team-row-actions">
-            <DsButton variant="secondary" onClick={() => setLinking(m)}
-              aria-label={`Vincular Pessoa a ${m.nome}`}>Vincular Pessoa</DsButton>
+            <DsButton
+              variant="secondary"
+              onClick={() => setLinking(m)}
+              aria-label={`Vincular Pessoa a ${m.nome}`}
+            >
+              Vincular Pessoa
+            </DsButton>
             <DsButton variant="secondary" onClick={() => openEdit(m)}>
               Editar papéis
             </DsButton>
@@ -441,7 +456,9 @@ export function EquipeScreen() {
                 disabled={busyId === m.usuarioId}
                 loading={busyId === m.usuarioId && busyAction === "resend"}
               >
-                {busyId === m.usuarioId && busyAction === "resend" ? "Enviando…" : "Reenviar convite"}
+                {busyId === m.usuarioId && busyAction === "resend"
+                  ? "Enviando…"
+                  : "Reenviar convite"}
               </DsButton>
             ) : null}
             {isSelf(m) ? (
@@ -464,10 +481,11 @@ export function EquipeScreen() {
   }, [openEdit, isSelf, handleResend, handleRevoke, busyId, busyAction, isAdminUser]);
 
   const showSkeleton = loading && !loaded;
-  const firstCoordinationWithoutActivePerson = members.find((member) =>
-    (member.status === null || member.status === "ativo") &&
-    member.papeis.some((role) => ENVIAR_COORDINATION_ROLES.has(role)) &&
-    (member.pessoaVinculo === "sem_vinculo" || member.pessoaVinculo === "pessoa_inativa"),
+  const firstCoordinationWithoutActivePerson = members.find(
+    (member) =>
+      (member.status === null || member.status === "ativo") &&
+      member.papeis.some((role) => ENVIAR_COORDINATION_ROLES.has(role)) &&
+      (member.pessoaVinculo === "sem_vinculo" || member.pessoaVinculo === "pessoa_inativa"),
   );
 
   return (
@@ -475,13 +493,13 @@ export function EquipeScreen() {
       <div className="screen-head">
         <div className="titles">
           <h2>Pessoas com acesso</h2>
-          <p>Gerencie contas e convites. Cadastrar uma pessoa na igreja não concede acesso ao painel.</p>
+          <p>
+            Gerencie contas e convites. Cadastrar uma pessoa na igreja não concede acesso ao painel.
+          </p>
         </div>
         <div className="actions">
           {podeConvidar ? (
-            <DsButton
-              onClick={() => (inviteOpen ? resetInvite() : setInviteOpen(true))}
-            >
+            <DsButton onClick={() => (inviteOpen ? resetInvite() : setInviteOpen(true))}>
               <Icon name="plus" />
               <span>Dar acesso ao painel</span>
             </DsButton>
@@ -494,8 +512,8 @@ export function EquipeScreen() {
           <span>
             {semPessoaAtivaCoordenacao === 1
               ? "Há 1 membro ativo da coordenação sem Pessoa ativa."
-              : `Há ${semPessoaAtivaCoordenacao} membros ativos da coordenação sem Pessoa ativa.`}
-            {" "}Use “Vincular Pessoa” para regularizar o vínculo.
+              : `Há ${semPessoaAtivaCoordenacao} membros ativos da coordenação sem Pessoa ativa.`}{" "}
+            Use “Vincular Pessoa” para regularizar o vínculo.
           </span>
           {firstCoordinationWithoutActivePerson ? (
             <DsButton
@@ -534,10 +552,9 @@ export function EquipeScreen() {
             </div>
           ) : null}
           <p className="sub ds-muted ds-mb-3">
-            Dê acesso ao painel sem alterar a célula da Pessoa. O convidado entra
-            como <strong>membro</strong>; os demais papéis são definidos depois,
-            aqui na Equipe. Quem ainda não está cadastrado completa o cadastro ao
-            ativar o convite.
+            Dê acesso ao painel sem alterar a célula da Pessoa. O convidado entra como{" "}
+            <strong>membro</strong>; os demais papéis são definidos depois, aqui na Equipe. Quem
+            ainda não está cadastrado completa o cadastro ao ativar o convite.
           </p>
 
           {invMode === "existente" ? (
@@ -608,8 +625,16 @@ export function EquipeScreen() {
                     })
                   )}
                 </div>
-                <LookupPager result={pessoasLookup.result} loading={pessoasLoading} onPage={pessoasLookup.setPage} />
-                {selectedInvPessoa ? <p className="sub" role="status">Pessoa selecionada: <strong>{selectedInvPessoa.nome}</strong></p> : null}
+                <LookupPager
+                  result={pessoasLookup.result}
+                  loading={pessoasLoading}
+                  onPage={pessoasLookup.setPage}
+                />
+                {selectedInvPessoa ? (
+                  <p className="sub" role="status">
+                    Pessoa selecionada: <strong>{selectedInvPessoa.nome}</strong>
+                  </p>
+                ) : null}
               </div>
 
               {invPessoaId && invNeedsEmail ? (
@@ -725,53 +750,66 @@ export function EquipeScreen() {
         )}
       </div>
 
-      {linking && token && isAdminUser ? <TeamPessoaDialog key={linking.usuarioId}
-        member={linking} token={token} onClose={() => setLinking(null)}
-        onSessionError={handleSessionError} onSaved={() => {
-          setLinking(null); flashToast({ kind: "ok", text: "Vínculo de Pessoa atualizado." }); void load("retry");
-        }} /> : null}
+      {linking && token && isAdminUser ? (
+        <TeamPessoaDialog
+          key={linking.usuarioId}
+          member={linking}
+          token={token}
+          onClose={() => setLinking(null)}
+          onSessionError={handleSessionError}
+          onSaved={() => {
+            setLinking(null);
+            flashToast({ kind: "ok", text: "Vínculo de Pessoa atualizado." });
+            void load("retry");
+          }}
+        />
+      ) : null}
 
       {editing ? (
         // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
         // primitive); mesmo título do head manual anterior.
-        <DsDialog open className="administration-ux administration-dialog" onClose={closeEdit} title={`Editar papéis · ${editing.nome}`}>
-            <form
-              className="modal-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void submitRoles();
-              }}
-            >
-              {editError ? (
-                <div className="error-banner" role="alert">
-                  <Icon name="alert" />
-                  <span>{editError}</span>
-                </div>
-              ) : null}
-              <p className="sub ds-muted">
-                Papéis acumulados (união). Remover o último administrador é bloqueado.
-                Líder de Célula é derivado da liderança de uma célula ativa e não
-                pode ser editado aqui.{" "}
-                {editRoles.has("lider_celula")
-                  ? "É possível remover todos os papéis manuais; a liderança derivada continua acompanhando a célula."
-                  : "Mantenha ao menos um papel para preservar o acesso."}
-              </p>
-              <RolePick
-                options={ROLE_ORDER}
-                selected={editRoles}
-                onToggle={toggle(setEditRoles)}
-                disabled={savingRoles}
-                locked={{ lider_celula: "Gerido pela Central de Células" }}
-              />
-              <div className="modal-foot">
-                <DsButton variant="secondary" onClick={closeEdit} disabled={savingRoles}>
-                  Cancelar
-                </DsButton>
-                <DsButton type="submit" disabled={savingRoles} loading={savingRoles}>
-                  {savingRoles ? "Salvando…" : "Salvar papéis"}
-                </DsButton>
+        <DsDialog
+          open
+          className="administration-ux administration-dialog"
+          onClose={closeEdit}
+          title={`Editar papéis · ${editing.nome}`}
+        >
+          <form
+            className="modal-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submitRoles();
+            }}
+          >
+            {editError ? (
+              <div className="error-banner" role="alert">
+                <Icon name="alert" />
+                <span>{editError}</span>
               </div>
-            </form>
+            ) : null}
+            <p className="sub ds-muted">
+              Papéis acumulados (união). Remover o último administrador é bloqueado. Líder de Célula
+              é derivado da liderança de uma célula ativa e não pode ser editado aqui.{" "}
+              {editRoles.has("lider_celula")
+                ? "É possível remover todos os papéis manuais; a liderança derivada continua acompanhando a célula."
+                : "Mantenha ao menos um papel para preservar o acesso."}
+            </p>
+            <RolePick
+              options={ROLE_ORDER}
+              selected={editRoles}
+              onToggle={toggle(setEditRoles)}
+              disabled={savingRoles}
+              locked={{ lider_celula: "Gerido pela Central de Células" }}
+            />
+            <div className="modal-foot">
+              <DsButton variant="secondary" onClick={closeEdit} disabled={savingRoles}>
+                Cancelar
+              </DsButton>
+              <DsButton type="submit" disabled={savingRoles} loading={savingRoles}>
+                {savingRoles ? "Salvando…" : "Salvar papéis"}
+              </DsButton>
+            </div>
+          </form>
         </DsDialog>
       ) : null}
 

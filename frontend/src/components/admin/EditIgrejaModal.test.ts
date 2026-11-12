@@ -60,7 +60,8 @@ function findButton(label: string): HTMLButtonElement | undefined {
 }
 
 function setValue(el: HTMLInputElement | HTMLSelectElement, value: string) {
-  const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+  const proto =
+    el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
   const evt = el instanceof HTMLSelectElement ? "change" : "input";
   act(() => {
@@ -195,8 +196,12 @@ describe("EditIgrejaModal — W4B (DsDialog)", () => {
         h("button", { id: "opener", onClick: () => setOpen(true) }, "Editar dados"),
         open
           ? h(EditIgrejaModal, {
-              igreja, busy: false, error: null,
-              onClose: () => setOpen(false), onSubmit: () => {}, onDelete: () => {},
+              igreja,
+              busy: false,
+              error: null,
+              onClose: () => setOpen(false),
+              onSubmit: () => {},
+              onDelete: () => {},
             })
           : null,
       );
@@ -208,7 +213,9 @@ describe("EditIgrejaModal — W4B (DsDialog)", () => {
     expect(document.activeElement).toBe(document.querySelector("[data-autofocus]"));
 
     const overlay = document.querySelector<HTMLElement>(".ds-overlay")!;
-    act(() => overlay.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+    act(() =>
+      overlay.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+    );
     expect(document.activeElement).toBe(opener);
   });
 

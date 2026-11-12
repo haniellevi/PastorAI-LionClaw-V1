@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import and_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, lazyload
 
 from app.db.models import (
     AppUser,
@@ -604,7 +604,9 @@ def get_platform_admin(
     mark_cross_tenant(db, actor_sub=identity.clerk_user_id, source="platform_admin")
 
     app_user = db.execute(
-        select(AppUser).where(AppUser.clerk_user_id == identity.clerk_user_id)
+        select(AppUser)
+        .options(lazyload(AppUser.roles), lazyload(AppUser.igreja))
+        .where(AppUser.clerk_user_id == identity.clerk_user_id)
     ).scalar_one_or_none()
     if app_user is None:
         raise HTTPException(

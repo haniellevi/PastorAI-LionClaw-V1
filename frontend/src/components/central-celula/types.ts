@@ -7,11 +7,6 @@ export interface CentralToast {
 export type FlashToast = (toast: CentralToast) => void;
 
 /** Abas da Central (Jornada G12 > Discipular > Central de Célula). */
-export type CentralTab =
-  | "dashboard"
-  | "cells"
-  | "requests"
-  | "notices"
-  | "materials";
+export type CentralTab = "dashboard" | "cells" | "requests" | "notices" | "materials";
 
 export type CellsSection = "health" | "reports";

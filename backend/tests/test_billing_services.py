@@ -272,6 +272,52 @@ def test_subscription_payment_lookup_returns_newest_cycle_across_pages() -> None
     ]
 
 
+class _EndlessPagesClient:
+    """Provedor travado: sempre responde `hasMore=true` com uma página cheia."""
+
+    def __init__(self) -> None:
+        self.offsets: list[int] = []
+
+    def get(self, path: str, *, headers: dict, params: dict):
+        self.offsets.append(params["offset"])
+        body = {"data": [{"id": f"item_{params['offset']}"}], "hasMore": True}
+
+        class _Response:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict:
+                return body
+
+        return _Response()
+
+
+def test_list_all_fails_instead_of_looping_forever(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.asaas._ASAAS_MAX_PAGES", 3)
+    client = _EndlessPagesClient()
+
+    with pytest.raises(AsaasError):
+        AsaasClient._list_all(client, "/payments", {"access_token": "test"}, params={})
+
+    assert client.offsets == [0, 1, 2]
+
+
+def test_subscription_payment_lookup_fails_instead_of_looping_forever(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr("app.services.asaas._ASAAS_MAX_PAGES", 3)
+    client = _EndlessPagesClient()
+
+    with pytest.raises(AsaasError):
+        AsaasClient()._latest_subscription_payment(
+            client,
+            {"access_token": "test"},
+            subscription_id="sub_1",
+        )
+
+    assert client.offsets == [0, 1, 2]
+
+
 def test_payment_invoice_url_extraction() -> None:
     """Página pública do pagamento: invoiceUrl primeiro, bankSlipUrl como
     fallback; payload vazio/ausente vira None (nunca uma URL herdada)."""

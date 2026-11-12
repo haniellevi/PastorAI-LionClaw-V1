@@ -6,8 +6,10 @@
  */
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-export interface DsIconButtonProps
-  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label" | "title" | "children"> {
+export interface DsIconButtonProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "aria-label" | "title" | "children"
+> {
   /** Rótulo acessível do botão (o ícone é decorativo). */
   label: string;
   /** Ícone svg. */

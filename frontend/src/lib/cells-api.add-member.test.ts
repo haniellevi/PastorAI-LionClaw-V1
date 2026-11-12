@@ -8,12 +8,14 @@ afterEach(() => {
 
 describe("addCellMember", () => {
   it("usa o endpoint de vínculo e nunca o endpoint de convite da Equipe", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ id: "cm-1", pessoaId: "p-1", papel: "membro", ativo: true }),
-        { status: 200 },
-      ),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ id: "cm-1", pessoaId: "p-1", papel: "membro", ativo: true }),
+          { status: 200 },
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await addCellMember("tok-1", "cell-1", "p-1");

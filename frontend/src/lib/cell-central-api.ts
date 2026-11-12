@@ -89,11 +89,7 @@ export async function getPendingReports(
 }
 
 /** Saúde das células (calculada on-read; ordena menos saudáveis primeiro). */
-export async function getHealth(
-  token: string,
-  page = 1,
-  pageSize = 50,
-): Promise<CellHealthList> {
+export async function getHealth(token: string, page = 1, pageSize = 50): Promise<CellHealthList> {
   const query = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),

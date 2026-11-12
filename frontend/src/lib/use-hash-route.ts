@@ -38,10 +38,13 @@ export function getHashRouteHistoryIndex(): number {
   // Um fragmento novo pode copiar o state anterior. A URL identifica a entrada.
   const index = (currentHistoryIndex ?? -1) + 1;
   // Só anotamos state. Passar uma URL ao wrapper Next pode disparar restore.
-  window.history.replaceState({
-    ...state,
-    __igreja12HashEntry: { index, url: window.location.href },
-  }, "");
+  window.history.replaceState(
+    {
+      ...state,
+      __igreja12HashEntry: { index, url: window.location.href },
+    },
+    "",
+  );
   return index;
 }
 

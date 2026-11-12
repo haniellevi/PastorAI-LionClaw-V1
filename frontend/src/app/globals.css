@@ -179,7 +179,8 @@ a {
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: max(var(--s5), env(safe-area-inset-top)) max(var(--s4), env(safe-area-inset-right)) max(var(--s5), env(safe-area-inset-bottom)) max(var(--s4), env(safe-area-inset-left));
+  padding: max(var(--s5), env(safe-area-inset-top)) max(var(--s4), env(safe-area-inset-right))
+    max(var(--s5), env(safe-area-inset-bottom)) max(var(--s4), env(safe-area-inset-left));
   background: var(--surface-canvas);
 }
 .auth-content {
@@ -438,7 +439,9 @@ textarea {
   font-family: inherit;
   font-size: 15px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
 }
 /* select nativo: troca o chevron do SO por um do design system (Igreja 12) e
    reserva espaço à direita pro ícone, pra opção longa não encostar nele.
@@ -497,7 +500,10 @@ input[type="checkbox"] {
   background: var(--surface-2);
   color: var(--fg);
   border-color: var(--border-strong);
-  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.05s;
   /* PR212-CORRECTIVE-8: sem nowrap na base. O nowrap global do VIS-2 dava a
      todo .btn um min-content do rótulo inteiro e estourava linhas flex sem
      wrap espalhadas pelo app (CalendarConnectCard, WhatsappScreen…). Rótulo em
@@ -563,8 +569,10 @@ input[type="checkbox"] {
   height: 15px;
   display: inline-block;
   background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 2h12M6 22h12M7 2c0 5 2 7 5 10-3 3-5 5-5 10m10-20c0 5-2 7-5 10 3 3 5 5 5 10'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 2h12M6 22h12M7 2c0 5 2 7 5 10-3 3-5 5-5 10m10-20c0 5-2 7-5 10 3 3 5 5 5 10'/%3E%3C/svg%3E") center / contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 2h12M6 22h12M7 2c0 5 2 7 5 10-3 3-5 5-5 10m10-20c0 5-2 7-5 10 3 3 5 5 5 10'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 2h12M6 22h12M7 2c0 5 2 7 5 10-3 3-5 5-5 10m10-20c0 5-2 7-5 10 3 3 5 5 5 10'/%3E%3C/svg%3E")
+    center / contain no-repeat;
   animation: wait-hourglass 1.6s ease-in-out infinite;
   flex: none;
 }
@@ -741,7 +749,9 @@ input[type="checkbox"] {
   background: color-mix(in oklch, var(--ice-50) 7%, transparent);
   color: var(--sidebar-muted);
   border-radius: 7px;
-  transition: color 0.12s, background 0.12s;
+  transition:
+    color 0.12s,
+    background 0.12s;
 }
 .collapse-btn:hover {
   color: #fff;
@@ -843,7 +853,9 @@ input[type="checkbox"] {
   background: transparent;
   width: 100%;
   text-align: left;
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
   position: relative;
   margin-bottom: 1px;
 }
@@ -1599,7 +1611,10 @@ input[type="checkbox"] {
 }
 button.tile {
   cursor: pointer;
-  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s,
+    transform 0.12s;
 }
 button.tile:hover {
   border-color: var(--accent);
@@ -1835,7 +1850,10 @@ button.jr-row:focus-visible {
   gap: var(--s3);
   padding: var(--s3) var(--s4);
   border-bottom: 1px solid var(--border);
-  transition: background 0.12s, opacity 0.2s, transform 0.2s;
+  transition:
+    background 0.12s,
+    opacity 0.2s,
+    transform 0.2s;
 }
 .qitem:last-child {
   border-bottom: none;
@@ -2518,7 +2536,7 @@ button.jr-row:focus-visible {
 
 .mc-person-avatar.tone-2 {
   background: oklch(94% 0.035 300);
-  color: oklch(48% 0.10 300);
+  color: oklch(48% 0.1 300);
 }
 
 .mc-person-avatar.tone-3 {
@@ -2803,10 +2821,18 @@ button.jr-row:focus-visible {
   max-width: 1280px;
   margin-inline: auto;
 }
-.mc-area--meeting { grid-area: meeting; }
-.mc-area--notices { grid-area: notices; }
-.mc-area--materials { grid-area: materials; }
-.mc-area--history { grid-area: history; }
+.mc-area--meeting {
+  grid-area: meeting;
+}
+.mc-area--notices {
+  grid-area: notices;
+}
+.mc-area--materials {
+  grid-area: materials;
+}
+.mc-area--history {
+  grid-area: history;
+}
 
 .mc-meeting-body {
   padding: var(--s5);
@@ -3290,7 +3316,10 @@ button.jr-row:focus-visible {
   cursor: pointer;
   /* Gate 6.2: agora é <a href="#…"> (navegação real) — sem sublinhado. */
   text-decoration: none;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 .journey-step-btn:hover {
   color: var(--fg);
@@ -3819,7 +3848,9 @@ table.data-table {
   text-align: left;
   width: 100%;
   background: var(--surface);
-  transition: border-color var(--motion-fast) var(--ease-out-productive), background var(--motion-fast) var(--ease-out-productive);
+  transition:
+    border-color var(--motion-fast) var(--ease-out-productive),
+    background var(--motion-fast) var(--ease-out-productive);
 }
 .cell-card:hover {
   border-color: var(--accent);
@@ -3970,7 +4001,9 @@ table.data-table {
   min-height: 64px;
   text-align: left;
   background: transparent;
-  transition: border-color var(--motion-fast) var(--ease-out-productive), background var(--motion-fast) var(--ease-out-productive);
+  transition:
+    border-color var(--motion-fast) var(--ease-out-productive),
+    background var(--motion-fast) var(--ease-out-productive);
 }
 .slot.filled {
   background: var(--surface);
@@ -4750,7 +4783,9 @@ table.data-table {
   font: inherit;
   color: inherit;
   position: relative;
-  transition: background 0.12s, box-shadow 0.12s;
+  transition:
+    background 0.12s,
+    box-shadow 0.12s;
 }
 .conv:hover {
   background: var(--surface-2);
@@ -5364,8 +5399,7 @@ table.data-table {
   height: 200px;
   border-radius: var(--r-md);
   border: 1px solid var(--border);
-  background: repeating-conic-gradient(var(--fg) 0% 25%, transparent 0% 50%) 0 0 /
-    22px 22px;
+  background: repeating-conic-gradient(var(--fg) 0% 25%, transparent 0% 50%) 0 0 / 22px 22px;
   opacity: 0.92;
   margin: 0 auto;
 }
@@ -6885,7 +6919,7 @@ table.data-table {
 
 /* ---- mobile: alvos ≥44px (DESIGN.md §11) ---- */
 @media (max-width: 860px) {
-.cc .ds-btn {
+  .cc .ds-btn {
     min-height: 44px;
   }
 }
@@ -8440,15 +8474,27 @@ table.data-table {
   gap: var(--s1) var(--s2);
   margin-top: var(--s2);
 }
-.ib-row-state > svg { width: 14px; height: 14px; }
-.ib-holder { font: var(--type-meta); color: var(--text-secondary); }
-.ib-load-more { padding: var(--s3); }
-.ib-load-more .ds-btn { width: 100%; }
-.ib .conv, .ib .ib-filter-btn {
+.ib-row-state > svg {
+  width: 14px;
+  height: 14px;
+}
+.ib-holder {
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.ib-load-more {
+  padding: var(--s3);
+}
+.ib-load-more .ds-btn {
+  width: 100%;
+}
+.ib .conv,
+.ib .ib-filter-btn {
   position: relative;
   isolation: isolate;
 }
-.ib .conv::before, .ib .ib-filter-btn::before {
+.ib .conv::before,
+.ib .ib-filter-btn::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -8458,19 +8504,40 @@ table.data-table {
   opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-out-productive);
 }
-.ib .ib-filter-btn::before { border-radius: var(--radius-control); }
-.ib .conv.active, .ib .ib-filter-btn.active { background: transparent; }
-.ib .conv.active::before, .ib .ib-filter-btn.active::before { opacity: 1; }
-.ib-dialog, .dh-action-dialog {
+.ib .ib-filter-btn::before {
+  border-radius: var(--radius-control);
+}
+.ib .conv.active,
+.ib .ib-filter-btn.active {
+  background: transparent;
+}
+.ib .conv.active::before,
+.ib .ib-filter-btn.active::before {
+  opacity: 1;
+}
+.ib-dialog,
+.dh-action-dialog {
   animation: ib-dialog-enter var(--motion-standard) var(--ease-out-productive);
 }
 @keyframes ib-dialog-enter {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ib-dialog, .dh-action-dialog { animation: none; }
-  .ib .conv::before, .ib .ib-filter-btn::before { transition: none; }
+  .ib-dialog,
+  .dh-action-dialog {
+    animation: none;
+  }
+  .ib .conv::before,
+  .ib .ib-filter-btn::before {
+    transition: none;
+  }
 }
 .ib-search input {
   width: 100%;
@@ -9015,20 +9082,65 @@ table.data-table {
 }
 
 /* Atendimento: reflow and keyboard targets, including narrow zoomed viewports. */
-.ib-conversation-heading { margin: 0; font: 700 15px/1.4 var(--font); overflow-wrap: anywhere; }
-.ib-conversation-heading:focus-visible, .ib .thread-body:focus-visible { outline: 2px solid var(--action-primary); outline-offset: -2px; }
-.ib .thread-foot { flex-wrap: wrap; }
-.ib .thread-foot input[type="text"] { min-width: 80px; flex: 1 1 120px; }
-.ib .thread-foot button, .ib .attach-x, .ib .thread-body > button, .ib .thread-head summary { min-height: 44px; min-width: 44px; }
-.ib .thread-head summary { display: flex; align-items: center; }
-.ib .msg { overflow-wrap: anywhere; min-width: 0; }
-.ib .msg-audio { max-width: 100%; }
+.ib-conversation-heading {
+  margin: 0;
+  font: 700 15px/1.4 var(--font);
+  overflow-wrap: anywhere;
+}
+.ib-conversation-heading:focus-visible,
+.ib .thread-body:focus-visible {
+  outline: 2px solid var(--action-primary);
+  outline-offset: -2px;
+}
+.ib .thread-foot {
+  flex-wrap: wrap;
+}
+.ib .thread-foot input[type="text"] {
+  min-width: 80px;
+  flex: 1 1 120px;
+}
+.ib .thread-foot button,
+.ib .attach-x,
+.ib .thread-body > button,
+.ib .thread-head summary {
+  min-height: 44px;
+  min-width: 44px;
+}
+.ib .thread-head summary {
+  display: flex;
+  align-items: center;
+}
+.ib .msg {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.ib .msg-audio {
+  max-width: 100%;
+}
 @media (max-width: 480px) {
-  .ib .thread-head { flex-wrap: wrap; }
-  .ib .thread-head .who { flex: 1; min-width: 0; }
-  .ib .thread-head .ctrl { width: 100%; flex-wrap: wrap; margin-left: 0; }
-  .ib .conv-top { flex-wrap: wrap; }
-  .ib .conv-top strong { overflow-wrap: anywhere; }
-  .screen-chat.ib { height: auto; min-height: 0; }
-  .ib .inbox { min-height: 0; }
+  .ib .thread-head {
+    flex-wrap: wrap;
+  }
+  .ib .thread-head .who {
+    flex: 1;
+    min-width: 0;
+  }
+  .ib .thread-head .ctrl {
+    width: 100%;
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+  .ib .conv-top {
+    flex-wrap: wrap;
+  }
+  .ib .conv-top strong {
+    overflow-wrap: anywhere;
+  }
+  .screen-chat.ib {
+    height: auto;
+    min-height: 0;
+  }
+  .ib .inbox {
+    min-height: 0;
+  }
 }

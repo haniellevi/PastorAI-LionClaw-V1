@@ -22,9 +22,7 @@ vi.mock("@/lib/auth-context", () => ({
 }));
 
 vi.mock("@/lib/cells-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/cells-api")>(
-    "@/lib/cells-api",
-  );
+  const actual = await vi.importActual<typeof import("@/lib/cells-api")>("@/lib/cells-api");
   return {
     ...actual,
     fetchCellsFull: mocks.fetchCellsFull,
@@ -36,28 +34,32 @@ vi.mock("@/lib/cells-api", async () => {
 });
 
 vi.mock("@/lib/contacts-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/contacts-api")>(
-    "@/lib/contacts-api",
-  );
-  return { ...actual, fetchContacts: mocks.fetchContacts,
+  const actual = await vi.importActual<typeof import("@/lib/contacts-api")>("@/lib/contacts-api");
+  return {
+    ...actual,
+    fetchContacts: mocks.fetchContacts,
     fetchContactDetail: async (_token: string, id: string) => {
       const page = await mocks.fetchContacts();
-      return page.items.find((person: { id: string }) => person.id === id) ?? { id, nome: "Líder", aptoLider: true };
+      return (
+        page.items.find((person: { id: string }) => person.id === id) ?? {
+          id,
+          nome: "Líder",
+          aptoLider: true,
+        }
+      );
     },
   };
 });
 
 vi.mock("@/lib/lookup-api", async () => ({
-  ...await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api"),
+  ...(await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api")),
   fetchCellListPage: mocks.fetchCellsFull,
   fetchCellLookupPage: mocks.fetchCellsFull,
   fetchContactLookupPage: mocks.fetchContacts,
 }));
 
 vi.mock("@/lib/dashboard-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>(
-    "@/lib/dashboard-api",
-  );
+  const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>("@/lib/dashboard-api");
   return { ...actual, fetchTeam: mocks.fetchTeam };
 });
 
@@ -194,11 +196,11 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     await flushEffects();
     await selectCell();
 
-    const transferBtn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Transferir"),
+    const transferBtn = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Transferir"),
     ) as HTMLButtonElement;
-    const removeBtn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Remover"),
+    const removeBtn = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Remover"),
     ) as HTMLButtonElement;
 
     expect(transferBtn).toBeTruthy();
@@ -231,8 +233,8 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     await flushEffects();
     await selectCell();
 
-    const transferBtn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Transferir"),
+    const transferBtn = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Transferir"),
     ) as HTMLButtonElement;
     act(() => transferBtn.click());
     await flushEffects();
@@ -243,7 +245,9 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     // destino aparece no modal (não na lista de células — o texto exato sem "Líder:")
     const destinoInModal = Array.from(container.querySelectorAll("button")).find(
       (button) =>
-        button.closest('[role="dialog"]') && button.textContent?.includes("Célula Esperança") && !button.disabled,
+        button.closest('[role="dialog"]') &&
+        button.textContent?.includes("Célula Esperança") &&
+        !button.disabled,
     );
     expect(destinoInModal).toBeTruthy();
   });
@@ -274,8 +278,8 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     await flushEffects();
     await selectCell();
 
-    const removeBtn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Remover"),
+    const removeBtn = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Remover"),
     ) as HTMLButtonElement;
     act(() => removeBtn.click());
     await flushEffects();
@@ -317,8 +321,8 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     await flushEffects();
     await selectCell();
 
-    const transferBtn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Transferir"),
+    const transferBtn = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Transferir"),
     ) as HTMLButtonElement;
     act(() => transferBtn.click());
     await flushEffects();
@@ -326,7 +330,9 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     // Seleciona o destino (botão dentro do modal — texto exato, sem "Líder:"/"Ativa")
     const destinoBtn = Array.from(container.querySelectorAll("button")).find(
       (button) =>
-        button.closest('[role="dialog"]') && button.textContent?.includes("Célula Esperança") && !button.disabled,
+        button.closest('[role="dialog"]') &&
+        button.textContent?.includes("Célula Esperança") &&
+        !button.disabled,
     ) as HTMLButtonElement;
     act(() => destinoBtn.click());
     await flushEffects();
@@ -381,8 +387,8 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     await flushEffects();
     await selectCell();
 
-    const removeBtn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Remover"),
+    const removeBtn = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Remover"),
     ) as HTMLButtonElement;
     act(() => removeBtn.click());
     await flushEffects();
@@ -395,12 +401,7 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     });
     await flushEffects();
 
-    expect(mocks.removeCellMember).toHaveBeenCalledWith(
-      "tok-1",
-      "cell-1",
-      "pessoa-1",
-      undefined,
-    );
+    expect(mocks.removeCellMember).toHaveBeenCalledWith("tok-1", "cell-1", "pessoa-1", undefined);
   });
 
   it("não exibe botões de membro quando não há membros vinculados", async () => {
@@ -429,11 +430,11 @@ describe("ManageCellsPanel: transferir/remover membro (pós-V1)", () => {
     await flushEffects();
     await selectCell();
 
-    const transferBtn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Transferir"),
+    const transferBtn = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Transferir"),
     );
-    const removeBtn = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Remover"),
+    const removeBtn = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Remover"),
     );
     expect(transferBtn).toBeFalsy();
     expect(removeBtn).toBeFalsy();

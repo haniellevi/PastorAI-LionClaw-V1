@@ -256,7 +256,10 @@ export function WhatsappScreen() {
           setNotice(
             "Não foi possível gerar o código agora (a sessão estava em pareamento). Tente de novo ou use o QR code.",
           );
-          flashToast({ kind: "err", text: "Evolution não retornou o código. Tente de novo ou use o QR." });
+          flashToast({
+            kind: "err",
+            text: "Evolution não retornou o código. Tente de novo ou use o QR.",
+          });
         }
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -323,8 +326,8 @@ export function WhatsappScreen() {
             <Icon name="lock" className="access-ic" />
             <h3>Acesso restrito</h3>
             <p>
-              A conexão do WhatsApp é configurada apenas pelo Administrador da igreja.
-              Fale com a liderança se precisar de acesso.
+              A conexão do WhatsApp é configurada apenas pelo Administrador da igreja. Fale com a
+              liderança se precisar de acesso.
             </p>
           </div>
         </div>
@@ -356,7 +359,9 @@ export function WhatsappScreen() {
         </div>
       </div>
 
-      <p className="admin-context">Esta tela conecta o canal da igreja. A ativação do assistente é uma configuração separada.</p>
+      <p className="admin-context">
+        Esta tela conecta o canal da igreja. A ativação do assistente é uma configuração separada.
+      </p>
 
       {error ? (
         <div className="error-banner" role="alert">
@@ -374,7 +379,11 @@ export function WhatsappScreen() {
       ) : null}
 
       {conflict ? (
-        <div className="degraded-banner" role="alert" style={{ borderRadius: "var(--r-md)", marginBottom: "var(--s3)" }}>
+        <div
+          className="degraded-banner"
+          role="alert"
+          style={{ borderRadius: "var(--r-md)", marginBottom: "var(--s3)" }}
+        >
           <Icon name="alert" />
           <span>{conflict}</span>
         </div>
@@ -395,7 +404,9 @@ export function WhatsappScreen() {
         <div className="conn-grid">
           {/* Cartão de status da conexão */}
           <div className="card card-pad">
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "var(--s4)" }}>
+            <div
+              style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "var(--s4)" }}
+            >
               <span className="conn-status-dot" style={{ background: meta.dot }} />
               <div>
                 <div style={{ fontWeight: 600 }}>{meta.title}</div>
@@ -470,8 +481,8 @@ export function WhatsappScreen() {
               >
                 <Icon name="alert" />
                 <span>
-                  Desconectar o número oficial? A IA para de atender no WhatsApp até
-                  você parear um número novamente.
+                  Desconectar o número oficial? A IA para de atender no WhatsApp até você parear um
+                  número novamente.
                 </span>
                 <span style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
                   <button
@@ -554,15 +565,12 @@ export function WhatsappScreen() {
                 <div className="sub" style={{ color: "var(--muted)" }}>
                   Código de pareamento
                 </div>
-                <div
-                  className="mono"
-                  style={{ fontSize: 22, fontWeight: 700, letterSpacing: 2 }}
-                >
+                <div className="mono" style={{ fontSize: 22, fontWeight: 700, letterSpacing: 2 }}>
                   {pairingCode}
                 </div>
                 <p className="sub" style={{ color: "var(--muted)", marginTop: 4 }}>
-                  No WhatsApp do número oficial: Aparelhos conectados → Conectar com
-                  número de telefone.
+                  No WhatsApp do número oficial: Aparelhos conectados → Conectar com número de
+                  telefone.
                 </p>
               </div>
             ) : null}
@@ -575,31 +583,31 @@ export function WhatsappScreen() {
 
             {!isOnline ? (
               <details className="admin-disclosure">
-              <summary>Conectar com código numérico</summary>
-              <div className="field" style={{ marginTop: "var(--s4)", textAlign: "left" }}>
-                <label htmlFor="wa-numero">
-                  Não consegue ler o QR? Gere um código pelo número
-                </label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    id="wa-numero"
-                    inputMode="numeric"
-                    placeholder="Ex.: 5500000000000"
-                    value={numeroInput}
-                    onChange={(e) => setNumeroInput(e.target.value.replace(/\D/g, ""))}
-                    disabled={busy}
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className="btn"
-                    onClick={() => void doGenerateCode(numeroInput)}
-                    disabled={busy || numeroInput.length < 10}
-                  >
-                    {busy ? "Gerando…" : "Gerar código"}
-                  </button>
+                <summary>Conectar com código numérico</summary>
+                <div className="field" style={{ marginTop: "var(--s4)", textAlign: "left" }}>
+                  <label htmlFor="wa-numero">
+                    Não consegue ler o QR? Gere um código pelo número
+                  </label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      id="wa-numero"
+                      inputMode="numeric"
+                      placeholder="Ex.: 5500000000000"
+                      value={numeroInput}
+                      onChange={(e) => setNumeroInput(e.target.value.replace(/\D/g, ""))}
+                      disabled={busy}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => void doGenerateCode(numeroInput)}
+                      disabled={busy || numeroInput.length < 10}
+                    >
+                      {busy ? "Gerando…" : "Gerar código"}
+                    </button>
+                  </div>
                 </div>
-              </div>
               </details>
             ) : null}
           </div>

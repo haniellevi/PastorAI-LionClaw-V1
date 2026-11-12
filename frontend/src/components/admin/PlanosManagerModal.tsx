@@ -27,8 +27,7 @@ import {
   type AdminPlano,
 } from "@/lib/admin-api";
 
-const brl = (v: number) =>
-  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 interface FormState {
   codigo: string;
@@ -183,11 +182,7 @@ export function PlanosManagerModal({
   };
 
   const remove = async (p: AdminPlano) => {
-    if (
-      !window.confirm(
-        `Excluir o plano "${p.nome}"? Esta ação é irreversível.`,
-      )
-    ) {
+    if (!window.confirm(`Excluir o plano "${p.nome}"? Esta ação é irreversível.`)) {
       return;
     }
     setBusy(true);
@@ -236,219 +231,235 @@ export function PlanosManagerModal({
       open
       onClose={onClose}
       title={isForm ? (editing === "new" ? "Novo plano" : "Editar plano") : "Planos"}
-      description={isForm ? "Confira preço, limite e disponibilidade antes de salvar." : "Catálogo da plataforma. Taxa inicial e mensalidade são configurações distintas."}
+      description={
+        isForm
+          ? "Confira preço, limite e disponibilidade antes de salvar."
+          : "Catálogo da plataforma. Taxa inicial e mensalidade são configurações distintas."
+      }
     >
-        {isForm ? (
-          <form
-            className="modal-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void save();
-            }}
-          >
-            {formError ? (
-              <div className="error-banner" role="alert">
-                <span>{formError}</span>
-              </div>
-            ) : null}
+      {isForm ? (
+        <form
+          className="modal-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          {formError ? (
+            <div className="error-banner" role="alert">
+              <span>{formError}</span>
+            </div>
+          ) : null}
 
-            <Field
-              label="Código"
-              value={form.codigo}
-              onChange={(e) => setForm({ ...form, codigo: e.target.value })}
-              placeholder="ex.: premium"
-              helper={
-                editing === "new"
-                  ? "Identificador estável do plano (não muda depois)."
-                  : "O código não pode ser alterado."
-              }
-              disabled={editing !== "new"}
-            />
-            <Field
-              label="Nome"
-              value={form.nome}
-              onChange={(e) => setForm({ ...form, nome: e.target.value })}
-              placeholder="Ex.: Até 100 membros"
-              autoFocus={editing !== "new"}
-            />
-            <Field
-              label="Preço mensal (R$)"
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.preco}
-              onChange={(e) => setForm({ ...form, preco: e.target.value })}
-              placeholder="199"
-              helper="R$ 0,00 cria um plano de cortesia, disponível somente para atribuição pelo master."
-            />
-            <Field
-              label="Limite de membros"
-              type="number"
-              min={1}
-              value={form.limite}
-              onChange={(e) => setForm({ ...form, limite: e.target.value })}
-              placeholder="Deixe vazio para ilimitado"
-              helper="Vazio = ilimitado."
-            />
-            <Field
-              label="Ordem de exibição"
-              type="number"
-              min={0}
-              value={form.ordem}
-              onChange={(e) => setForm({ ...form, ordem: e.target.value })}
-            />
-            {editing !== "new" ? (
-              <label
+          <Field
+            label="Código"
+            value={form.codigo}
+            onChange={(e) => setForm({ ...form, codigo: e.target.value })}
+            placeholder="ex.: premium"
+            helper={
+              editing === "new"
+                ? "Identificador estável do plano (não muda depois)."
+                : "O código não pode ser alterado."
+            }
+            disabled={editing !== "new"}
+          />
+          <Field
+            label="Nome"
+            value={form.nome}
+            onChange={(e) => setForm({ ...form, nome: e.target.value })}
+            placeholder="Ex.: Até 100 membros"
+            autoFocus={editing !== "new"}
+          />
+          <Field
+            label="Preço mensal (R$)"
+            type="number"
+            min={0}
+            step="0.01"
+            value={form.preco}
+            onChange={(e) => setForm({ ...form, preco: e.target.value })}
+            placeholder="199"
+            helper="R$ 0,00 cria um plano de cortesia, disponível somente para atribuição pelo master."
+          />
+          <Field
+            label="Limite de membros"
+            type="number"
+            min={1}
+            value={form.limite}
+            onChange={(e) => setForm({ ...form, limite: e.target.value })}
+            placeholder="Deixe vazio para ilimitado"
+            helper="Vazio = ilimitado."
+          />
+          <Field
+            label="Ordem de exibição"
+            type="number"
+            min={0}
+            value={form.ordem}
+            onChange={(e) => setForm({ ...form, ordem: e.target.value })}
+          />
+          {editing !== "new" ? (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "var(--s2)",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={form.ativo}
+                onChange={(e) => setForm({ ...form, ativo: e.target.checked })}
+              />
+              <span>Plano ativo (visível para as igrejas)</span>
+            </label>
+          ) : null}
+
+          <div className="modal-foot">
+            <button type="button" className="btn btn-sm" onClick={cancel} disabled={busy}>
+              Voltar
+            </button>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              loading={busy}
+              loadingText="Salvando…"
+            >
+              Salvar plano
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className="modal-form">
+          {error ? (
+            <div className="error-banner" role="alert">
+              <span>{error}</span>
+            </div>
+          ) : null}
+
+          {planos === null ? (
+            <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
+              <span className="spinner" aria-hidden="true" />
+              <div className="sub" style={{ marginTop: "var(--s2)" }}>
+                Carregando os planos…
+              </div>
+            </div>
+          ) : (
+            <>
+              <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "var(--s2)",
-                  cursor: "pointer",
+                  borderBottom: "1px solid var(--border)",
+                  marginBottom: "var(--s4)",
+                  paddingBottom: "var(--s3)",
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={form.ativo}
-                  onChange={(e) => setForm({ ...form, ativo: e.target.checked })}
+                <Field
+                  label="Taxa padrão de setup (R$)"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={setupFeeInput}
+                  onChange={(event) => setSetupFeeInput(event.target.value)}
+                  helper="Vale para igrejas sem taxa personalizada."
+                  disabled={busy}
                 />
-                <span>Plano ativo (visível para as igrejas)</span>
-              </label>
-            ) : null}
-
-            <div className="modal-foot">
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={cancel}
-                disabled={busy}
-              >
-                Voltar
-              </button>
-              <Button
-                type="submit"
-                variant="primary"
-                size="sm"
-                loading={busy}
-                loadingText="Salvando…"
-              >
-                Salvar plano
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <div className="modal-form">
-            {error ? (
-              <div className="error-banner" role="alert">
-                <span>{error}</span>
-              </div>
-            ) : null}
-
-            {planos === null ? (
-              <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
-                <span className="spinner" aria-hidden="true" />
-                <div className="sub" style={{ marginTop: "var(--s2)" }}>
-                  Carregando os planos…
-                </div>
-              </div>
-            ) : (
-              <>
                 <div
-                  style={{
-                    borderBottom: "1px solid var(--border)",
-                    marginBottom: "var(--s4)",
-                    paddingBottom: "var(--s3)",
-                  }}
+                  style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--s2)" }}
                 >
-                  <Field
-                    label="Taxa padrão de setup (R$)"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={setupFeeInput}
-                    onChange={(event) => setSetupFeeInput(event.target.value)}
-                    helper="Vale para igrejas sem taxa personalizada."
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void saveSetupFee()}
                     disabled={busy}
-                  />
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--s2)" }}>
-                    <Button variant="ghost" size="sm" onClick={() => void saveSetupFee()} disabled={busy}>
-                      Salvar taxa padrão
-                    </Button>
-                  </div>
+                  >
+                    Salvar taxa padrão
+                  </Button>
                 </div>
-                {planos.length === 0 ? (
-                  <p className="sub" style={{ color: "var(--muted)" }}>
-                    Nenhum plano cadastrado.
-                  </p>
-                ) : (
-                  <table className="data-table ux-stack-table">
-                    <thead>
-                      <tr>
-                        <th>Plano</th>
-                        <th className="num">Limite</th>
-                        <th className="num">Mensalidade</th>
-                        <th className="num">Em uso</th>
-                        <th />
+              </div>
+              {planos.length === 0 ? (
+                <p className="sub" style={{ color: "var(--muted)" }}>
+                  Nenhum plano cadastrado.
+                </p>
+              ) : (
+                <table className="data-table ux-stack-table">
+                  <thead>
+                    <tr>
+                      <th>Plano</th>
+                      <th className="num">Limite</th>
+                      <th className="num">Mensalidade</th>
+                      <th className="num">Em uso</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {planos.map((p) => (
+                      <tr key={p.id}>
+                        <td className="nm" data-label="Plano">
+                          {p.nome}
+                          <div className="sub" style={{ color: "var(--muted)" }}>
+                            {p.codigo}
+                            {p.precoMensal === 0 ? " · cortesia (somente master)" : ""}
+                            {p.ativo ? "" : " · inativo"}
+                          </div>
+                        </td>
+                        <td className="num" data-label="Limite">
+                          {p.limitePessoas == null ? "Ilimitado" : p.limitePessoas}
+                        </td>
+                        <td className="num" data-label="Mensalidade">
+                          {brl(p.precoMensal)}
+                        </td>
+                        <td className="num" data-label="Em uso">
+                          {p.emUso}
+                        </td>
+                        <td data-label="Ações">
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "var(--s2)",
+                              justifyContent: "flex-end",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              onClick={() => startEdit(p)}
+                              disabled={busy}
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-danger"
+                              onClick={() => void remove(p)}
+                              disabled={busy || p.emUso > 0}
+                              title={
+                                p.emUso > 0
+                                  ? "Há igrejas neste plano — desative em vez de excluir."
+                                  : undefined
+                              }
+                            >
+                              Excluir
+                            </button>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {planos.map((p) => (
-                        <tr key={p.id}>
-                          <td className="nm" data-label="Plano">
-                            {p.nome}
-                            <div className="sub" style={{ color: "var(--muted)" }}>
-                              {p.codigo}
-                              {p.precoMensal === 0 ? " · cortesia (somente master)" : ""}
-                              {p.ativo ? "" : " · inativo"}
-                            </div>
-                          </td>
-                          <td className="num" data-label="Limite">
-                            {p.limitePessoas == null ? "Ilimitado" : p.limitePessoas}
-                          </td>
-                          <td className="num" data-label="Mensalidade">{brl(p.precoMensal)}</td>
-                          <td className="num" data-label="Em uso">{p.emUso}</td>
-                          <td data-label="Ações">
-                            <div style={{ display: "flex", gap: "var(--s2)", justifyContent: "flex-end" }}>
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-ghost"
-                                onClick={() => startEdit(p)}
-                                disabled={busy}
-                              >
-                                Editar
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-danger"
-                                onClick={() => void remove(p)}
-                                disabled={busy || p.emUso > 0}
-                                title={
-                                  p.emUso > 0
-                                    ? "Há igrejas neste plano — desative em vez de excluir."
-                                    : undefined
-                                }
-                              >
-                                Excluir
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </>
-            )}
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          )}
 
-            <div className="modal-foot">
-              <button type="button" className="btn btn-sm" onClick={onClose}>
-                Fechar
-              </button>
-              <Button variant="primary" size="sm" onClick={startNew} disabled={busy}>
-                Novo plano
-              </Button>
-            </div>
+          <div className="modal-foot">
+            <button type="button" className="btn btn-sm" onClick={onClose}>
+              Fechar
+            </button>
+            <Button variant="primary" size="sm" onClick={startNew} disabled={busy}>
+              Novo plano
+            </Button>
           </div>
-        )}
+        </div>
+      )}
     </DsDialog>
   );
 }

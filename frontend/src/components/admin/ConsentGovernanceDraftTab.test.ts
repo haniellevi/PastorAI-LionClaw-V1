@@ -122,10 +122,7 @@ function findButton(label: string): HTMLButtonElement | undefined {
 }
 
 function setValue(element: HTMLTextAreaElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLTextAreaElement.prototype,
-    "value",
-  )!.set!;
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
   act(() => {
     setter.call(element, value);
     element.dispatchEvent(new Event("input", { bubbles: true }));
@@ -158,9 +155,7 @@ describe("ConsentGovernanceDraftTab", () => {
     expect(container.querySelector("[data-testid='draft-only-banner']")?.textContent).toContain(
       "Não inclua dados pessoais",
     );
-    expect(container.querySelectorAll("[data-testid='governance-purpose-card']")).toHaveLength(
-      4,
-    );
+    expect(container.querySelectorAll("[data-testid='governance-purpose-card']")).toHaveLength(4);
     const buttonLabels = [...container.querySelectorAll("button")].map(
       (button) => button.textContent ?? "",
     );
@@ -195,7 +190,10 @@ describe("ConsentGovernanceDraftTab", () => {
   it("inicializa somente depois de confirmação explícita", async () => {
     const initial = makeState({ initialized: false, purposes: [] });
     const initialized = makeState({ revision: 2 });
-    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+    const confirm = vi
+      .spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(true);
     api.initializeIgrejaConsentGovernance.mockResolvedValue(initialized);
     render(initial);
 
@@ -207,9 +205,7 @@ describe("ConsentGovernanceDraftTab", () => {
 
     expect(confirm).toHaveBeenCalledTimes(2);
     expect(api.initializeIgrejaConsentGovernance).toHaveBeenCalledWith("tok", "igreja-1");
-    expect(container.querySelectorAll("[data-testid='governance-purpose-card']")).toHaveLength(
-      4,
-    );
+    expect(container.querySelectorAll("[data-testid='governance-purpose-card']")).toHaveLength(4);
   });
 
   it("salva apenas os oito campos operacionais com revisão esperada", async () => {
@@ -316,9 +312,11 @@ describe("ConsentGovernanceDraftTab", () => {
     await flush();
 
     expect(api.fetchIgrejaConsentGovernance).toHaveBeenCalledWith("tok", "igreja-1");
-    expect(container.querySelector<HTMLTextAreaElement>(
-      "#governance-atendimento_solicitado-realProcessingAgents",
-    )?.value).toBe("Outra equipe");
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        "#governance-atendimento_solicitado-realProcessingAgents",
+      )?.value,
+    ).toBe("Outra equipe");
     expect(container.querySelector("[role='alert']")?.textContent).toContain(
       "alterado em outra sessão",
     );
@@ -326,9 +324,7 @@ describe("ConsentGovernanceDraftTab", () => {
 
   it("encaminha 401 para expiração da sessão", async () => {
     const onExpired = vi.fn();
-    api.initializeIgrejaConsentGovernance.mockRejectedValue(
-      new AdminSessionExpiredError(),
-    );
+    api.initializeIgrejaConsentGovernance.mockRejectedValue(new AdminSessionExpiredError());
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(makeState({ initialized: false, purposes: [] }), { onExpired });
 

@@ -9,7 +9,7 @@
  * selection-soft + aria-current; "aguardando" comunicado por ÍCONE + TEXTO
  * (nunca só cor). Nenhum filtro, busca, dado ou callback mudou.
  */
-import { useEffect, useId, useRef } from "react";
+import { memo, useEffect, useId, useRef } from "react";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
@@ -28,7 +28,7 @@ import {
 
 export type ConvFilter = "todas" | "aguardando" | "ia";
 
-export function ConversationList({
+export const ConversationList = memo(function ConversationList({
   conversations,
   selectedId,
   filter,
@@ -73,8 +73,9 @@ export function ConversationList({
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (previousSelection.current && !selectedId) {
-      const row = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("[data-conversation-id]") ?? [])
-        .find((item) => item.dataset.conversationId === previousSelection.current);
+      const row = Array.from(
+        listRef.current?.querySelectorAll<HTMLButtonElement>("[data-conversation-id]") ?? [],
+      ).find((item) => item.dataset.conversationId === previousSelection.current);
       (row ?? searchRef.current)?.focus();
     }
     previousSelection.current = selectedId;
@@ -137,8 +138,16 @@ export function ConversationList({
       </p>
       {conversations.length === 0 ? (
         <DsEmptyState
-          title={hasConversations || partialList ? "Nenhuma conversa neste filtro." : "Ainda não há conversas."}
-          hint={hasConversations || partialList ? "Ajuste a busca ou escolha Todas." : "As conversas recebidas pelo número oficial aparecerão aqui."}
+          title={
+            hasConversations || partialList
+              ? "Nenhuma conversa neste filtro."
+              : "Ainda não há conversas."
+          }
+          hint={
+            hasConversations || partialList
+              ? "Ajuste a busca ou escolha Todas."
+              : "As conversas recebidas pelo número oficial aparecerão aqui."
+          }
         />
       ) : (
         conversations.map((c) => {
@@ -162,14 +171,17 @@ export function ConversationList({
                 <div className="conv-top">
                   <strong>{displayName(c)}</strong>
                   {marker ? (
-                    <span className={`conv-tipo${marker.csim ? " csim" : ""}`}>
-                      {marker.label}
-                    </span>
+                    <span className={`conv-tipo${marker.csim ? " csim" : ""}`}>{marker.label}</span>
                   ) : null}
                   <time>{shortTime(c.atualizadoEm ?? c.assumidoEm ?? c.esperaDesde, now)}</time>
                 </div>
                 <div className="conv-sub">
-                  <span className="snippet" aria-label={c.ultimaMensagem === PASTORAL_PROTECTED ? PASTORAL_PROTECTED : undefined}>
+                  <span
+                    className="snippet"
+                    aria-label={
+                      c.ultimaMensagem === PASTORAL_PROTECTED ? PASTORAL_PROTECTED : undefined
+                    }
+                  >
                     {c.ultimaMensagem ?? "Sem mensagens ainda"}
                   </span>
                   {c.naoLidas > 0 ? (
@@ -183,7 +195,11 @@ export function ConversationList({
                   <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
                   {estado === "humano" ? (
                     <span className="ib-holder">
-                      {c.assumidoPor === selfId ? "Em atendimento por você" : c.assumidoPorNome ? `Responsável: ${c.assumidoPorNome}` : "Responsável não informado"}
+                      {c.assumidoPor === selfId
+                        ? "Em atendimento por você"
+                        : c.assumidoPorNome
+                          ? `Responsável: ${c.assumidoPorNome}`
+                          : "Responsável não informado"}
                     </span>
                   ) : null}
                 </div>
@@ -194,14 +210,18 @@ export function ConversationList({
       )}
       {hasMore && onLoadMore ? (
         <div className="ib-load-more">
-          <DsButton variant="secondary" loading={loadingMore} onClick={(event) => {
-            loadMoreHadFocus.current = document.activeElement === event.currentTarget;
-            onLoadMore();
-          }}>
+          <DsButton
+            variant="secondary"
+            loading={loadingMore}
+            onClick={(event) => {
+              loadMoreHadFocus.current = document.activeElement === event.currentTarget;
+              onLoadMore();
+            }}
+          >
             Carregar mais conversas
           </DsButton>
         </div>
       ) : null}
     </div>
   );
-}
+});

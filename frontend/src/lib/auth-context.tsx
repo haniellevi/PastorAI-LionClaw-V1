@@ -32,7 +32,14 @@ import {
 } from "./api";
 import { normalizeRoles, type Role } from "./roles";
 import type { PermissionMatrix } from "./permissions";
+import { clearConsolidations } from "./consolidacao-store";
 import { clearAuthedResponseCache } from "./dashboard-api";
+
+/** Esquece tudo que a sessão anterior deixou na memória da aba. */
+function clearSessionMemory(): void {
+  clearAuthedResponseCache();
+  clearConsolidations();
+}
 
 const TOKEN_KEY = "pastorai:token";
 const RETURN_KEY = "pastorai:returnTo";
@@ -53,11 +60,7 @@ export interface SessionUser {
   igrejaLogoUrl: string | null;
 }
 
-export type AuthStatus =
-  | "loading"
-  | "unavailable"
-  | "unauthenticated"
-  | "authenticated";
+export type AuthStatus = "loading" | "unavailable" | "unauthenticated" | "authenticated";
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -231,7 +234,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const tokenRef = useRef<string | null>(null);
-  const [permissionSnapshot, setPermissionSnapshot] = useState<{ token: string; matrix: PermissionMatrix } | null>(null);
+  const [permissionSnapshot, setPermissionSnapshot] = useState<{
+    token: string;
+    matrix: PermissionMatrix;
+  } | null>(null);
   const sessionGeneration = useRef(0);
 
   // Bootstrap: restaura sessão de um token persistido.
@@ -257,15 +263,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (!active || generation !== sessionGeneration.current) return;
-        if (
-          error instanceof SessionExpiredError ||
-          error instanceof SessionAccessDeniedError
-        ) {
+        if (error instanceof SessionExpiredError || error instanceof SessionAccessDeniedError) {
           tokenRef.current = null;
           writeToken(null);
-          setAccessMessage(
-            error instanceof SessionAccessDeniedError ? error.message : null,
-          );
+          setAccessMessage(error instanceof SessionAccessDeniedError ? error.message : null);
           setStatus("unauthenticated");
         } else {
           setAccessMessage(null);
@@ -287,8 +288,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const generation = ++sessionGeneration.current;
     const { token, permissions, ...me } = await apiLogin(email, password);
-    if (generation !== sessionGeneration.current) throw new Error("Esta tentativa de acesso foi cancelada.");
-    clearAuthedResponseCache();
+    if (generation !== sessionGeneration.current)
+      throw new Error("Esta tentativa de acesso foi cancelada.");
+    clearSessionMemory();
     setPermissionSnapshot(permissions ? { token, matrix: permissions } : null);
     preloadAuthenticatedSurface();
     tokenRef.current = token;
@@ -306,11 +308,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await logoutSession(token);
       } catch {
-        warning = "Você saiu deste navegador, mas o servidor não confirmou o encerramento da sessão. O token pode continuar válido até expirar.";
+        warning =
+          "Você saiu deste navegador, mas o servidor não confirmou o encerramento da sessão. O token pode continuar válido até expirar.";
       }
     }
     setPermissionSnapshot(null);
-    clearAuthedResponseCache();
+    clearSessionMemory();
     tokenRef.current = null;
     writeToken(null);
     try {
@@ -334,7 +337,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const expireSession = useCallback(() => {
     sessionGeneration.current += 1;
     setPermissionSnapshot(null);
-    clearAuthedResponseCache();
+    clearSessionMemory();
     try {
       const current = window.location.hash.replace(/^#/, "");
       if (current && current !== "login") {

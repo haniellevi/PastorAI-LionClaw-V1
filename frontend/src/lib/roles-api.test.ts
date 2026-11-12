@@ -55,9 +55,6 @@ describe("roles-api — matriz completa", () => {
     });
 
     const init = apiMock.authedFetch.mock.calls[0]?.[2] as RequestInit;
-    expect(JSON.parse(String(init.body)).matriz.operador).toEqual([
-      "dashboard",
-      "ganhar",
-    ]);
+    expect(JSON.parse(String(init.body)).matriz.operador).toEqual(["dashboard", "ganhar"]);
   });
 });

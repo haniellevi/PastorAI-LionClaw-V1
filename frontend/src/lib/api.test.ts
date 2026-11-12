@@ -106,22 +106,17 @@ describe("login", () => {
       .mockResolvedValueOnce(new Response(null, { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(login("pessoa@example.com", "senha")).rejects.toBeInstanceOf(
-      AuthUnavailableError,
-    );
+    await expect(login("pessoa@example.com", "senha")).rejects.toBeInstanceOf(AuthUnavailableError);
   });
 
-  it.each([401, 422])(
-    "mantém a resposta %s genérica para não enumerar contas",
-    async (status) => {
-      mockResponse(status, { detail: "detalhe que não deve chegar à interface" });
+  it.each([401, 422])("mantém a resposta %s genérica para não enumerar contas", async (status) => {
+    mockResponse(status, { detail: "detalhe que não deve chegar à interface" });
 
-      await expect(login("pessoa@example.com", "senha-inválida")).rejects.toMatchObject({
-        kind: "invalid",
-        message: "Não foi possível autenticar. Verifique suas credenciais e tente novamente.",
-      });
-    },
-  );
+    await expect(login("pessoa@example.com", "senha-inválida")).rejects.toMatchObject({
+      kind: "invalid",
+      message: "Não foi possível autenticar. Verifique suas credenciais e tente novamente.",
+    });
+  });
 
   it("preserva o bloqueio estruturado retornado em 403", async () => {
     mockResponse(403, {
@@ -244,9 +239,7 @@ describe("fetchMe", () => {
       }),
     );
 
-    const assertion = expect(fetchMe("token")).rejects.toBeInstanceOf(
-      AuthUnavailableError,
-    );
+    const assertion = expect(fetchMe("token")).rejects.toBeInstanceOf(AuthUnavailableError);
     await vi.advanceTimersByTimeAsync(19_999);
     expect((observedSignal as AbortSignal | null)?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
@@ -260,9 +253,17 @@ describe("fetchMe", () => {
   });
 });
 
-
 describe("bootstrap authority", () => {
-  const user = { appUserId: "actor", churchId: "tenant", email: "actor@example.com", nome: "Actor", chatNome: null, roles: ["membro"], igrejaNome: null, igrejaLogoUrl: null };
+  const user = {
+    appUserId: "actor",
+    churchId: "tenant",
+    email: "actor@example.com",
+    nome: "Actor",
+    chatNome: null,
+    roles: ["membro"],
+    igrejaNome: null,
+    igrejaLogoUrl: null,
+  };
   it("lê identidade e matriz num único request", async () => {
     mockResponse(200, { user, permissions: { matriz: { membro: ["dashboard"] } } });
     const result = await fetchBootstrap("token");
@@ -271,16 +272,28 @@ describe("bootstrap authority", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
   it("fallback legado somente quando endpoint não é suportado", async () => {
-    const request = vi.fn().mockResolvedValueOnce(new Response(null, { status: 404 })).mockResolvedValueOnce(Response.json(user));
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(Response.json(user));
     vi.stubGlobal("fetch", request);
     expect(await fetchBootstrap("token")).toEqual({ user, permissions: null });
     expect(request.mock.calls[1]?.[0]).toContain("/auth/me");
   });
-  it.each([401, 403, 503])("não contorna recusa/indisponibilidade %s usando legado", async (status) => {
-    mockResponse(status);
-    await expect(fetchBootstrap("token")).rejects.toBeInstanceOf(status === 401 ? SessionExpiredError : status === 403 ? SessionAccessDeniedError : AuthUnavailableError);
-    expect(fetch).toHaveBeenCalledOnce();
-  });
+  it.each([401, 403, 503])(
+    "não contorna recusa/indisponibilidade %s usando legado",
+    async (status) => {
+      mockResponse(status);
+      await expect(fetchBootstrap("token")).rejects.toBeInstanceOf(
+        status === 401
+          ? SessionExpiredError
+          : status === 403
+            ? SessionAccessDeniedError
+            : AuthUnavailableError,
+      );
+      expect(fetch).toHaveBeenCalledOnce();
+    },
+  );
   it("recusa 200 com matriz malformada antes de hidratar autoridade", async () => {
     mockResponse(200, { user, permissions: { matriz: { membro: "dashboard" } } });
     await expect(fetchBootstrap("token")).rejects.toBeInstanceOf(AuthUnavailableError);

@@ -12,11 +12,7 @@ import { DsButton } from "@/components/ds/Button";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import {
-  removeCellMember,
-  transferCellMember,
-  type CellSummary,
-} from "@/lib/cells-api";
+import { removeCellMember, transferCellMember, type CellSummary } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
@@ -58,7 +54,11 @@ export function TransferRemoveMemberModal({
 }: Props) {
   const { token, expireSession } = useAuth();
   const [lookupDestino, setLookupDestino] = useState<CellLookup | null>(null);
-  const loadDestinos = useCallback((q: string, page: number, signal: AbortSignal) => fetchCellLookupPage(lookupToken!, {q,page,signal}), [lookupToken]);
+  const loadDestinos = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      fetchCellLookupPage(lookupToken!, { q, page, signal }),
+    [lookupToken],
+  );
   const [destinoId, setDestinoId] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -68,17 +68,13 @@ export function TransferRemoveMemberModal({
   // Destinos elegíveis: ativos, com líder, ≠ origem. Não filtra por elegibilidade
   // da pessoa no destino (o backend valida e devolve 409 legível).
   const destinos = useMemo(
-    () =>
-      cells.filter(
-        (c) =>
-          c.id !== origem.id &&
-          c.ativo &&
-          c.liderId,
-      ),
+    () => cells.filter((c) => c.id !== origem.id && c.ativo && c.liderId),
     [cells, origem.id],
   );
 
-  const selectedDestino = lookupToken ? lookupDestino : destinos.find((c) => c.id === destinoId) ?? null;
+  const selectedDestino = lookupToken
+    ? lookupDestino
+    : (destinos.find((c) => c.id === destinoId) ?? null);
 
   async function submit() {
     if (!token || sending) return;
@@ -94,9 +90,7 @@ export function TransferRemoveMemberModal({
           selectedDestino.id,
           motivo.trim() || undefined,
         );
-        setSuccess(
-          `${pessoa.nome} foi transferida para "${selectedDestino.nome}".`,
-        );
+        setSuccess(`${pessoa.nome} foi transferida para "${selectedDestino.nome}".`);
       } else {
         await removeCellMember(token, origem.id, pessoa.id, motivo.trim() || undefined);
         setSuccess(`${pessoa.nome} foi removida da célula "${origem.nome}".`);
@@ -134,7 +128,8 @@ export function TransferRemoveMemberModal({
         : "Remover";
 
   return (
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!sending) onClose();
@@ -168,20 +163,40 @@ export function TransferRemoveMemberModal({
           <p className="sub" style={{ color: "var(--muted)" }}>
             {mode === "transferir" ? (
               <>
-                Transfere <strong>{pessoa.nome}</strong> de{" "}
-                <strong>{origem.nome}</strong> para outra célula ativa. A
-                operação é direta e auditada.
+                Transfere <strong>{pessoa.nome}</strong> de <strong>{origem.nome}</strong> para
+                outra célula ativa. A operação é direta e auditada.
               </>
             ) : (
               <>
-                Remove <strong>{pessoa.nome}</strong> da célula{" "}
-                <strong>{origem.nome}</strong>. A pessoa não é deletada — só
-                perde o vínculo com a célula. A operação é direta e auditada.
+                Remove <strong>{pessoa.nome}</strong> da célula <strong>{origem.nome}</strong>. A
+                pessoa não é deletada — só perde o vínculo com a célula. A operação é direta e
+                auditada.
               </>
             )}
           </p>
 
-          {mode === "transferir" && lookupToken ? <PaginatedLookup<CellLookup> label="Célula de destino" inputId="transferDestino" loadPage={loadDestinos} selected={lookupDestino} onSelect={setLookupDestino} getLabel={cell => cell.nome} getDescription={cell => cell.id === origem.id ? "Célula de origem" : !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => cell.id === origem.id || !cell.ativo || !cell.liderId} disabled={sending} onSessionExpired={expireSession} /> : mode === "transferir" ? (
+          {mode === "transferir" && lookupToken ? (
+            <PaginatedLookup<CellLookup>
+              label="Célula de destino"
+              inputId="transferDestino"
+              loadPage={loadDestinos}
+              selected={lookupDestino}
+              onSelect={setLookupDestino}
+              getLabel={(cell) => cell.nome}
+              getDescription={(cell) =>
+                cell.id === origem.id
+                  ? "Célula de origem"
+                  : !cell.ativo
+                    ? "Inativa"
+                    : !cell.liderId
+                      ? "Sem líder"
+                      : "Ativa · com líder"
+              }
+              isDisabled={(cell) => cell.id === origem.id || !cell.ativo || !cell.liderId}
+              disabled={sending}
+              onSessionExpired={expireSession}
+            />
+          ) : mode === "transferir" ? (
             <div className="field">
               <label htmlFor="transferDestino">Célula de destino</label>
               {destinos.length === 0 ? (
@@ -217,9 +232,7 @@ export function TransferRemoveMemberModal({
                           minHeight: 44,
                           textAlign: "left",
                           padding: "8px 12px",
-                          background: isSelected
-                            ? "var(--accent-soft)"
-                            : "transparent",
+                          background: isSelected ? "var(--accent-soft)" : "transparent",
                           border: "none",
                           borderBottom: "1px solid var(--border)",
                           cursor: "pointer",
@@ -230,9 +243,7 @@ export function TransferRemoveMemberModal({
                         <span style={{ minWidth: 0 }}>
                           <span className="nm">{c.nome}</span>
                         </span>
-                        {isSelected ? (
-                          <StatusPill tone="accent">Selecionada</StatusPill>
-                        ) : null}
+                        {isSelected ? <StatusPill tone="accent">Selecionada</StatusPill> : null}
                       </button>
                     );
                   })}
@@ -261,20 +272,13 @@ export function TransferRemoveMemberModal({
           </div>
 
           <div className="modal-foot">
-            <DsButton
-              variant="secondary"
-              type="button"
-              onClick={onClose}
-              disabled={sending}
-            >
+            <DsButton variant="secondary" type="button" onClick={onClose} disabled={sending}>
               Cancelar
             </DsButton>
             <DsButton
               variant="primary"
               type="submit"
-              disabled={
-                sending || (mode === "transferir" && !selectedDestino)
-              }
+              disabled={sending || (mode === "transferir" && !selectedDestino)}
               aria-busy={sending || undefined}
             >
               {submitLabel}

@@ -48,9 +48,7 @@ export function LeaderNoticesFeed({
         setItems(page.items.filter((n) => n.ativo));
         setLoaded(true);
       } catch (err) {
-        setError(
-          err instanceof ApiError ? err.message : "Não foi possível carregar os avisos.",
-        );
+        setError(err instanceof ApiError ? err.message : "Não foi possível carregar os avisos.");
       } finally {
         setLoading(false);
       }
@@ -71,8 +69,7 @@ export function LeaderNoticesFeed({
       onToast({ kind: "ok", text: "Aviso inativado." });
       await load("reload");
     } catch (err) {
-      const text =
-        err instanceof ApiError ? err.message : "Não foi possível inativar o aviso.";
+      const text = err instanceof ApiError ? err.message : "Não foi possível inativar o aviso.";
       onToast({ kind: "err", text });
     } finally {
       setPendingId(null);

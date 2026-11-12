@@ -103,9 +103,7 @@ export async function connectWhatsapp(
 
   if (res.status === 409) {
     const detail = await readDetail(res);
-    throw new ConnectionConflictError(
-      detail ?? "Já existe um número conectado para esta igreja.",
-    );
+    throw new ConnectionConflictError(detail ?? "Já existe um número conectado para esta igreja.");
   }
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito à configuração do WhatsApp.");

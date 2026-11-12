@@ -45,10 +45,7 @@ const PERMISSIONS_RETRY_BASE_MS = 5_000;
 const PERMISSIONS_RETRY_MAX_MS = 60_000;
 
 function retryDelayMs(attempt: number): number {
-  return Math.min(
-    PERMISSIONS_RETRY_BASE_MS * 2 ** attempt,
-    PERMISSIONS_RETRY_MAX_MS,
-  );
+  return Math.min(PERMISSIONS_RETRY_BASE_MS * 2 ** attempt, PERMISSIONS_RETRY_MAX_MS);
 }
 
 function defaultMatrix(): PermissionMatrix {
@@ -62,9 +59,7 @@ function defaultMatrix(): PermissionMatrix {
  */
 function failClosedMatrix(): PermissionMatrix {
   const matrix: PermissionMatrix = {};
-  for (const role of Object.keys(DEFAULT_PERMISSIONS) as Array<
-    keyof typeof DEFAULT_PERMISSIONS
-  >) {
+  for (const role of Object.keys(DEFAULT_PERMISSIONS) as Array<keyof typeof DEFAULT_PERMISSIONS>) {
     matrix[role] = ["dashboard"];
   }
   return matrix;
@@ -83,9 +78,10 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   }>(() => ({ token: null, matrix: defaultMatrix(), source: "default" }));
   const requestId = useRef(0);
 
-  const effectiveSnapshot = snapshot.token === token || bootstrapSnapshot?.token !== token
-    ? snapshot
-    : { token, matrix: bootstrapSnapshot.matrix, source: "remote" as const };
+  const effectiveSnapshot =
+    snapshot.token === token || bootstrapSnapshot?.token !== token
+      ? snapshot
+      : { token, matrix: bootstrapSnapshot.matrix, source: "remote" as const };
   const loading =
     authStatus === "authenticated" && Boolean(token) && effectiveSnapshot.token !== token;
 
@@ -154,16 +150,24 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
     };
   }, [authStatus, token, expireSession, bootstrapSnapshot]);
 
-  const setMatrix = useCallback((next: PermissionMatrix) => {
-    setSnapshot((current) => ({
-      token: token ?? current.token,
-      matrix: { ...next },
-      source: "remote",
-    }));
-  }, [token]);
+  const setMatrix = useCallback(
+    (next: PermissionMatrix) => {
+      setSnapshot((current) => ({
+        token: token ?? current.token,
+        matrix: { ...next },
+        source: "remote",
+      }));
+    },
+    [token],
+  );
 
   const value = useMemo<PermissionsContextValue>(
-    () => ({ matrix: effectiveSnapshot.matrix, loading, source: effectiveSnapshot.source, setMatrix }),
+    () => ({
+      matrix: effectiveSnapshot.matrix,
+      loading,
+      source: effectiveSnapshot.source,
+      setMatrix,
+    }),
     [effectiveSnapshot.matrix, effectiveSnapshot.source, loading, setMatrix],
   );
 

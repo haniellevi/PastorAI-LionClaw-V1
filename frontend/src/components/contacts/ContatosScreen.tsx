@@ -99,7 +99,7 @@ function initials(nome: string): string {
   const parts = nome.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
   const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
   return (first + last).toUpperCase();
 }
 
@@ -127,7 +127,14 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  useEffect(() => { if (search.trim() === query) return; const timer = window.setTimeout(() => { setQuery(search.trim()); setCurrentPage(1); }, 250); return () => window.clearTimeout(timer); }, [search,query]);
+  useEffect(() => {
+    if (search.trim() === query) return;
+    const timer = window.setTimeout(() => {
+      setQuery(search.trim());
+      setCurrentPage(1);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search, query]);
   const currentDataKey = `${filter}:${currentPage}:${query}`;
   const hasCurrentData = loadedKey === currentDataKey;
   const [pagination, setPagination] = useState({
@@ -225,15 +232,19 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       setError(null);
       try {
         const page = await fetchContactsPage(token, {
-            page: requestedPage,
-            pageSize: CONTACTS_PAGE_SIZE,
-            view: filter,
-            signal: controller.signal,
-            ...(query ? {q: query} : {}),
-          });
+          page: requestedPage,
+          pageSize: CONTACTS_PAGE_SIZE,
+          view: filter,
+          signal: controller.signal,
+          ...(query ? { q: query } : {}),
+        });
         if (controller.signal.aborted || loadRequestRef.current !== requestId) return;
         // Names support arrives independently; a cells outage does not hide people.
-        void fetchCellsOnce().then(cellPage => { if (loadRequestRef.current === requestId) setCells(cellPage.items); }).catch(handleSessionError);
+        void fetchCellsOnce()
+          .then((cellPage) => {
+            if (loadRequestRef.current === requestId) setCells(cellPage.items);
+          })
+          .catch(handleSessionError);
         if (loadRequestRef.current !== requestId) return;
         // Defesa adicional contra um backend/mocked response fora do contrato:
         // nunca renderize mais linhas do que o orçamento desta tela.
@@ -249,9 +260,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         if (handleSessionError(err)) return;
         // Preserve a última página confirmada. hasCurrentData impede que ela
         // apareça sob outro filtro/página enquanto a nova leitura falhou.
-        setError(
-          err instanceof ApiError ? err.message : "Não foi possível carregar os contatos.",
-        );
+        setError(err instanceof ApiError ? err.message : "Não foi possível carregar os contatos.");
       } finally {
         if (loadControllerRef.current === controller) loadControllerRef.current = null;
         if (loadRequestRef.current === requestId) setLoading(false);
@@ -379,7 +388,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   ]);
 
   const cellName = useCallback(
-    (id: string | null) => (id ? cells.find((c) => c.id === id)?.nome ?? "—" : "—"),
+    (id: string | null) => (id ? (cells.find((c) => c.id === id)?.nome ?? "—") : "—"),
     [cells],
   );
 
@@ -408,9 +417,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       } catch (err) {
         if (handleSessionError(err)) return;
         // Mantém o formulário preenchido; erro inline no modal.
-        setFormError(
-          err instanceof ApiError ? err.message : "Não foi possível salvar o contato.",
-        );
+        setFormError(err instanceof ApiError ? err.message : "Não foi possível salvar o contato.");
       } finally {
         setSaving(false);
       }
@@ -426,18 +433,14 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       try {
         const updated = await linkContactCell(token, linkTarget.id, celulaId);
         setContacts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-        setDetachedSelected((prev) =>
-          prev?.id === updated.id ? { ...prev, ...updated } : prev,
-        );
+        setDetachedSelected((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev));
         if (selected === updated.id) setDetachedSelected(updated);
         await loadPage(currentPage);
         flashToast({ kind: "ok", text: `${updated.nome} conectado à célula.` });
         setLinkTarget(null);
       } catch (err) {
         if (handleSessionError(err)) return;
-        setLinkError(
-          err instanceof ApiError ? err.message : "Não foi possível conectar à célula.",
-        );
+        setLinkError(err instanceof ApiError ? err.message : "Não foi possível conectar à célula.");
       } finally {
         setBusyId(null);
       }
@@ -453,9 +456,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       try {
         const updated = await updateContact(token, editTarget.id, input);
         setContacts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-        setDetachedSelected((prev) =>
-          prev?.id === updated.id ? { ...prev, ...updated } : prev,
-        );
+        setDetachedSelected((prev) => (prev?.id === updated.id ? { ...prev, ...updated } : prev));
         if (selected === updated.id) setDetachedSelected(updated);
         await loadPage(currentPage);
         flashToast({ kind: "ok", text: `${updated.nome} atualizado.` });
@@ -653,9 +654,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             // CSIM está fora da Visão G12 — sem chip de etapa.
             <span className="sub">Fora da visão</span>
           ) : c.etapa ? (
-            <StatusPill tone={etapaTone(c.etapa)}>
-              {ETAPA_LABEL[c.etapa] ?? c.etapa}
-            </StatusPill>
+            <StatusPill tone={etapaTone(c.etapa)}>{ETAPA_LABEL[c.etapa] ?? c.etapa}</StatusPill>
           ) : (
             <span className="sub">—</span>
           ),
@@ -670,7 +669,10 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             aria-pressed={selected === c.id}
             aria-controls="people-detail"
             onKeyDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); openPerson(c); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              openPerson(c);
+            }}
           >
             Abrir pessoa
           </button>
@@ -707,15 +709,19 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const totalPages = Math.max(1, Math.ceil(pagination.total / pagination.pageSize));
   const pageStart = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
   const pageEnd =
-    pagination.total === 0
-      ? 0
-      : Math.min(pageStart + contacts.length - 1, pagination.total);
+    pagination.total === 0 ? 0 : Math.min(pageStart + contacts.length - 1, pagination.total);
 
   return (
-    <div ref={screenRef} className={`screen people-screen people-ux${selected ? " people-ux--detail-open" : ""}`} key="contatos">
+    <div
+      ref={screenRef}
+      className={`screen people-screen people-ux${selected ? " people-ux--detail-open" : ""}`}
+      key="contatos"
+    >
       <div className="screen-head">
         <div className="titles">
-          <h2 ref={listHeadingRef} tabIndex={-1}>Pessoas</h2>
+          <h2 ref={listHeadingRef} tabIndex={-1}>
+            Pessoas
+          </h2>
           <p>Encontre o registro e acompanhe o próximo passo.</p>
         </div>
         <div className="actions">
@@ -760,17 +766,29 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               setCurrentPage(1);
             }}
           >
-            {FILTERS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            {FILTERS.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+              </option>
+            ))}
           </select>
         </div>
         <div className="field">
           <label htmlFor="people-search">Buscar nome, telefone ou e-mail</label>
-          <input id="people-search" type="search" value={search} onChange={event => setSearch(event.target.value)} autoComplete="off" />
+          <input
+            id="people-search"
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            autoComplete="off"
+          />
         </div>
         <p className="people-meta" role="status" aria-live="polite">
           {hasCurrentData && !error
             ? `${pagination.total} pessoas neste filtro`
-            : loading ? "Carregando pessoas…" : "Lista indisponível"}
+            : loading
+              ? "Carregando pessoas…"
+              : "Lista indisponível"}
         </p>
       </div>
 
@@ -824,8 +842,8 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
                   }}
                 >
                   <span className="sub" role="status" aria-live="polite">
-                    Mostrando {pageStart}–{pageEnd} de {pagination.total}. Página{" "}
-                    {pagination.page} de {totalPages}.
+                    Mostrando {pageStart}–{pageEnd} de {pagination.total}. Página {pagination.page}{" "}
+                    de {totalPages}.
                   </span>
                   <span style={{ display: "flex", gap: "var(--s2)" }}>
                     <button
@@ -862,7 +880,9 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
           id="people-detail"
           className="dash-side people-detail-region"
           tabIndex={-1}
-          aria-label={selectedContact ? `Detalhes de ${selectedContact.nome}` : "Detalhes da pessoa"}
+          aria-label={
+            selectedContact ? `Detalhes de ${selectedContact.nome}` : "Detalhes da pessoa"
+          }
         >
           {selected ? (
             <button type="button" className="btn people-back" onClick={returnToList}>
@@ -886,8 +906,8 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               canEdit={canEdit}
               onVisitConfirmed={() => {
                 if (!token || !selectedContact) return;
-                return fetchContactDetail(token, selectedContact.id).then(updated => {
-                  setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
+                return fetchContactDetail(token, selectedContact.id).then((updated) => {
+                  setContacts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
                   setDetachedSelected(updated);
                 });
               }}
@@ -912,11 +932,17 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             />
           )}
           {selectedContact && token && (roles.includes("admin") || roles.includes("pastor")) ? (
-            <AvaliacaoPanel key={selectedContact.id} pessoaId={selectedContact.id} token={token} onExpired={expireSession} onSaved={async () => {
-              const updated = await fetchContactDetail(token, selectedContact.id);
-              setContacts(prev => prev.map(c => c.id === updated.id ? updated : c));
-              setDetachedSelected(updated);
-            }} />
+            <AvaliacaoPanel
+              key={selectedContact.id}
+              pessoaId={selectedContact.id}
+              token={token}
+              onExpired={expireSession}
+              onSaved={async () => {
+                const updated = await fetchContactDetail(token, selectedContact.id);
+                setContacts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+                setDetachedSelected(updated);
+              }}
+            />
           ) : null}
         </section>
       </div>
@@ -1066,8 +1092,7 @@ function ContactDetail({
         <div className="empty-state" style={{ padding: "var(--s5)" }}>
           <Icon name="user" />
           <p>
-            <strong>Selecione um contato</strong> para ver os detalhes e conectá-lo a
-            uma célula.
+            <strong>Selecione um contato</strong> para ver os detalhes e conectá-lo a uma célula.
           </p>
         </div>
       </div>
@@ -1082,7 +1107,9 @@ function ContactDetail({
     <div className="card card-pad">
       <div className="detail-head">
         <div className="people-detail-identity">
-          <span className="avatar" aria-hidden="true">{initials(contact.nome)}</span>
+          <span className="avatar" aria-hidden="true">
+            {initials(contact.nome)}
+          </span>
           <div>
             <h3>{contact.nome}</h3>
             <div className="sub mono">{contact.telefone}</div>
@@ -1099,19 +1126,41 @@ function ContactDetail({
 
       <VisitCellSuggestions key={contact.id} personId={contact.id} onConfirmed={onVisitConfirmed} />
       <dl className="detail-list people-context">
-        <div><dt>Acompanhamento</dt><dd><StatusPill tone={status.tone}>{status.label}</StatusPill></dd></div>
-        <div><dt>Célula</dt><dd>{contact.celulaId ? cellName : "Nenhuma célula vinculada"}</dd></div>
+        <div>
+          <dt>Acompanhamento</dt>
+          <dd>
+            <StatusPill tone={status.tone}>{status.label}</StatusPill>
+          </dd>
+        </div>
+        <div>
+          <dt>Célula</dt>
+          <dd>{contact.celulaId ? cellName : "Nenhuma célula vinculada"}</dd>
+        </div>
         {!contact.semInteresse && contact.etapa ? (
-          <div><dt>Etapa atual</dt><dd>{ETAPA_LABEL[contact.etapa] ?? contact.etapa}</dd></div>
+          <div>
+            <dt>Etapa atual</dt>
+            <dd>{ETAPA_LABEL[contact.etapa] ?? contact.etapa}</dd>
+          </div>
         ) : null}
       </dl>
 
       {!isArquivada && !contact.celulaId ? (
-        <button type="button" className="btn btn-primary btn-block" onClick={onLink} disabled={busy}>
-          <Icon name="link" /><span>Vincular célula</span>
+        <button
+          type="button"
+          className="btn btn-primary btn-block"
+          onClick={onLink}
+          disabled={busy}
+        >
+          <Icon name="link" />
+          <span>Vincular célula</span>
         </button>
       ) : canEdit && !isArquivada ? (
-        <button type="button" className="btn btn-primary btn-block" onClick={onEdit} disabled={busy}>
+        <button
+          type="button"
+          className="btn btn-primary btn-block"
+          onClick={onEdit}
+          disabled={busy}
+        >
           Editar dados
         </button>
       ) : null}
@@ -1119,38 +1168,38 @@ function ContactDetail({
       <details className="people-disclosure">
         <summary>Contato e percurso</summary>
         <dl className="detail-list">
-        {contact.semInteresse ? (
+          {contact.semInteresse ? (
+            <div>
+              <dt>Motivo (Fora da igreja)</dt>
+              <dd>{contact.semInteresseMotivo?.trim() || "—"}</dd>
+            </div>
+          ) : null}
+          {!contact.semInteresse ? (
+            <div>
+              <dt>Liderança</dt>
+              <dd>
+                {contact.liderDeCelula
+                  ? "Líder de célula"
+                  : contact.aptoLider
+                    ? "Apto a liderar (sem célula)"
+                    : "—"}
+              </dd>
+            </div>
+          ) : null}
           <div>
-            <dt>Motivo (Fora da igreja)</dt>
-            <dd>{contact.semInteresseMotivo?.trim() || "—"}</dd>
+            <dt>Presenças em célula</dt>
+            <dd className="num">{contact.presencasCelula}</dd>
           </div>
-        ) : null}
-        {!contact.semInteresse ? (
           <div>
-            <dt>Liderança</dt>
-            <dd>
-              {contact.liderDeCelula
-                ? "Líder de célula"
-                : contact.aptoLider
-                  ? "Apto a liderar (sem célula)"
-                  : "—"}
-            </dd>
+            <dt>Decisão por Jesus</dt>
+            <dd>{contact.aceitouJesus ? "Sim" : "Não"}</dd>
           </div>
-        ) : null}
-        <div>
-          <dt>Presenças em célula</dt>
-          <dd className="num">{contact.presencasCelula}</dd>
-        </div>
-        <div>
-          <dt>Decisão por Jesus</dt>
-          <dd>{contact.aceitouJesus ? "Sim" : "Não"}</dd>
-        </div>
-        {contact.email ? (
-          <div>
-            <dt>E-mail</dt>
-            <dd>{contact.email}</dd>
-          </div>
-        ) : null}
+          {contact.email ? (
+            <div>
+              <dt>E-mail</dt>
+              <dd>{contact.email}</dd>
+            </div>
+          ) : null}
         </dl>
       </details>
 
@@ -1162,8 +1211,14 @@ function ContactDetail({
               Editar dados
             </button>
           ) : null}
-          <button type="button" className="btn btn-danger btn-block" onClick={onArchive} disabled={busy}>
-            <Icon name="lock" /><span>Arquivar pessoa</span>
+          <button
+            type="button"
+            className="btn btn-danger btn-block"
+            onClick={onArchive}
+            disabled={busy}
+          >
+            <Icon name="lock" />
+            <span>Arquivar pessoa</span>
           </button>
         </details>
       ) : null}

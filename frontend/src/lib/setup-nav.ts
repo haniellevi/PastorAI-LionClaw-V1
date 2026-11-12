@@ -11,8 +11,7 @@
 import { appSurfaceHref } from "./surface";
 
 export type SetupNavAction =
-  | { kind: "internal"; screen: string }
-  | { kind: "external"; href: string };
+  { kind: "internal"; screen: string } | { kind: "external"; href: string };
 
 export function resolveSetupNavAction(item: { id: string; screen: string }): SetupNavAction {
   if (item.id === "celulas") {

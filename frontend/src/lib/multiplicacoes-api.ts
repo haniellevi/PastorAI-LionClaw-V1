@@ -57,9 +57,7 @@ export interface MultiplicacoesListOut {
  * aguardando) e registradas (já aplicadas). Endpoint da Central (pastor/admin):
  * responde 403 para os demais papéis.
  */
-export async function getMultiplicacoesList(
-  token: string,
-): Promise<MultiplicacoesListOut> {
+export async function getMultiplicacoesList(token: string): Promise<MultiplicacoesListOut> {
   const res = await authedFetch(token, `/multiplicacoes`);
   if (!res.ok) {
     const detail = await readDetail(res);

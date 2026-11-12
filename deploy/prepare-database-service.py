@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create temporary libpq credentials without exposing ``DATABASE_URL``.
+"""Prepare the backup destination and temporary libpq credentials.
 
 The backup process receives only a libpq service name and a bind-mounted,
 mode-0600 credentials directory.  The password lives in a ``.pgpass``-format
@@ -10,8 +10,10 @@ variable of ``pg_dump``.
 from __future__ import annotations
 
 import os
+import re
 import stat
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlsplit
 
@@ -162,9 +164,73 @@ def write_database_service(env_file: Path, target_dir: Path) -> None:
         raise
 
 
+def _require_backup_directory(descriptor: int, *, private: bool = False) -> None:
+    state = os.fstat(descriptor)
+    mode = stat.S_IMODE(state.st_mode)
+    if state.st_uid != 0 or state.st_gid != 0:
+        raise ValueError("diretorio de backup sem dono root:root")
+    if (private and mode != 0o700) or (not private and mode & 0o022):
+        raise ValueError("permissao insegura no diretorio de backup")
+
+
+def prepare_backup_run(root: str, stamp: str | None) -> None:
+    """Prepare the private root and, when requested, an exclusive run."""
+    parts = root.split("/")[1:]
+    if (not root.startswith("/") or any(part in ("", ".", "..") for part in parts)
+            or any(character in root for character in "\x00\r\n\\")):
+        raise ValueError("raiz de backup invalida")
+    if stamp is not None and not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", stamp):
+        raise ValueError("identidade de execucao invalida")
+
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    with ExitStack() as descriptors:
+        parent = os.open("/", flags)
+        descriptors.callback(os.close, parent)
+        _require_backup_directory(parent)
+        for part in parts[:-1]:
+            parent = os.open(part, flags, dir_fd=parent)
+            descriptors.callback(os.close, parent)
+            _require_backup_directory(parent)
+
+        leaf = parts[-1]
+        try:
+            backup = os.open(leaf, flags, dir_fd=parent)
+        except FileNotFoundError:
+            try:
+                os.mkdir(leaf, 0o700, dir_fd=parent)
+            except FileExistsError:
+                # Another invocation may prepare the same root before flock.
+                pass
+            backup = os.open(leaf, flags, dir_fd=parent)
+        descriptors.callback(os.close, backup)
+        _require_backup_directory(backup, private=True)
+        if stamp is None:
+            return
+
+        archive = f"pastorai-backup-{stamp}.tar.gz"
+        for name in (archive, archive + ".sha256"):
+            try:
+                os.stat(name, dir_fd=backup, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            raise FileExistsError("artefato de backup ja existe")
+        os.mkdir(stamp, 0o700, dir_fd=backup)
+
+
 def main() -> int:
+    if len(sys.argv) == 4 and sys.argv[1] == "prepare-run":
+        try:
+            stamp = None if sys.argv[3] == "--root-only" else sys.argv[3]
+            prepare_backup_run(sys.argv[2], stamp)
+        except (OSError, ValueError) as exc:
+            print(f"falha ao preparar diretorio do backup ({type(exc).__name__})", file=sys.stderr)
+            return 1
+        return 0
     if len(sys.argv) != 3:
-        print("uso: prepare-database-service.py ENV_FILE TARGET_DIR", file=sys.stderr)
+        print(
+            "uso: prepare-database-service.py ENV_FILE TARGET_DIR ou prepare-run BACKUP_ROOT STAMP|--root-only",
+            file=sys.stderr,
+        )
         return 2
     try:
         write_database_service(Path(sys.argv[1]), Path(sys.argv[2]))

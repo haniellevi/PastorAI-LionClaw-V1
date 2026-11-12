@@ -19,7 +19,12 @@ export default function Error({
       <div className="scaffold" role="alert">
         <h1>Não foi possível abrir o painel</h1>
         <p>Não foi possível carregar o painel. Tente novamente.</p>
-        <button type="button" className="btn btn-primary" style={{ marginTop: "var(--s4)" }} onClick={reset}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ marginTop: "var(--s4)" }}
+          onClick={reset}
+        >
           Tentar de novo
         </button>
       </div>
