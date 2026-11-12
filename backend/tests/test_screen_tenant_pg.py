@@ -23,7 +23,7 @@ def grants(migrated_factory):
         db.flush()
         db.add_all([
             RolePermission(igreja_id=own, papel='membro', tela='dashboard'),
-            RolePermission(igreja_id=other, papel='membro', tela='inbox'),
+            RolePermission(igreja_id=other, papel='membro', tela='ganhar'),
         ])
     user = CurrentUser(app_user_id=str(uuid4()), clerk_user_id='synthetic',
                        igreja_id=str(own), email='member@example.test',
@@ -42,7 +42,7 @@ def test_foreign_grant_does_not_authorize_and_own_grant_does(
             db.execute(text("SELECT set_config('app.tenant_igreja_id', :tenant, true)"),
                        {'tenant': user.igreja_id})
         with pytest.raises(HTTPException) as denied:
-            require_screen('inbox')(db=db, current_user=user)
+            require_screen('ganhar')(db=db, current_user=user)
         assert denied.value.status_code == 403
         assert require_screen('dashboard')(db=db, current_user=user) == user
     other_user = replace(user, igreja_id=str(other))
@@ -51,4 +51,4 @@ def test_foreign_grant_does_not_authorize_and_own_grant_does(
             db.execute(text('SET LOCAL ROLE authenticated'))
             db.execute(text("SELECT set_config('app.tenant_igreja_id', :tenant, true)"),
                        {'tenant': str(other)})
-        assert require_screen('inbox')(db=db, current_user=other_user) == other_user
+        assert require_screen('ganhar')(db=db, current_user=other_user) == other_user

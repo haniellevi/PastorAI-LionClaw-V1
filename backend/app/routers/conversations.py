@@ -7,9 +7,9 @@ Endpoints:
   - GET  /conversations/{id}/messages  conversation history (oldest first)
   - POST /conversations/{id}/messages  send a human reply to the contact (WhatsApp)
 
-Access (US-11): the inbox screen is gated by the tenant's role_permissions
-matrix via require_screen("inbox") — the same matrix the admin edits in
-#permissoes (admin implicit). Roles without the inbox screen receive 403.
+Access (US-11/B3): the inbox screen is gated by require_screen("inbox"). Only
+the fixed INBOX_ROLES can hold it (admin implicit); the #permissoes matrix may
+remove it from one of them but never grants it to another role. Others: 403.
 
 Handoff concurrency (US-12): the conversation row is locked FOR UPDATE; if a
 human already assumed it, a second "assume" returns 409 carrying the real

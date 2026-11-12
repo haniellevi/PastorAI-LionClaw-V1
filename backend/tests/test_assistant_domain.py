@@ -139,3 +139,12 @@ def test_cd_navigation_respects_role_and_current_permission():
         allowed=allowed_screens_for_roles({role:['capacitacao']},[role])
         assert ('capacitacao' in allowed)==(role in {'pastor','lider_consol'})
         assert 'capacitacao' not in allowed_screens_for_roles({role:['dashboard']},[role])
+
+
+def test_inbox_only_from_fixed_roles_b3() -> None:
+    """B3: linha legada não faz o assistente sugerir Conversas a quem não atende."""
+    from app.domain.assistant import allowed_screens_for_roles as allowed
+
+    assert "inbox" not in allowed({"membro": ["inbox"]}, ["membro"])
+    assert "inbox" in allowed({"operador": ["inbox"]}, ["operador"])
+    assert "inbox" not in allowed({"operador": ["ganhar"]}, ["operador"])
