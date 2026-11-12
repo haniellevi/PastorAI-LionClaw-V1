@@ -69,6 +69,7 @@ class Nginx:
 
     def __init__(self, snippet, test_rc=0):
         self.snippet, self.test_rc, self.live, self.calls = snippet, test_rc, False, []
+        self.loaded = None  # path nginx -T prints (sites-enabled symlink), default the site itself
 
     def __call__(self, argv, *, timeout, stdin=None):
         self.calls.append(argv)
@@ -76,7 +77,7 @@ class Nginx:
         if argv[0].endswith('nginx'):
             if argv[1:] == ('-T',):
                 site = self.snippet.parent.parent / 'site'
-                return 0, ('# configuration file ' + str(site) + ':\n' + site.read_text()).encode()
+                return 0, ('# configuration file ' + str(self.loaded or site) + ':\n' + site.read_text()).encode()
             assert argv[1:] == ('-t', '-q')
             return self.test_rc, b''
         if argv[0].endswith('systemctl'):
@@ -89,16 +90,17 @@ class Nginx:
         return 0, b'HTTP/1.1 404 Not Found\r\ncontent-type: application/json\r\n\r\n'
 
 
-def _nginx(tmp_path, include=True, test_rc=0, site=None):
+def _nginx(tmp_path, include=True, test_rc=0, site=None, enabled=None):
     folder = tmp_path / 'igreja12-window'
     folder.mkdir(mode=0o755)
     config = wb.NginxConfig(nginx_binary='/usr/sbin/nginx', systemctl_binary='/usr/bin/systemctl',
                             curl_binary='/usr/bin/curl', site_path=str(tmp_path / 'site'),
-                            server_name='api.example.test', include_dir=str(folder))
+                            server_name='api.example.test', include_dir=str(folder), enabled_path=enabled)
     line = config.include_line if include else ''
     (tmp_path / 'site').write_text(SITE.format(include=line) if site is None else site.replace('INCLUDE', line))
     os.chmod(tmp_path / 'site', 0o644)
     fake = Nginx(folder / wb.SNIPPET_NAME, test_rc)
+    fake.loaded = enabled
     return wb.NginxMaintenanceIngress(config, scope=SCOPE, run=fake, sleep=lambda _: None, owner_uid=UID), fake
 
 
@@ -271,6 +273,57 @@ def test_nginx_certbot_shape_variations_refuse_before_any_external_io(tmp_path, 
     with pytest.raises(Refused, match='^window-nginx-topology$'):
         ingress.verify_topology(timeout=5)
     assert fake.calls == [] and not ingress.snippet.exists()
+
+def _enabled_link(tmp_path, target):
+    (tmp_path / 'sites-enabled').mkdir()
+    link = tmp_path / 'sites-enabled' / 'site'
+    link.symlink_to(target)
+    return str(link)
+
+
+def test_nginx_sites_enabled_symlink_to_the_real_site_round_trips(tmp_path):
+    ingress, fake = _nginx(tmp_path, site=CERTBOT_SITE, enabled=_enabled_link(tmp_path, tmp_path / 'site'))
+    assert ingress.observe(SCOPE, timeout=5) == 'open'
+    assert ingress.block(SCOPE, timeout=5) is True
+    assert ingress.observe(SCOPE, timeout=5) == 'blocked'
+    assert ingress.open(SCOPE, timeout=5) is True
+
+
+@pytest.mark.parametrize('fault', ['relative-target', 'other-target', 'regular-file', 'missing', 'nginx-t-real-path'])
+def test_nginx_sites_enabled_must_be_the_exact_symlink_nginx_loads(tmp_path, fault):
+    enabled = str(tmp_path / 'sites-enabled' / 'site')
+    if fault == 'relative-target':
+        enabled = _enabled_link(tmp_path, '../site')
+    elif fault == 'other-target':
+        (tmp_path / 'other').write_text('')
+        enabled = _enabled_link(tmp_path, tmp_path / 'other')
+    elif fault == 'regular-file':
+        (tmp_path / 'sites-enabled').mkdir()
+        Path(enabled).write_text('')
+    elif fault == 'nginx-t-real-path':
+        enabled = _enabled_link(tmp_path, tmp_path / 'site')
+    ingress, fake = _nginx(tmp_path, site=CERTBOT_SITE, enabled=enabled)
+    if fault == 'nginx-t-real-path':
+        fake.loaded = None  # nginx -T names the real file, not the declared enabled entry
+        code = '^window-nginx-topology$'
+    else:
+        code = '^window-nginx-site$'
+    with pytest.raises(Refused, match=code):
+        ingress.verify_topology(timeout=5)
+    assert not ingress.snippet.exists()
+    if fault != 'nginx-t-real-path':
+        assert fake.calls == []
+
+
+def test_nginx_enabled_path_is_validated():
+    base = dict(nginx_binary='/usr/sbin/nginx', systemctl_binary='/usr/bin/systemctl', curl_binary='/usr/bin/curl',
+                site_path='/etc/nginx/sites-available/api', server_name='api.example.test')
+    for enabled in ('sites-enabled/api', '/etc/nginx/sites-available/api'):
+        with pytest.raises(Refused, match='^window-nginx-paths$'):
+            wb.NginxConfig(**base, enabled_path=enabled).validated()
+    assert wb.NginxConfig(**base, enabled_path='/etc/nginx/sites-enabled/api').validated().loaded_path == \
+        '/etc/nginx/sites-enabled/api'
+
 
 class Nft:
     """Fake nft holding one ruleset; lists it in the exact JSON shape of nft 1.0.9."""

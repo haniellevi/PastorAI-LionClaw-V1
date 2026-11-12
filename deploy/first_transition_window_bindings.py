@@ -148,12 +148,22 @@ class NginxConfig:
     site_path: str
     server_name: str
     include_dir: str = INCLUDE_DIR
+    # Optional sites-enabled entry: a symlink whose target is exactly ``site_path`` (Debian layout).
+    # ``nginx -T`` names the site by this path; the real file is still read only through ``site_path``.
+    enabled_path: str | None = None
 
     def validated(self):
         require(all(_absolute(p) for p in (self.nginx_binary, self.systemctl_binary, self.curl_binary,
                                            self.site_path, self.include_dir)), 'window-nginx-paths')
+        require(self.enabled_path is None or (_absolute(self.enabled_path) and self.enabled_path != self.site_path),
+                'window-nginx-paths')
         require(isinstance(self.server_name, str) and HOST.fullmatch(self.server_name), 'window-nginx-server')
         return self
+
+    @property
+    def loaded_path(self):
+        """The path nginx loads the site from, as ``nginx -T`` prints it."""
+        return self.site_path if self.enabled_path is None else self.enabled_path
 
     @property
     def include_line(self):
@@ -282,14 +292,27 @@ class NginxMaintenanceIngress(_Binding):
         require(lines.count(self.config.include_line) == 1, 'window-nginx-include-missing')
         return text
 
+    def _enabled_link(self):
+        """sites-enabled entry, when declared: a symlink of the owner pointing exactly at site_path."""
+        path = self.config.enabled_path
+        if path is None:
+            return
+        try:
+            info, target = os.lstat(path), os.readlink(path)
+        except OSError:
+            raise Refused('window-nginx-site') from None
+        require(stat.S_ISLNK(info.st_mode) and info.st_uid == self.owner_uid and target == self.config.site_path,
+                'window-nginx-site')
+
     def verify_topology(self, *, timeout=10):
         """Constrained nominal site only; complex/ambiguous server routing refuses for review."""
         deadline = _deadline(timeout)
         text = self._include_present()
+        self._enabled_link()
         servers = _validate_nginx_topology(text, self.config)
         rc, out = self._run((self.config.nginx_binary, '-T'), deadline, code='window-nginx-topology')
         require(rc == 0, 'window-nginx-topology')
-        marker = '# configuration file ' + self.config.site_path + ':\n'
+        marker = '# configuration file ' + self.config.loaded_path + ':\n'
         effective = out.decode('utf-8')
         require(effective.count(marker) == 1, 'window-nginx-topology')
         before, after = effective.split(marker, 1)
