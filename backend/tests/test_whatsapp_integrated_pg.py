@@ -199,6 +199,7 @@ def integrated_turn(migrated_factory, monkeypatch):
     ui = TestClient(simulator, base_url="http://simulador-whatsapp:8090")
     evolution = EvolutionClient(settings)
     evolution._client = ui
+    backend.dependency_overrides[conversations.get_evolution_client] = lambda: evolution
     # No provider traffic may escape these ASGI clients. Redis/Postgres use their
     # own guarded transports and are intentionally real.
     http_send = httpx.Client.send
@@ -433,3 +434,52 @@ def test_reply_reader_legacy_tenant_and_transaction_fence(integrated_turn):
         assert other.id != intent.id
         with pytest.raises(TenantScopeVerificationError):
             load_agent_reply_intent(session, ReplyReadContext(a, key))
+
+
+def _human_send(t, text_value):
+    """Painel autenticado: assume a conversa e responde pelo caminho humano real."""
+    with t.factory.begin() as session:
+        connection = session.scalar(select(WhatsappConnection).where(
+            WhatsappConnection.igreja_id == t.users[0].tenant))
+        connection.status = "online"
+    conversation = t.rows(Conversation)[0]
+    headers = {"Authorization": "Bearer " + t.users[0].token}
+    base = f"/conversations/{conversation.id}"
+    assert t.api.post(base + "/handoff", json={"to": "human"}, headers=headers).status_code == 200
+    return t.api.post(base + "/messages", json={"texto": text_value}, headers=headers)
+
+
+def _delivered_texts(t):
+    return [m["texto"] for m in t.ui.get("/simulador/mensagens").json() if m["direcao"] == "saida"]
+
+
+def test_b4_human_send_allowed_without_optout(integrated_turn):
+    t = integrated_turn
+    t.send("Olá")
+    response = _human_send(t, "Resposta humana sintética")
+    assert response.status_code == 200, response.text
+    assert any("Resposta humana sintética" in texto for texto in _delivered_texts(t))
+    assert any(m.autor == "humano" and m.texto == "Resposta humana sintética" for m in t.rows(Message))
+
+
+def test_b4_human_send_blocked_by_global_optout_with_reason(integrated_turn):
+    t = integrated_turn
+    t.send("SAIR")
+    assert t.rows(Pessoa)[0].optout is True
+    delivered_before = _delivered_texts(t)
+    response = _human_send(t, "Resposta humana bloqueada")
+    assert response.status_code == 409
+    assert "opt-out" in response.json()["detail"]
+    assert _delivered_texts(t) == delivered_before
+    assert not [m for m in t.rows(Message) if m.autor == "humano"]
+
+
+def test_b4_whatsapp_refuses_visitor_for_past_meeting_with_panel_guidance(integrated_turn):
+    t = integrated_turn
+    with t.factory.begin() as session:
+        meeting = session.get(CelulaReuniao, t.users[0].meeting)
+        meeting.data = dt.date.today() - dt.timedelta(days=2)
+    t.send(_COMMAND)
+    assert not t.rows(AgentActionProposal)
+    assert not t.rows(CelulaExpectativaVisitante)
+    assert any("registre a indicação pelo painel" in texto for texto in _delivered_texts(t))

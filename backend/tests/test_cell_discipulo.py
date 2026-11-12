@@ -742,6 +742,18 @@ def test_visitor_expectation_created_201(app) -> None:
     assert len(session.expectativas) == 1
 
 
+def test_visitor_expectation_past_meeting_accepted_in_panel_b4(app) -> None:
+    """B4: pelo painel, a indicação para reunião que já aconteceu é aceita."""
+    reu = make_reuniao(reuniao_id=_REU, data=_PAST)
+    session = _discipulo_session(reunioes=[reu])
+    resp = _wire(app, session=session).post(
+        _VISITOR_PATH, headers=_AUTH, json={"nomeVisitante": "Maria"}
+    )
+    assert resp.status_code == 201, resp.text
+    assert session.committed is True
+    assert len(session.expectativas) == 1
+
+
 def test_visitor_expectation_404_unknown_meeting(app) -> None:
     session = _discipulo_session(reunioes=[])
     resp = _wire(app, session=session).post(
