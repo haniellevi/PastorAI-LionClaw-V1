@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { apiOrigin, buildContentSecurityPolicy } from "./csp.mjs";
+import { apiOrigin, buildContentSecurityPolicy, generateNonce } from "./csp.mjs";
 
 function directives(policy) {
   return Object.fromEntries(
@@ -44,6 +44,42 @@ describe("buildContentSecurityPolicy", () => {
 
     expect(csp["img-src"]).toEqual(["'self'", "data:", "blob:", "https:", "http://127.0.0.1:8100"]);
     expect(csp["media-src"]).toEqual(["'self'", "blob:", "https:", "http://127.0.0.1:8100"]);
+  });
+});
+
+describe("nonce dos scripts", () => {
+  it("troca 'unsafe-inline' pelo nonce e por 'strict-dynamic'", () => {
+    const csp = directives(
+      buildContentSecurityPolicy({ apiUrl: "https://api.example.test", nonce: "abc123+/=" }),
+    );
+
+    expect(csp["script-src"]).toEqual(["'self'", "'nonce-abc123+/='", "'strict-dynamic'"]);
+  });
+
+  it("cai no modo antigo sem nonce ou com nonce inválido", () => {
+    for (const nonce of [undefined, "", "a b", "x';script-src *"]) {
+      const csp = directives(
+        buildContentSecurityPolicy({ apiUrl: "https://api.example.test", nonce }),
+      );
+      expect(csp["script-src"]).toEqual(["'self'", "'unsafe-inline'"]);
+    }
+  });
+
+  it("mantém estilos com 'unsafe-inline' por enquanto", () => {
+    const csp = directives(
+      buildContentSecurityPolicy({ apiUrl: "https://api.example.test", nonce: generateNonce() }),
+    );
+
+    expect(csp["style-src"]).toEqual(["'self'", "'unsafe-inline'"]);
+  });
+
+  it("gera nonces de 128 bits, válidos e diferentes a cada chamada", () => {
+    const nonces = new Set(Array.from({ length: 50 }, generateNonce));
+
+    expect(nonces.size).toBe(50);
+    for (const nonce of nonces) {
+      expect(nonce).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+    }
   });
 });
 

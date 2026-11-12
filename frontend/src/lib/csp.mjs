@@ -10,10 +10,24 @@
  *   backend (o host não é conhecido no build do painel), mais data:/blob:
  *   das prévias de upload.
  *
- * `'unsafe-inline'` em script-src continua necessário: o App Router injeta
- * scripts inline sem nonce. Trocar por nonce é um passo próprio, antes de
- * passar a política para o modo que bloqueia.
+ * Scripts: o middleware gera um nonce novo a cada documento e o Next marca
+ * com ele os scripts que injeta (por isso as páginas renderizam a cada
+ * acesso). `'strict-dynamic'` deixa esses scripts carregarem os chunks; um
+ * script injetado sem o nonce é recusado. Sem nonce, a política cai no modo
+ * antigo (`'unsafe-inline'`) em vez de quebrar o painel.
+ *
+ * Estilos ainda aceitam `'unsafe-inline'`: o HTML do servidor traz atributos
+ * `style=""`. Separar `style-src-elem` de `style-src-attr` é o passo seguinte.
  */
+
+const NONCE_PATTERN = /^[A-Za-z0-9+/_-]+={0,2}$/;
+
+/** Nonce novo por documento: 128 bits aleatórios em base64. */
+export function generateNonce() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes));
+}
 
 const DEV_API_URL = "http://localhost:8000";
 
@@ -26,11 +40,15 @@ export function apiOrigin(apiUrl) {
   }
 }
 
-export function buildContentSecurityPolicy({ apiUrl, dev = false } = {}) {
+export function buildContentSecurityPolicy({ apiUrl, dev = false, nonce } = {}) {
   const api = apiOrigin(apiUrl);
+  const scripts =
+    typeof nonce === "string" && NONCE_PATTERN.test(nonce)
+      ? [`'nonce-${nonce}'`, "'strict-dynamic'"]
+      : ["'unsafe-inline'"];
   const directives = [
     ["default-src", "'self'"],
-    ["script-src", "'self'", "'unsafe-inline'", dev && "'unsafe-eval'"],
+    ["script-src", "'self'", ...scripts, dev && "'unsafe-eval'"],
     ["style-src", "'self'", "'unsafe-inline'"],
     ["img-src", "'self'", "data:", "blob:", "https:", api],
     ["media-src", "'self'", "blob:", "https:", api],
