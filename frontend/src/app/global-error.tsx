@@ -5,6 +5,8 @@
  * do pages-runtime na exportação, evitando o falso-positivo de prerender das
  * páginas /404 e /500. Precisa renderizar a própria árvore <html>/<body>.
  */
+import "./global-error.css";
+
 export default function GlobalError({
   error,
   reset,
@@ -22,7 +24,6 @@ export default function GlobalError({
           fontFamily: "Arial, sans-serif",
         }}
       >
-        <style>{`.global-recovery button:focus-visible { outline: 3px solid #1c6197; outline-offset: 3px; }`}</style>
         <main
           className="global-recovery"
           aria-label="Erro ao carregar painel"
