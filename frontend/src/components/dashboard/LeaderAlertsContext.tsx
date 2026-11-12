@@ -76,7 +76,7 @@ export function LeaderAlertsContext({
           <p role="status">Carregando alertas…</p>
         ) : !data ? (
           <div>
-            <p role="status">Alertas indisponíveis agora.</p>
+            <p className="dh-context-empty is-unavailable">Alertas indisponíveis agora.</p>
             <DsButton variant="secondary" onClick={() => setAttempt((value) => value + 1)}>
               Tentar novamente
             </DsButton>
@@ -84,16 +84,16 @@ export function LeaderAlertsContext({
         ) : data.length === 0 ? (
           <p className="dh-context-empty">Nenhum alerta em aberto.</p>
         ) : (
-          <ul>
+          <div className="dh-context-list">
             {data.map((alert) => (
-              <li className="list-row" key={alert.id}>
-                <div className="ops-row-main">
-                  <div className="nm">{alert.gatilho ?? "Alerta"}</div>
-                  <div className="sub">
+              <article className="dh-context-row" key={alert.id}>
+                <span className="dh-context-copy">
+                  <span className="dh-context-name">{alert.gatilho ?? "Alerta"}</span>
+                  <span className="dh-context-meta">
                     {alert.celulaNome}
                     {alert.acaoEsperada ? ` · ${alert.acaoEsperada}` : ""}
-                  </div>
-                </div>
+                  </span>
+                </span>
                 <DsButton
                   variant="secondary"
                   disabled={busy === alert.id}
@@ -101,9 +101,9 @@ export function LeaderAlertsContext({
                 >
                   {busy === alert.id ? "…" : "Tratar"}
                 </DsButton>
-              </li>
+              </article>
             ))}
-          </ul>
+          </div>
         )}
         {failed ? <p role="alert">{failed}</p> : null}
       </div>
