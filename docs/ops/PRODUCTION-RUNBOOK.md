@@ -819,8 +819,8 @@ contenção até a A9 numa execução só. O modo `a10` é uma execução separa
 
 **SIM 3** cobre o `run` inteiro: contenção, backup, migrations e A9. Como o
 `run` não para entre o backup e a primeira migration, dizer SIM 3 é aceitar o
-ponto de não retorno. Se o Raniel quiser um SIM separado só para as
-migrations, isso exige mudar a ferramenta antes da janela.
+ponto de não retorno. Decisão do Raniel em 12/11/2026: um SIM 3 único
+basta; não haverá SIM separado para as migrations.
 
 **Se o smoke falhar depois da primeira migration (J6):** não há volta ao
 sistema antigo. A ferramenta para e mantém tudo contido: site em manutenção,
@@ -879,6 +879,10 @@ um passo interrompido só é aceito se a inspeção provar o resultado exato;
 senão a ferramenta recusa e contém.
 
 ### 12.4 Riscos que o Raniel precisa aceitar por escrito
+
+Aceite por escrito do Raniel em 12/11/2026, no chat da sessão da A10: riscos 1,
+2 e 3 abaixo. O 4 é decisão anterior dele (sem volta ao legado depois da
+primeira migration); o 5 é limite técnico registrado.
 
 1. **Escrita direta no Supabase durante a janela:** quem tem chave (SQL
    Editor, MCP, CLI, Data API, Storage) consegue escrever por fora do sistema.

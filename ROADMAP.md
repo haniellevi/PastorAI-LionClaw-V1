@@ -20,6 +20,10 @@ roteiro e dos registros históricos que digam o contrário.
 - Raniel é o operador nomeado da janela; janela em horário comercial.
 - Envios pausados durante a janela e religados exatamente como estavam.
 - Rollback imediato pré-autorizado se o smoke pós-deploy falhar.
+- Primeira virada (12/11): um SIM único para o `run` inteiro, incluindo o
+  ponto de não retorno; riscos aceitos por escrito: escrita direta no Supabase
+  na janela, WhatsApp/cobranças chegando na janela e pausa do backup da VPS
+  (runbook §12.4).
 - Leitura técnica de produção (sem dados de pessoas) autorizada.
 - Antes de PROD, rodar o ensaio sintético existente; DEV online fica para depois.
 
