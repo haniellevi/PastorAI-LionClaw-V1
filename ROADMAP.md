@@ -377,7 +377,7 @@ autorização. Leitura por amostragem: sem testes, typecheck nem lint na anális
 | 5 | CI | `backend-tests` em partes paralelas; instalação reaproveitada entre workflows | feita (#649) |
 | 6 | Documentos | `SPEC.md`, `SPEC_PROGRESS.md`, `Plan-Designer-Igreja12/`, `relatorio-shard3-rls.md` e o histórico deste roteiro para `docs/historico/` | feita (#650) |
 | 7 | Arquivar E4B | retirar do app o código de consentimento E4B sem uso | feita (#651) |
-| 8 | Tipos gerados | tipos do painel gerados do OpenAPI do backend | PR #652 aberta |
+| 8 | Tipos gerados | tipos do painel gerados do OpenAPI do backend | feita (#652) |
 | 9 | Tipagem Python | checagem de tipos começando por poucas pastas | PR #653 aberta |
 | 10 | Formatador | formatador no painel, por último | PR #654 aberta |
 
