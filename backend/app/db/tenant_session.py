@@ -263,6 +263,7 @@ def _reapply_tenant_scope(
 
     meta = session.info.get(TENANT_META_KEY)
     actor_sub = meta.get("actor_sub") if isinstance(meta, dict) else None
+    parameters: tuple[str, ...]
     if isinstance(actor_sub, str) and actor_sub:
         claims = json.dumps({"sub": actor_sub})
         statement = (
