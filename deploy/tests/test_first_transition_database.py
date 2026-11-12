@@ -17,7 +17,7 @@ from first_transition_database import (DatabaseExpectation, LedgerProof, ReadOnl
 RLS_OFF = "SELECT set_config('row_security', 'off', true)"
 SCOPE = 'c' * 64
 SECRET = 'SENTINEL-DB-SECRET'
-STATEMENTS = {RLS_OFF, fdb.Q_BEGIN, fdb.Q_TIMEOUT, fdb.Q_PATH, fdb.Q_READ_ONLY, fdb.Q_IDENTITY, fdb.Q_VISIBILITY,
+STATEMENTS = {fdb.Q_GATE_CANCELLED, fdb.Q_V3_CLOSED, RLS_OFF, fdb.Q_BEGIN, fdb.Q_TIMEOUT, fdb.Q_PATH, fdb.Q_READ_ONLY, fdb.Q_IDENTITY, fdb.Q_VISIBILITY,
               fdb.Q_LEDGER, fdb.Q_INVALID, fdb.Q_INDEXES, fdb.Q_BUILDS, fdb.Q_CATALOG, fdb.Q_WRITERS,
               fdb.Q_RELATION, 'ROLLBACK', *(fdb.lease_query(t, c) for t, c in fdb.LEASES)}
 
@@ -55,6 +55,8 @@ class FakePg:
         self.lease_pairs = list(fdb.LEASES)
         self.writers, self.leases = 0, {t: 0 for t, _ in fdb.LEASES}
         self.missing_relations = set()
+        # A10 pending-work counters (gate_fechado cancellations, V3 activations observed closed).
+        self.gate_cancelled, self.v3_gate_closed = 0, 0
         self.executed, self.connections, self.closed = [], 0, 0
         self.fail_on = None
         self.on_connect = None
@@ -120,6 +122,7 @@ class FakeCursor:
             fdb.Q_INVALID: lambda: [(n,) for n in pg.invalid], fdb.Q_INDEXES: lambda: [(n,) for n in pg.indexes],
             fdb.Q_BUILDS: lambda: [(pg.builds,)], fdb.Q_CATALOG: lambda: [tuple(r) for r in pg.catalog_rows()],
             fdb.Q_WRITERS: lambda: [(pg.writers,)],
+            fdb.Q_GATE_CANCELLED: lambda: [(pg.gate_cancelled,)], fdb.Q_V3_CLOSED: lambda: [(pg.v3_gate_closed,)],
             fdb.Q_RELATION: lambda: [(params[0].removeprefix('public.') not in pg.missing_relations,)],
         }
         if query in lease:

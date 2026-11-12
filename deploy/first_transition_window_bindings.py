@@ -19,8 +19,8 @@ ingress ones an ``entry``, and every method takes ``(scope, *, timeout)``.
   ``observe`` accepts only the absent table (open) or exactly this table (blocked).
 * ``UnknownWriters``: number of UNDECLARED writing sources, from the host and from PostgreSQL.
   Host: ESTABLISHED TCP to the database endpoint in every network namespace (via
-  ``/proc/<pid>/net/tcp*``); a namespace of the declared containers (legacy roles, and the
-  candidate backend) is declared, the host namespace is declared only for sockets of this
+  ``/proc/<pid>/net/tcp*``); a namespace of the declared containers (legacy roles, the A9
+  candidate backend, and in A10 the candidate containers with a start receipt) is declared, the host namespace is declared only for sockets of this
   process's descendants (the migration child), anything else counts. Database (owner credential,
   which holds pg_read_all_stats): client sessions holding an xid or not idle, other than this
   observer, whose role is neither a Supabase-internal role nor a verified read-only role; any of
@@ -603,10 +603,13 @@ class UnknownWriters(_Binding):
     def observe(self, scope, *, timeout):
         self._check(scope)
         deadline = _deadline(timeout)
-        backend = None if self._candidate_provider is None else self._candidate_provider(timeout=_remaining(deadline))
-        require(backend is None or isinstance(backend, str) and HEX64.fullmatch(backend)
-                and backend not in self.declared, 'window-writers-candidate')
-        declared_ids = self.declared | ({backend} if backend is not None else set())
+        found = None if self._candidate_provider is None else self._candidate_provider(timeout=_remaining(deadline))
+        # A9: the started backend ID (or None). A10: the tuple of candidate IDs with a start receipt.
+        ids = () if found is None else (found,) if isinstance(found, str) else found
+        require(isinstance(ids, tuple) and len(ids) <= 4 and len(set(ids)) == len(ids)
+                and all(isinstance(i, str) and HEX64.fullmatch(i) and i not in self.declared for i in ids),
+                'window-writers-candidate')
+        declared_ids = self.declared | set(ids)
         declared, undeclared = self._host_side(deadline, declared_ids)
         active = self._database_side(deadline)
         return undeclared + max(0, active - declared)

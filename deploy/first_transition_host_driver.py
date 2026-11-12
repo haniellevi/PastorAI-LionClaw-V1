@@ -426,6 +426,30 @@ class ObservedHostDriver:
                     ingress_open=all(v == 'open' for v in ingress.values()), unknown_writers=writers,
                     network_id=network_id, services=services, support=support)
 
+    def legacy_gates(self, *, timeout=20):
+        """Read-only {role: sorted 'NAME=value'} of the four mandatory gates of each pinned legacy role.
+
+        Same trusted projection as the host inspection (Docker filters Env by gate name before
+        stdout); stopping a container never changes it. Used only for the A10 gate snapshot.
+        """
+        require(type(timeout) in (int, float) and 0 < timeout <= 30, 'driver-timeout-bound')
+        deadline = time.monotonic() + timeout
+        self._daemon(deadline)
+        rc, out = self._run(('docker', 'inspect', '--type', 'container', '--format', self.template, *self.legacy),
+                            deadline, LIMITS['inspect'])
+        require(rc == 0, 'driver-inspect-failed')
+        ok, rows = _attempt(_lines, out)
+        require(ok and all(isinstance(r, list) and len(r) == 18 and isinstance(r[0], str) for r in rows)
+                and [r[0] for r in rows] == list(self.legacy), 'driver-inspect-scope')
+        result = {}
+        for row in rows:
+            gates = _tail(row[15], 'driver-inspect-gates')
+            names = [g.split('=', 1)[0] if isinstance(g, str) and '=' in g else None for g in gates]
+            require(all(n in self.manifest.gate_names for n in names) and len(set(names)) == len(names)
+                    and all(len(g) <= 512 for g in gates), 'driver-inspect-gates')
+            result[self.roles[row[0]]] = sorted(gates)
+        return result
+
     def _redis_meta(self, command, key, deadline):
         # Only into the Redis container this driver just verified by label; no auth in argv.
         require(self.redis_verified, 'driver-redis-unverified')

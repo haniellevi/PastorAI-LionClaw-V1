@@ -74,6 +74,17 @@ opção exige remover as travas atuais e provar a segurança dos envios durante
 build e restart; este workflow não a suporta. Nenhuma das duas opções é
 autorizada por este documento.
 
+**Primeira virada da instalação legada:** não usa este workflow nem fecha
+`ALLOW_REAL_SENDS` nos processos antigos. A ferramenta
+`deploy/first_transition_window.py` fotografa os quatro gates de cada processo
+antigo antes de contê-los, mantém o cron novo sem rodar até a A10 e, na A10
+(execução separada, com SIM próprio), recria os workers com os mesmos valores
+da foto antes do primeiro ciclo do cron. Assim a virada não cancela
+pendências que o sistema antigo não cancelaria. Sequência completa, pontos de
+SIM, ponto de não retorno e riscos aceitos: seção 12 do
+[runbook de produção](../docs/ops/PRODUCTION-RUNBOOK.md). Para os releases
+seguintes, a regra acima continua valendo sem mudança.
+
 Sequência obrigatória para um release futuro, sempre com autorizações próprias:
 
 1. Obter autorização nominal de Raniel para o fechamento e registrar o

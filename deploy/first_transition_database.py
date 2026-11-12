@@ -125,6 +125,13 @@ MD5 = re.compile('[0-9a-f]{32}')
 Q_WRITERS = ('SELECT count(*) FROM pg_stat_activity WHERE datid=' + CURRENT_DB + ' AND pid<>pg_backend_pid() '
              "AND backend_type='client backend' AND (backend_xid IS NOT NULL OR state IS DISTINCT FROM 'idle')")
 Q_RELATION = "SELECT to_regclass(%s) IS NOT NULL"
+# A10 pending-work guard: terminal cancellations caused by a CLOSED gate, and V3 activations
+# observed closed. Counts only; no row, tenant or payload leaves the database.
+Q_GATE_CANCELLED = ("SELECT count(*) FROM public.notification_outbox "
+                    "WHERE state='cancelado' AND terminal_reason='gate_fechado'")
+Q_V3_CLOSED = 'SELECT count(*) FROM public.consolidation_whatsapp_activation WHERE NOT gate_open'
+PENDING_RELATIONS = (('notification_outbox', Q_GATE_CANCELLED, 'gate_cancelled'),
+                     ('consolidation_whatsapp_activation', Q_V3_CLOSED, 'v3_gate_closed'))
 
 
 def lease_query(table, column):
@@ -251,6 +258,53 @@ class ReadOnlyDatabase:
             return dict(identity=digest([system, oid, name]), read_only=True, activity_visible=True,
                         ledger=ledger, ledger_digest=digest(list(ledger)), catalog=catalog, invalid=invalid,
                         indexes=indexes, index_builds=builds, writing_sessions=writers, active_leases=leases)
+        finally:
+            cur.execute('ROLLBACK')
+
+    def pending_outcomes(self, *, timeout=10):
+        """Read-only counts of gate-caused terminal outcomes (A10 guard), same identity binding.
+
+        ``gate_cancelled``: ``notification_outbox`` rows cancelled with ``gate_fechado``;
+        ``v3_gate_closed``: V3 activations recorded with ``gate_open=false``. An absent
+        relation is reported as ``None`` (it may legitimately not exist before the DDL).
+        With row_security=off a restricted role errors instead of counting a filtered view.
+        """
+        require(type(timeout) in (int, float) and 0 < timeout <= 30, 'database-timeout-bound')
+        conn, outcome = None, None
+        try:
+            conn = self.connect(timeout=timeout)
+            result = self._pending(conn, timeout)
+        except Refused as exc:
+            outcome = str(exc) if str(exc).startswith('database-') else 'database-observation-failed'
+        except Exception:  # noqa: BLE001 - qualquer falha vira recusa fechada
+            outcome = 'database-observation-failed'
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001 - falha ao fechar vira recusa fechada
+                    outcome = outcome or 'database-observation-failed'
+        require(outcome is None, outcome)
+        return result
+
+    def _pending(self, conn, timeout):
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(Q_BEGIN)
+        try:
+            _single(cur, Q_TIMEOUT, (f'{int(timeout * 1000)}ms',))
+            _single(cur, Q_PATH)
+            require(_single(cur, Q_RLS_OFF)[0] == 'off', 'database-row-security')
+            require(_single(cur, Q_READ_ONLY)[0] == 'on', 'database-not-read-only')
+            system, oid, name = _single(cur, Q_IDENTITY)[:3]
+            require(isinstance(system, str) and system.isdigit() and type(oid) is int and isinstance(name, str),
+                    'database-observation-shape')
+            result = dict(identity=digest([system, oid, name]))
+            for table, query, key in PENDING_RELATIONS:
+                present = _single(cur, Q_RELATION, ('public.' + table,))[0]
+                require(type(present) is bool, 'database-observation-shape')
+                result[key] = _count(cur, query) if present else None
+            return result
         finally:
             cur.execute('ROLLBACK')
 

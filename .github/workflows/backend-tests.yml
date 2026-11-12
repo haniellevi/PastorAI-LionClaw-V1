@@ -154,6 +154,7 @@ jobs:
           "$RUNNER_TEMP/pip-audit-venv/bin/ruff" check --no-cache \
             deploy/first_transition_host_driver.py deploy/first_transition_database.py \
             deploy/first_transition_candidate.py deploy/first_transition_orchestrator.py \
+            deploy/first_transition_a10.py deploy/tests/test_first_transition_a10.py \
             deploy/first_transition_host_contract.py deploy/first_transition_host_transport.py \
             deploy/first_transition_adapter.py deploy/initial_transition_files.py deploy/package_backend_release.py \
             deploy/tests/test_first_transition_host_driver.py deploy/tests/test_first_transition_database.py \
@@ -172,6 +173,7 @@ jobs:
             deploy/tests/test_initial_transition.py deploy/tests/test_initial_transition_layout.py \
             deploy/tests/test_backend_release_package.py deploy/tests/test_release_topology.py \
             deploy/tests/test_first_transition_database.py deploy/tests/test_first_transition_orchestrator.py \
+            deploy/tests/test_first_transition_a10.py \
             deploy/tests/test_backend_workflow.py deploy/tests/test_first_transition_window_backup.py \
             deploy/tests/test_first_transition_window_bindings.py \
             deploy/tests/test_first_transition_candidate_writers.py deploy/tests/test_first_transition_window_entry.py \

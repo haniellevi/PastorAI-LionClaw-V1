@@ -80,6 +80,15 @@ ajustes de fixtures entraram pelas #634 a #636. O controlador A8/C2 e a
 contenção de escritores serão retomados após a primeira publicação (decisão de
 12/11 acima).
 
+A10 da primeira virada (12/11, [PR #659](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/659)): implementada em `deploy/first_transition_a10.py`
+e ensaiada só em simulação. O `run` fotografa os gates dos quatro processos
+antigos antes da contenção; `first_transition_window.py a10`, com SIM próprio,
+recria os workers com esses valores, sobe o cron por último, abre as entradas
+e verifica; falha contém sem voltar ao legado. Sequência completa da janela,
+pontos de SIM e riscos a aceitar: seção 12 do
+[runbook de produção](docs/ops/PRODUCTION-RUNBOOK.md). Nada executado em
+produção. O controlador A8/C2 não é necessário para a janela.
+
 Raniel confirmou o recorte V1a por texto e painel para a Filadélfia nos
 [cenários 19 e 20](docs/ops/ACEITE-PASTORAL-PILOTO.md) e assumiu o aceite
 pastoral. Ele fará pessoalmente os testes, somente após um deploy autorizado.

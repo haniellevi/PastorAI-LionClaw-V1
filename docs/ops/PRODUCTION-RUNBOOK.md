@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-10-23. Este é o procedimento operacional vigente para o
+Atualizado em 2026-11-12 (seção 12). Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -780,3 +780,119 @@ Registrar:
 - estado explícito de `ALLOW_REAL_SENDS`, `ASAAS_BILLING_ENABLED` e
   `BROADCAST_ASYNC_ENABLED`, incluindo a prova pós-restart de que billing
   permaneceu fechado por padrão, sem imprimir o `.env`.
+
+## 12. Primeira virada da instalação legada (janela A1–A10)
+
+Vale só para a primeira troca do sistema antigo pelo novo. Os releases
+seguintes usam o [deploy manual](../../deploy/BACKEND-RELEASE-MANUAL.md).
+Nada aqui autoriza executar: cada **SIM** abaixo é uma frase do Raniel no
+chat, para aquela ação, aquele ambiente e aquele horário. Os códigos impressos
+pela ferramenta (digests e `a10_token`) só evitam erro de digitação; não são
+autorização.
+
+Ferramenta: `deploy/first_transition_window.py` (modos `prepare`, `check`,
+`check-bindings`, `rehearse-backup`, `run` e `a10`). O modo `run` vai da
+contenção até a A9 numa execução só. O modo `a10` é uma execução separada.
+
+### 12.1 Antes da janela (véspera)
+
+| Passo | O que acontece | SIM do Raniel |
+|---|---|---|
+| V1 | Leitura só de metadados do alvo: serviços e IDs, gates **por nome e valor** dos quatro processos antigos, cron do host, Redis, `release_preflight.py`, `migrate.py status`, duplicidades = 0. | **SIM 1** (leitura no alvo) |
+| V2 | Conferir que o arquivo privado do candidato tem os mesmos gates por finalidade do antigo (piloto, agenda, V1a, V3). Os quatro gates principais ficam fechados nele; a A10 os sobrepõe com os valores antigos. Se algum gate por finalidade diferir, a verificação da A10 pode acusar cancelamento e conter. | dentro do SIM 1 |
+| V3 | Ensaio sintético verde no SHA escolhido e os quatro checks do CI. | — |
+| V4 | Aviso à equipe: todos serão deslogados; painel e WhatsApp ficam pausados durante a janela. | Raniel envia |
+
+### 12.2 Janela
+
+| Passo | O que acontece | SIM do Raniel |
+|---|---|---|
+| J1 | Registrar início (UTC), operador, duração máxima em minutos e SHAs. `prepare` e conferência dos digests. | **SIM 2** (abrir a janela) |
+| J2 | Pausar o backup automático do host (cron M02) e confirmar que ninguém mais usa console, SQL Editor, MCP ou CLI do Supabase. | dentro do SIM 2 |
+| J3 | `run`: antes de tocar no sistema antigo, a ferramenta **fotografa os quatro gates de cada processo antigo** (`transition-gate-snapshot`). Valor desconhecido recusa aqui, antes de qualquer efeito. | **SIM 3** (o `run` inteiro, J3 a J6, inclui o ponto de não retorno) |
+| J4 | Bloqueia as duas entradas (site 503 e Evolution→backend), `restart=no`, SIGTERM e saída 0 dos quatro processos antigos; duas observações sem nenhuma escrita; linha de base das pendências (`transition-pending-baseline`); backup da janela com restore e replay em clone. | dentro do SIM 3 |
+| — | **Até aqui ainda dá para voltar ao sistema antigo** (`resume_legacy`). | — |
+| J5 | **PONTO DE NÃO RETORNO:** marcador da DDL e primeira migration. Depois dele o sistema antigo nunca volta (`post-ddl-resume-forbidden`). | dentro do SIM 3 |
+| J6 | 51 migrations, uma por vez; candidato criado parado; só o backend sobe, com envios fechados, e passa no smoke; workers continuam parados; entradas continuam bloqueadas (A9). O resultado imprime `a10_token`. | dentro do SIM 3 |
+| J7 | A10 (seção 12.3). | **SIM 4** (religar workers e envios como estavam) |
+| J8 | Religar o backup do host, conferir `AgentConfig` e Jev, registrar o encerramento. | — |
+
+**SIM 3** cobre o `run` inteiro: contenção, backup, migrations e A9. Como o
+`run` não para entre o backup e a primeira migration, dizer SIM 3 é aceitar o
+ponto de não retorno. Se o Raniel quiser um SIM separado só para as
+migrations, isso exige mudar a ferramenta antes da janela.
+
+**Se o smoke falhar depois da primeira migration (J6):** não há volta ao
+sistema antigo. A ferramenta para e mantém tudo contido: site em manutenção,
+entradas bloqueadas, workers nunca iniciados, processos antigos parados. Nada
+é enviado e nada é cancelado. Preservar diário, backup da janela e evidências.
+Decidir, por SIM próprio: corrigir adiante (novo SHA revisado e testado) ou
+restaurar o **backup da janela** (`window_backup_id` do marcador, nunca o do
+A6). Nunca restaurar de improviso.
+
+O "rollback imediato pré-autorizado se o smoke falhar" (ROADMAP, 12/11) só
+pode significar, depois do J5, essa contenção automática: voltar ao sistema
+antigo com o banco já migrado não é seguro e a ferramenta recusa. Corrigir
+adiante ou restaurar o backup da janela continuam exigindo SIM próprio.
+
+### 12.3 A10: workers e envios de volta como estavam
+
+Comando (só depois do SIM 4; o token é o `a10_token` impresso pela A9):
+
+```bash
+python3 -I deploy/first_transition_window.py a10 --config <config.json> --env-file <arquivo-privado> --env-var MIGRATION_DATABASE_URL --backup-config <backup.json> --bindings-config <bindings.json> --expect-plan-digest <plan> --expect-window-digest <window> --a10-token <a10_token>
+```
+
+O que a A10 faz, em ordem:
+
+1. Confere, sem efeito: foto dos gates presente e válida; releitura dos
+   processos antigos igual à foto (se alguém mudou, recusa:
+   `a10-gate-snapshot-divergent`); A9 intacta; banco com todas as migrations.
+   Qualquer recusa aqui não muda nada: envios continuam fechados.
+2. Recria os quatro contêineres do candidato **parados**, com um arquivo
+   público que repõe, papel por papel, os valores da foto. Gate que estava
+   fechado ou ausente continua fechado. Nenhum valor vem do código.
+3. Inicia backend (smoke de novo), queue-worker, broadcast-worker e, **por
+   último**, o cron-worker.
+4. Abre as entradas: primeiro Evolution→backend, depois o site.
+5. Verifica: os quatro rodando sem reinício e com gates iguais à foto;
+   antigos parados; entradas abertas; e, se o envio estava ligado antes,
+   nenhum cancelamento novo por gate fechado (`gate_fechado`) nem ativação V3
+   marcada como fechada desde a linha de base.
+
+**Por que as pendências ficam protegidas:** o cron novo só cancela pendência
+por gate fechado quando roda com o gate fechado. Na A9 ele nunca roda. Na A10
+ele só roda depois de recriado com os mesmos valores do sistema antigo. Então a
+virada não cancela nada que o sistema antigo não cancelaria. A regra do
+produto continua igual: se o gate já estava fechado antes da janela, ele
+continua fechado e continua cancelando, como antes.
+
+**Se a verificação falhar:** a ferramenta contém sozinha. Bloqueia as duas
+entradas e para cron, broadcast, queue e backend (`restart=no` e parada). Não
+reescreve os gates para fechado, porque um cron ligado depois com gate fechado
+cancelaria pendências. Não volta ao sistema antigo e não reabre nada sozinha.
+Resultado: site em manutenção, nada enviado. Próximo passo por SIM próprio.
+
+**Repetir a A10** depois de concluída só reverifica; não reinicia nada. Se a
+execução for interrompida no meio, repetir o mesmo comando retoma do diário:
+um passo interrompido só é aceito se a inspeção provar o resultado exato;
+senão a ferramenta recusa e contém.
+
+### 12.4 Riscos que o Raniel precisa aceitar por escrito
+
+1. **Escrita direta no Supabase durante a janela:** quem tem chave (SQL
+   Editor, MCP, CLI, Data API, Storage) consegue escrever por fora do sistema.
+   O código só confere zero sessões de escrita antes da DDL; escrita por Data
+   API ou Storage pode não aparecer. O controle é a regra combinada: ninguém
+   além do operador usa essas ferramentas na janela.
+2. **WhatsApp e cobranças que chegarem durante a janela:** as entradas
+   respondem 503. Não está verificado se a Evolution e o Asaas reenviam depois;
+   mensagens e avisos de pagamento podem se perder.
+3. **Backup automático da VPS:** precisa ser pausado antes do J2 e religado no
+   J8. Um `pg_dump` durante as migrations pode segurar lock e fazer uma
+   migration falhar (`lock_timeout` de 2 s), o que para a janela depois do
+   ponto de não retorno.
+4. **Depois da primeira migration não há volta ao sistema antigo:** só manter
+   contido e corrigir adiante, ou restaurar o backup da janela por decisão.
+5. **Proteção das pendências é por contagem:** a verificação olha dois
+   contadores. Ela não substitui o inventário por finalidade do item V1.
