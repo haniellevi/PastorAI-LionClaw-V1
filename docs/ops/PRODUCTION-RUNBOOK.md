@@ -830,6 +830,11 @@ Decidir, por SIM próprio: corrigir adiante (novo SHA revisado e testado) ou
 restaurar o **backup da janela** (`window_backup_id` do marcador, nunca o do
 A6). Nunca restaurar de improviso.
 
+O "rollback imediato pré-autorizado se o smoke falhar" (ROADMAP, 12/11) só
+pode significar, depois do J5, essa contenção automática: voltar ao sistema
+antigo com o banco já migrado não é seguro e a ferramenta recusa. Corrigir
+adiante ou restaurar o backup da janela continuam exigindo SIM próprio.
+
 ### 12.3 A10: workers e envios de volta como estavam
 
 Comando (só depois do SIM 4; o token é o `a10_token` impresso pela A9):

@@ -13,8 +13,9 @@ ou ativação V3 fechada nova quando o envio estava ligado. Falha contém: entra
 bloqueadas e os quatro parados com `restart=no`, sem reescrever gates e sem voltar ao
 legado. Sequência da janela e riscos aceitos: seção 12 do
 [runbook de produção](PRODUCTION-RUNBOOK.md). Nada foi executado em ambiente real;
-o registro abaixo de que a A10 dependeria do aceite das 20 conversas é anterior à
-decisão de religar os envios como estavam e precisa da confirmação do Raniel.
+o registro abaixo de que a A10 dependeria do aceite das 20 conversas foi superado
+pela decisão de 12/11 no ROADMAP (envios religados como estavam; aceite das 20
+conversas não bloqueia a publicação).
 
 Recuperação após a A9: `a10-partial` (repetir o mesmo comando; retoma do diário),
 `a10-complete` (repetir só reverifica), `a10-contained` (parar; decisão nova) e
