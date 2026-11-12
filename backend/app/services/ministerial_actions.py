@@ -29,17 +29,21 @@ def register_own_visitor_expectation(db: Session, current_user: CurrentUser, *,
                                     reuniao_id: uuid.UUID, nome_visitante: str,
                                     observacao_oracao: str | None = None,
                                     expected_actor_pessoa_id: uuid.UUID | None = None,
-                                    canal: str = CANAL_PAINEL,
+                                    canal: str | None = None,
                                     ) -> CelulaExpectativaVisitante:
     """Create one own expectation; caller owns commit and the proposal ledger.
 
-    Human callers (``canal='painel'``) omit the internal expected actor and keep
+    Human callers (canal ``painel``) omit the internal expected actor and keep
     their historical meeting/membership contract, optional note and multiple
-    rows. The WhatsApp caller passes ``canal='whatsapp'`` and the expected
-    actor. Past meetings follow ``visitor_referral_meeting_allowed`` (B4).
+    rows. The WhatsApp caller (canal ``whatsapp``) passes the expected actor.
+    An explicit ``canal`` must match the caller kind. Past meetings follow
+    ``visitor_referral_meeting_allowed`` (B4).
     """
     tenant = uuid.UUID(current_user.igreja_id)
-    if (canal == CANAL_WHATSAPP) != (expected_actor_pessoa_id is not None):
+    inferred = CANAL_PAINEL if expected_actor_pessoa_id is None else CANAL_WHATSAPP
+    if canal is None:
+        canal = inferred
+    elif canal != inferred:
         raise HTTPException(403, "Ação não autorizada")
     if expected_actor_pessoa_id is None:
         meeting = db.execute(select(CelulaReuniao).where(
