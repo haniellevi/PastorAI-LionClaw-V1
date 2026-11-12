@@ -82,7 +82,7 @@ class A10Step:
             roles = self.legacy_gates(timeout=20)
         except Refused:
             raise
-        except Exception:
+        except Exception:  # noqa: BLE001 - qualquer falha de leitura vira recusa fechada
             raise Refused('a10-gate-snapshot-unreadable') from None
         require(isinstance(roles, dict) and set(roles) == set(ROLES)
                 and all(isinstance(v, list) and all(isinstance(g, str) for g in v) for v in roles.values()),
@@ -281,26 +281,26 @@ class A10Step:
                 if binding.observe(binding.scope, timeout=10) != 'blocked':
                     require(binding.block(binding.scope, timeout=30) is True, 'a10-contain-ingress')
                 require(binding.observe(binding.scope, timeout=10) == 'blocked', 'a10-contain-ingress')
-            except Exception:
+            except Exception:  # noqa: BLE001 - contenção é best effort e registra o problema
                 problems.append('ingress:' + entry)
         try:
             ids = self.candidate.project_ids()
             try:
                 states = self.candidate.inspect(ids) if ids else {}
                 by_role = {state['service']: ident for ident, state in states.items()}
-            except Exception:
+            except Exception:  # noqa: BLE001 - contenção é best effort e registra o problema
                 by_role = {}
             ordered = [by_role[r] for r in CONTAIN_ORDER if r in by_role]
             ordered += [i for i in ids if i not in ordered]
             for ident in ordered:
                 try:
                     self.candidate.stop(ident)
-                except Exception:
+                except Exception:  # noqa: BLE001 - contenção é best effort e registra o problema
                     problems.append('stop')
             states = self.candidate.inspect(ids) if ids else {}
             if any(state['running'] for state in states.values()):
                 problems.append('running')
-        except Exception:
+        except Exception:  # noqa: BLE001 - contenção é best effort e registra o problema
             problems.append('inspect')
         self.j.append('transition-a10-contained', code=code, complete=not problems, problems=sorted(problems),
                       ingress_blocked=not any(p.startswith('ingress:') for p in problems),

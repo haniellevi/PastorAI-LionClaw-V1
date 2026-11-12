@@ -276,13 +276,13 @@ class ReadOnlyDatabase:
             result = self._pending(conn, timeout)
         except Refused as exc:
             outcome = str(exc) if str(exc).startswith('database-') else 'database-observation-failed'
-        except Exception:
+        except Exception:  # noqa: BLE001 - qualquer falha vira recusa fechada
             outcome = 'database-observation-failed'
         finally:
             if conn is not None:
                 try:
                     conn.close()
-                except Exception:
+                except Exception:  # noqa: BLE001 - falha ao fechar vira recusa fechada
                     outcome = outcome or 'database-observation-failed'
         require(outcome is None, outcome)
         return result
