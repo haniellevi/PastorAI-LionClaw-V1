@@ -66,6 +66,9 @@ class A10Docker(FakeCandidateDocker):
         if argv[:2] == ('docker', 'exec') and argv[2] in A10_IDS.values():
             self.calls.append(argv)
             assert argv == spec.smoke_argv(A10_IDS['backend'])
+            if getattr(self, 'smoke_crash', None) is not None:
+                self.smoke_crash, crash = None, self.smoke_crash
+                raise crash
             return 0, (json.dumps(self.smoke) + '\n').encode()
         result = super().__call__(argv, timeout=timeout, max_output=max_output)
         if argv[:2] == ('docker', 'start') and argv[2] == A10_IDS['cron-worker']:
@@ -483,3 +486,18 @@ def test_restarted_legacy_cron_blocks_the_new_cron_start(world):
     assert calls['n'] == 1
     assert ('docker', 'start', A10_IDS['cron-worker']) not in world.cdocker.calls
     assert world.journal.last('transition-a10-contained') is not None
+
+
+def test_replay_after_interrupted_smoke_resmokes_before_any_consumer_or_ingress(world):
+    transition, result = a9(world)
+    world.cdocker.smoke_crash = KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt):
+        transition.a10(result['a10_token'])
+    assert world.journal.last('transition-done', 'a10:start:backend') is not None
+    world.cdocker.smoke = dict(world.cdocker.smoke, ready=503, required_ok=False)
+    with pytest.raises(Refused, match='^candidate-ready-failed$'):
+        world.reopen().a10(result['a10_token'])
+    starts = [a[2] for a in world.cdocker.calls if a[:2] == ('docker', 'start')]
+    assert [i for i in starts if i in A10_IDS.values()] == [A10_IDS['backend']]
+    assert all(i.opens == 0 for i in world.rig.ingress.values())
+    assert world.journal.last('transition-a10-contained')['complete'] is True

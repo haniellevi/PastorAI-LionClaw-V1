@@ -174,6 +174,9 @@ class A10Step:
         smoke = None
         for role in A10_ORDER:
             step = 'a10:start:' + role
+            if role != 'backend' and smoke is None:
+                # Backend readiness gates every later effect, on replay too (start receipt != smoke passed).
+                smoke = self.candidate.smoke(ids['backend'], restore['backend'])
             if self.j.last('transition-done', step) is not None:
                 continue
             state = self.candidate.inspect((ids[role],))[ids[role]]
@@ -192,8 +195,6 @@ class A10Step:
                 state = self.candidate.inspect((ids[role],))[ids[role]]
                 check_restored_running(state)
             self._done(step, started=state['started'])
-            if role == 'backend':
-                smoke = self.candidate.smoke(ids['backend'], restore['backend'])
         if self.j.last('transition-done', 'a10:ingress') is None:
             self.host.legacy_stopped()
             self._intent('a10:ingress')
