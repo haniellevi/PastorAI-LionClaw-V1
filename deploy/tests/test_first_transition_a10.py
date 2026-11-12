@@ -501,3 +501,25 @@ def test_replay_after_interrupted_smoke_resmokes_before_any_consumer_or_ingress(
     assert [i for i in starts if i in A10_IDS.values()] == [A10_IDS['backend']]
     assert all(i.opens == 0 for i in world.rig.ingress.values())
     assert world.journal.last('transition-a10-contained')['complete'] is True
+
+
+def test_identical_duplicate_legacy_gate_is_one_value_end_to_end(world):
+    """Production read of 12/11/2026: the legacy broadcast worker carries ALLOW_REAL_SENDS=true twice."""
+    world.set_legacy_gates({**PROD_LIKE, 'BREVO_SEND_MODE': 'off'}, roles=('broadcast-worker',))
+    c = world.rig.docker.containers[LEGACY['broadcast-worker']]
+    c['Env'] = [*c['Env'], 'ALLOW_REAL_SENDS=true']
+    transition, result = a9(world)
+    transition.a10(result['a10_token'])
+    assert world.journal.last('transition-a10-complete') is not None
+    assert world.gates_of('broadcast-worker')['ALLOW_REAL_SENDS'] == 'true'
+    assert sum(e.startswith('ALLOW_REAL_SENDS=') for e in world.candidate('broadcast-worker')['env']) == 1
+
+
+def test_conflicting_duplicate_legacy_gate_refuses_before_containment(world):
+    c = world.rig.docker.containers[LEGACY['broadcast-worker']]
+    c['Env'] = [*c['Env'], 'ALLOW_REAL_SENDS=false']
+    transition = world.transition()
+    with pytest.raises(Refused, match='^driver-inspect-gates$'):
+        transition.run()
+    assert world.legacy_effects() == [] and world.migrate.applied == []
+    assert all(i.state == 'open' for i in world.rig.ingress.values())
