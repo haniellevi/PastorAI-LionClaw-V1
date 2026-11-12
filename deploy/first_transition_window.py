@@ -364,6 +364,8 @@ def run(args, out=print, *, a10=False):
     token = getattr(args, 'a10_token', None)
     require(bool(token) == a10 and (not a10 or re.fullmatch('[0-9a-f]{64}', token)), 'window-a10-token')
     prepared = prepare_window(args)
+    # Before any journal, quiescence or host effect: a window without the pinned restore exclusions is lost late.
+    require(prepared.backup.restore_excluded_expected, 'window-backup-restore-excluded')
     require(args.expect_plan_digest == prepared.plan.digest, 'window-plan-digest')
     require(args.expect_window_digest == prepared.window_digest, 'window-window-digest')
     io, c = args._io, prepared.config
@@ -458,6 +460,7 @@ def main(argv=None, out=print, *, io=None):
         if args.mode == 'prepare':
             p = prepare_window(args)
             out(json.dumps(dict(plan_digest=p.plan.digest, window_digest=p.window_digest,
+                                restore_excluded_pinned=bool(p.backup.restore_excluded_expected),
                                 assertions_are_authorization=False, production_ready=False), sort_keys=True))
             return 0
         if args.mode == 'prepare-layout':

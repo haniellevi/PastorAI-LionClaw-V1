@@ -99,7 +99,9 @@ class Entry:
                            backup_root=str(tmp_path / 'backups'), clone_workdir=str(tmp_path / 'clone-work'),
                            python=c.python, dump_image='registry.invalid/dump@sha256:' + '1' * 64,
                            clone_image='registry.invalid/clone@sha256:' + '2' * 64,
-                           clone_command=['postgres', '-c', 'shared_preload_libraries='])
+                           clone_command=['postgres', '-c', 'shared_preload_libraries='],
+                           restore_excluded_expected=dict(vault_extension=2, vault_schema=2, event_triggers=2,
+                                                          event_trigger_names=['issue_pg_net_access']))
         self.paths = {k: tmp_path / (k + '.json') for k in ('config', 'backup', 'bindings')}
         self.write()
         self.calls, self.connections = [], []
@@ -757,4 +759,14 @@ def test_prepare_layout_never_overwrites_a_different_hold_file(entry):
                        io=entry.io) == 2
     assert json.loads(lines[-1]) == {'refused': 'candidate-hold-mismatch'}
     assert Path(entry.world.spec.hold_override).read_text() == 'services: {}\n'
+    entry.assert_no_journal_or_effects()
+
+
+def test_run_without_the_pinned_restore_exclusions_refuses_before_any_effect(entry):
+    del entry.backup['restore_excluded_expected']
+    entry.write()
+    d = entry.prepare()  # prepare itself still works (the rehearsal needs it) but says the pin is missing
+    exit_code, lines = entry.execute(d)
+    assert exit_code == 2 and lines == [{'refused': 'window-backup-restore-excluded'}]
+    assert entry.calls == [] and entry.connections == [] and entry.assembly.popen_calls == []
     entry.assert_no_journal_or_effects()

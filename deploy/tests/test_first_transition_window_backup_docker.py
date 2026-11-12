@@ -60,7 +60,11 @@ def test_real_window_backup_restores_and_replays_in_an_isolated_clone(plan, data
     config = wb.WindowBackupConfig(
         docker_binary=DOCKER, docker_endpoint='unix:///var/run/docker.sock', docker_config_dir=str(cli),
         backup_root=str(root), clone_workdir=str(work), python=sys.executable, dump_image=IMAGE,
-        clone_image=IMAGE, dump_network='host')
+        clone_image=IMAGE, dump_network='host',
+        # The owned synthetic database has no vault schema and no event triggers: the window request still
+        # requires the pin, so it states that nothing is excluded.
+        restore_excluded_expected=(('event_trigger_names', ()), ('event_triggers', 0), ('vault_extension', 0),
+                                   ('vault_schema', 0)))
     request = dict(schema=BACKUP_REQUEST_SCHEMA, nonce='a' * 64, plan_digest=plan.digest,
                    source_identity=expected.identity, baseline_digest=expected.baseline_digest,
                    config_digest='b' * 64, quiescence_digest='c' * 64)
@@ -72,6 +76,8 @@ def test_real_window_backup_restores_and_replays_in_an_isolated_clone(plan, data
     clone = receipt['clone_rehearsal']
     assert receipt['request_digest'] == digest(request) and clone['restored_catalog'] == before['catalog']
     assert (clone['applied'], clone['final_ledger'], clone['concurrent']) == (51, 129, 8)
+    assert clone['restore_excluded'] == dict(vault_extension=0, vault_schema=0, event_triggers=0,
+                                             event_trigger_names=[])
     assert clone['final_schema_digest'] != before['catalog']
     dump = Path(receipt['backup_path'])
     assert dump.read_bytes()[:5] == b'PGDMP' and stat.S_IMODE(os.lstat(dump).st_mode) == 0o600
