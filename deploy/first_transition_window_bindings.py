@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 import fnmatch
+import glob
 import ipaddress
 import json
 import os
@@ -198,9 +199,18 @@ def _include_target(argument):
 
 
 def _glob_reaches(argument, path):
-    """Whether an nginx ``include`` argument (glob, relative to the prefix) can load ``path``."""
-    parts, target = _include_target(argument).split('/'), os.path.realpath(path).split('/')
-    return len(parts) == len(target) and all(fnmatch.fnmatchcase(t, p) for p, t in zip(parts, target))
+    """Whether an nginx ``include`` argument (glob, relative to the prefix) can load ``path``.
+
+    The file name is matched against the last component; every directory the pattern can reach
+    is expanded on disk (as nginx's glob does, following symlinks) and compared by real path, so a
+    symlink reached through a wildcard directory component also counts.
+    """
+    directory, name = _include_target(argument).rsplit('/', 1)
+    folder, filename = os.path.realpath(path).rsplit('/', 1)
+    if not fnmatch.fnmatchcase(filename, name):
+        return False
+    candidates = glob.glob(directory) if set(directory) & GLOB_CHARS else [directory]
+    return any(os.path.realpath(candidate) == folder for candidate in candidates)
 
 
 def _shared_nginx_guard(effective, config, snippet):

@@ -277,6 +277,8 @@ def test_nginx_certbot_site_beside_other_systems_round_trips_touching_only_its_s
     NEIGHBOURS.replace('/etc/nginx/proxy_params', "'{dir}/*.conf'"),
     NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/../igreja12-window//./*.conf'),
     NEIGHBOURS.replace('/etc/nginx/proxy_params', '{link}/*.conf'),
+    # a symlink reached through a wildcard directory component
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{aliases}/*/*.conf'),
     # forms that cannot be judged statically refuse
     NEIGHBOURS.replace('/etc/nginx/proxy_params', '/etc/nginx/$site/*.conf'),
     NEIGHBOURS.replace('/etc/nginx/proxy_params', '"/etc/nginx/a\\\\ b/*.conf"'),
@@ -284,12 +286,22 @@ def test_nginx_certbot_site_beside_other_systems_round_trips_touching_only_its_s
 def test_nginx_snippet_reachable_from_another_system_refuses_before_any_effect(tmp_path, extra):
     ingress, fake = _shared(tmp_path)
     (tmp_path / 'alias').symlink_to(ingress.config.include_dir)  # another name for the same folder
+    (tmp_path / 'aliases').mkdir()
+    (tmp_path / 'aliases' / 'other').mkdir()
+    (tmp_path / 'aliases' / 'window').symlink_to(ingress.config.include_dir)
     fake.extra = '\n' + OPTIONS + extra.replace('{dir}', ingress.config.include_dir).replace(
-        '{link}', str(tmp_path / 'alias'))
+        '{link}', str(tmp_path / 'alias')).replace('{aliases}', str(tmp_path / 'aliases'))
     for operation in ('observe', 'block', 'open'):
         with pytest.raises(Refused, match='^window-nginx-shared$'):
             getattr(ingress, operation)(SCOPE, timeout=5)
     assert all(c[1:] == ('-T',) for c in fake.calls) and not ingress.snippet.exists()
+
+
+def test_nginx_wildcard_directories_of_other_systems_that_never_reach_the_window_pass(tmp_path):
+    ingress, fake = _shared(tmp_path)
+    (tmp_path / 'aliases' / 'other').mkdir(parents=True)
+    fake.extra = '\n' + OPTIONS + NEIGHBOURS.replace('/etc/nginx/proxy_params', str(tmp_path / 'aliases') + '/*/*.conf')
+    assert ingress.block(SCOPE, timeout=5) is True and ingress.open(SCOPE, timeout=5) is True
 
 
 def test_nginx_shared_certbot_options_with_routing_refuses(tmp_path):
