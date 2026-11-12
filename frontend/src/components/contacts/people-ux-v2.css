@@ -474,3 +474,11 @@
 .people-ux-dialog .modal-foot[hidden] {
   display: none;
 }
+
+/* "Abrir pessoa" era .btn-sm; no DsButton o padding lateral maior quebrava o
+   rótulo em duas linhas na coluna Detalhe. No celular a regra de 100% vale. */
+@media (min-width: 861px) {
+  .people-ux .people-table td .people-open {
+    white-space: nowrap;
+  }
+}
