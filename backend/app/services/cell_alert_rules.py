@@ -25,7 +25,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,7 @@ from app.db.models import (
     CelulaVisitante,
     CellAlert,
     Consolidacao,
+    WorkQueueItem,
 )
 
 logger = logging.getLogger("pastorai.cell_alert_rules")
@@ -384,9 +385,35 @@ def _active_led_cells(igreja_id: uuid.UUID):
     )
 
 
+# Tarefa canônica de conexão ainda pendente (mesma leitura de contacts.link_cell,
+# que resolve a fila ao conectar sem limpar ``Consolidacao.prazo_conexao``).
+CONEXAO_TIPO = "conectar_celula"
+CONEXAO_ABERTA = ("aberto", "assumido")
+
+
+def _connection_pending(igreja_id: uuid.UUID):
+    return (
+        select(WorkQueueItem.id)
+        .where(
+            WorkQueueItem.igreja_id == igreja_id,
+            WorkQueueItem.consolidacao_id == Consolidacao.id,
+            WorkQueueItem.tipo == CONEXAO_TIPO,
+            or_(WorkQueueItem.status.is_(None), WorkQueueItem.status.in_(CONEXAO_ABERTA)),
+        )
+        .exists()
+    )
+
+
 def _open_consolidations_of_members(session: Session, igreja_id: uuid.UUID):
+    """(consolidacao_id, celula_id, pessoa_id, prazo_conexao, conexao_pendente)."""
     return session.execute(
-        select(Consolidacao.id, CelulaMembro.celula_id, Consolidacao.pessoa_id, Consolidacao.prazo_conexao)
+        select(
+            Consolidacao.id,
+            CelulaMembro.celula_id,
+            Consolidacao.pessoa_id,
+            Consolidacao.prazo_conexao,
+            _connection_pending(igreja_id),
+        )
         .join(
             CelulaMembro,
             (CelulaMembro.igreja_id == Consolidacao.igreja_id)
@@ -438,10 +465,16 @@ def collect_candidates(
             if consolidations is None:
                 consolidations = _open_consolidations_of_members(session, igreja_id)
             if tipo == LIDERADO_EM_CONSOLIDACAO:
-                out += consolidacao_candidates((c, cel, p) for c, cel, p, _ in consolidations)
+                out += consolidacao_candidates((c, cel, p) for c, cel, p, _, _ in consolidations)
             else:
+                # Prazo de conexão só vale enquanto a tarefa canônica estiver aberta:
+                # pessoa já conectada não gera alerta de prazo.
                 out += prazo_candidates(
-                    ((c, cel, p, prazo) for c, cel, p, prazo in consolidations if prazo is not None),
+                    (
+                        (c, cel, p, prazo)
+                        for c, cel, p, prazo, pendente in consolidations
+                        if prazo is not None and pendente
+                    ),
                     now=now,
                     antecedencia_horas=params["antecedencia_horas"],
                 )

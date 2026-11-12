@@ -117,9 +117,21 @@ test("líder vê e trata alerta da sua célula em Hoje; não acessa as regras", 
 
   const panel = page.getByRole("region", { name: "Alertas da sua célula" });
   await expect(panel.getByText("Relatório de célula pendente")).toBeVisible();
-  await expect(panel.getByText("Célula E2E", { exact: false })).toBeVisible();
-  await panel.getByRole("button", { name: "Tratar" }).click();
-  await expect(panel.getByText("Nenhum alerta em aberto.")).toBeVisible();
+  await expect(panel.getByText("Célula E2E", { exact: false }).first()).toBeVisible();
+
+  // Dois alertas do mesmo gatilho, de pessoas diferentes, ficam distinguíveis.
+  const consolidacao = panel.locator("article").filter({ hasText: "Liderado em consolidação" });
+  await expect(consolidacao).toHaveCount(2);
+  await expect(consolidacao.filter({ hasText: "Ana Exemplo" })).toHaveCount(1);
+  await expect(consolidacao.filter({ hasText: "Bruno Exemplo" })).toHaveCount(1);
+
+  await panel
+    .locator("article")
+    .filter({ hasText: "Relatório de célula pendente" })
+    .getByRole("button", { name: "Tratar" })
+    .click();
+  await expect(panel.getByText("Relatório de célula pendente")).toHaveCount(0);
+  await expect(panel.locator("article")).toHaveCount(2);
 
   const requests = await harnessRequests(request);
   expect(

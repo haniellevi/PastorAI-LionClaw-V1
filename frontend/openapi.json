@@ -8083,6 +8083,17 @@
               }
             ],
             "title": "Pessoaid"
+          },
+          "pessoaNome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pessoanome"
           }
         },
         "required": [

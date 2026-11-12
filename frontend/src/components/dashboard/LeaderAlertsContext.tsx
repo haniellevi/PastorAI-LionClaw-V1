@@ -90,8 +90,9 @@ export function LeaderAlertsContext({
                 <span className="dh-context-copy">
                   <span className="dh-context-name">{alert.gatilho ?? "Alerta"}</span>
                   <span className="dh-context-meta">
-                    {alert.celulaNome}
-                    {alert.acaoEsperada ? ` · ${alert.acaoEsperada}` : ""}
+                    {[alert.pessoaNome, alert.celulaNome, alert.acaoEsperada]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 </span>
                 <DsButton

@@ -38,6 +38,8 @@ export interface MyCellAlert {
   celulaId: string;
   celulaNome: string;
   pessoaId: string | null;
+  /** Nome só quando o servidor confirma que você já vê essa pessoa em Pessoas. */
+  pessoaNome?: string | null;
   gatilho: string | null;
   acaoEsperada: string | null;
 }

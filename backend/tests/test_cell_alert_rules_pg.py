@@ -67,7 +67,15 @@ def _seed_cell_world(c, tenant, lider):
             "insert into consolidacoes(id,igreja_id,pessoa_id,tipo,progresso,concluida,prazo_conexao)"
             " values(:i,:t,:p,'individual',10,false,:prazo)"
         ),
-        dict(i=uuid4(), t=tenant, p=membro, prazo=NOW + dt.timedelta(hours=10)),
+        dict(i=(consolidacao := uuid4()), t=tenant, p=membro, prazo=NOW + dt.timedelta(hours=10)),
+    )
+    # Tarefa canônica de conexão ainda aberta (o prazo só vale enquanto ela existir).
+    c.execute(
+        text(
+            "insert into work_queue_items(igreja_id,tipo,titulo,pessoa_id,consolidacao_id,status)"
+            " values(:t,'conectar_celula','Conectar à célula',:p,:i,'aberto')"
+        ),
+        dict(t=tenant, p=membro, i=consolidacao),
     )
     reuniao = uuid4()
     c.execute(
@@ -133,7 +141,7 @@ def world(database, monkeypatch):
     app.dependency_overrides[get_clerk_client] = lambda: clerk
     with TestClient(app) as client:
         yield dict(db=database, client=client, tokens=tokens, t=t, b=b,
-                   cell=cell, cell2=cell2, cell_b=cell_b, membro=membro)
+                   cell=cell, cell2=cell2, cell_b=cell_b, membro=membro, lider=p["lider"])
 
 
 def _as(w, actor):
@@ -307,3 +315,91 @@ def test_my_alerts_lists_only_direct_leader_cells(world, monkeypatch):
     assert refused.status_code in (403, 404)
     left = w["client"].get("/cells/me/alerts", headers=_as(w, "lider")).json()
     assert first["id"] not in {a["id"] for a in left} and len(left) == 3
+
+
+def test_connected_person_does_not_get_deadline_alert(world, monkeypatch):
+    """contacts.link_cell resolve a fila de conexão e mantém prazo_conexao."""
+    w = world
+    monkeypatch.setenv(svc.ENV_ALLOWLIST, str(w["t"]))
+    r = w["client"].put(
+        "/cell-alert-rules/prazo_vencendo",
+        json={"ativo": True, "parametros": {"antecedencia_horas": 48}},
+        headers=_as(w, "admin"),
+    )
+    assert r.status_code == 200, r.text
+    with w["db"].begin() as c:
+        c.execute(
+            text("update work_queue_items set status='resolvido' where igreja_id=:t and pessoa_id=:p and tipo='conectar_celula'"),
+            dict(t=w["t"], p=w["membro"]),
+        )
+        prazo = c.execute(
+            text("select prazo_conexao from consolidacoes where igreja_id=:t and pessoa_id=:p"),
+            dict(t=w["t"], p=w["membro"]),
+        ).scalar_one()
+    assert prazo is not None  # o prazo continua preenchido, como no fluxo real
+
+    _cycle(w)
+    prazos = [r for r in _alerts(w) if r.regra_tipo == svc.PRAZO_VENCENDO]
+    # Só a célula 2 (conexão ainda aberta) recebe alerta de prazo.
+    assert {r.celula_id for r in prazos} == {w["cell2"]}
+
+
+def test_my_alerts_name_people_only_when_visible(world, monkeypatch):
+    w = world
+    monkeypatch.setenv(svc.ENV_ALLOWLIST, str(w["t"]))
+    with w["db"].begin() as c:
+        c.execute(text("update pessoas set nome='Ana Sintética' where id=:p"), dict(p=w["membro"]))
+        bruno = _insert_pessoa(c, w["t"], w["lider"])
+        c.execute(text("update pessoas set nome='Bruno Sintético' where id=:p"), dict(p=bruno))
+        c.execute(
+            text("insert into celula_membro(igreja_id,celula_id,pessoa_id,papel) values(:t,:c,:p,'membro')"),
+            dict(t=w["t"], c=w["cell"], p=bruno),
+        )
+        c.execute(
+            text(
+                "insert into consolidacoes(id,igreja_id,pessoa_id,tipo,progresso,concluida)"
+                " values(:i,:t,:p,'individual',10,false)"
+            ),
+            dict(i=uuid4(), t=w["t"], p=bruno),
+        )
+    r = w["client"].put(
+        "/cell-alert-rules/liderado_em_consolidacao",
+        json={"ativo": True, "parametros": {}},
+        headers=_as(w, "admin"),
+    )
+    assert r.status_code == 200, r.text
+    _cycle(w)
+
+    mine = w["client"].get("/cells/me/alerts", headers=_as(w, "lider")).json()
+    consol = [a for a in mine if a["gatilho"] == svc.RULES["liderado_em_consolidacao"].titulo]
+    assert len(consol) == 2
+    # Dois alertas de pessoas diferentes ficam distinguíveis pelo nome.
+    assert {a["pessoaNome"] for a in consol} == {"Ana Sintética", "Bruno Sintético"}
+    assert len({(a["gatilho"], a["pessoaNome"]) for a in consol}) == 2
+
+    # Líder de outra célula não recebe esses alertas nem os nomes.
+    other = w["client"].get("/cells/me/alerts", headers=_as(w, "lider2")).json()
+    assert other and all(a["celulaId"] == str(w["cell2"]) for a in other)
+    assert "Ana Sintética" not in str(other) and "Bruno Sintético" not in str(other)
+    # Líder de outra igreja também não.
+    foreign = w["client"].get("/cells/me/alerts", headers=_as(w, "lider_b")).json()
+    assert "Ana Sintética" not in str(foreign) and "Bruno Sintético" not in str(foreign)
+
+    # Pessoa arquivada: o alerta continua, sem nome.
+    with w["db"].begin() as c:
+        c.execute(text("update pessoas set arquivada_em=now() where id=:p"), dict(p=w["membro"]))
+    archived = w["client"].get("/cells/me/alerts", headers=_as(w, "lider")).json()
+    ana = next(a for a in archived if a["pessoaId"] == str(w["membro"]) and a["gatilho"] == svc.RULES["liderado_em_consolidacao"].titulo)
+    assert ana["pessoaNome"] is None
+    with w["db"].begin() as c:
+        c.execute(text("update pessoas set arquivada_em=null where id=:p"), dict(p=w["membro"]))
+
+    # Pessoa que saiu da célula (fora do escopo de Pessoas do líder): sem nome.
+    with w["db"].begin() as c:
+        c.execute(
+            text("update celula_membro set ativo=false where igreja_id=:t and pessoa_id=:p"),
+            dict(t=w["t"], p=bruno),
+        )
+    after = w["client"].get("/cells/me/alerts", headers=_as(w, "lider")).json()
+    bruno_alert = next(a for a in after if a["pessoaId"] == str(bruno))
+    assert bruno_alert["pessoaNome"] is None

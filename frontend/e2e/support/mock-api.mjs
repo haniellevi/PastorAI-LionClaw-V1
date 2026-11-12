@@ -105,6 +105,24 @@ function initialLeaderAlerts() {
       gatilho: "Relatório de célula pendente",
       acaoEsperada: "Reunião de 10/11 sem relatório. Envie o relatório da reunião.",
     },
+    {
+      id: "00000000-0000-4000-8000-0000000000a2",
+      celulaId: "00000000-0000-4000-8000-000000000020",
+      celulaNome: "Célula E2E",
+      pessoaId: "00000000-0000-4000-8000-0000000000b1",
+      pessoaNome: "Ana Exemplo",
+      gatilho: "Liderado em consolidação",
+      acaoEsperada: "Acompanhe a consolidação.",
+    },
+    {
+      id: "00000000-0000-4000-8000-0000000000a3",
+      celulaId: "00000000-0000-4000-8000-000000000020",
+      celulaNome: "Célula E2E",
+      pessoaId: "00000000-0000-4000-8000-0000000000b2",
+      pessoaNome: "Bruno Exemplo",
+      gatilho: "Liderado em consolidação",
+      acaoEsperada: "Acompanhe a consolidação.",
+    },
   ];
 }
 let alertRules = initialAlertRules();

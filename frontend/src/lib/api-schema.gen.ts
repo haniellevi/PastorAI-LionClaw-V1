@@ -7997,6 +7997,8 @@ export interface components {
             id: string;
             /** Pessoaid */
             pessoaId?: string | null;
+            /** Pessoanome */
+            pessoaNome?: string | null;
         };
         /** NextMeetingBody */
         NextMeetingBody: {

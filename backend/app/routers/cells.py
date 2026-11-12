@@ -722,11 +722,35 @@ class MyCellAlertOut(BaseModel):
     celulaId: str  # noqa: N815
     celulaNome: str  # noqa: N815
     pessoaId: str | None = None  # noqa: N815
+    # Nome só quando o ator já veria essa Pessoa em /contacts (mesmo predicado).
+    pessoaNome: str | None = None  # noqa: N815
     gatilho: str | None = None
     acaoEsperada: str | None = None  # noqa: N815
 
 
 MY_CELL_ALERTS_LIMIT = 50
+
+
+def _visible_pessoa_names(
+    db: Session, current_user: CurrentUser, pessoa_ids: set[uuid.UUID]
+) -> dict[uuid.UUID, str]:
+    """Nomes das Pessoas que o ator pode ver na lista de Pessoas.
+
+    Reusa a visibilidade canônica de /contacts (``_contact_scope_conditions``)
+    e oculta arquivadas; Pessoa fora desse escopo fica sem nome.
+    """
+    if not pessoa_ids:
+        return {}
+    from app.services.contact_scope import _contact_scope_conditions
+
+    rows = db.execute(
+        select(Pessoa.id, Pessoa.nome).where(
+            Pessoa.id.in_(pessoa_ids),
+            Pessoa.arquivada_em.is_(None),
+            *_contact_scope_conditions(db, current_user),
+        )
+    ).all()
+    return {pid: nome for pid, nome in rows if nome}
 
 
 @router.get("/cells/me/alerts", response_model=list[MyCellAlertOut])
@@ -760,12 +784,16 @@ def my_cell_alerts(
         .order_by(CellAlert.created_at.desc(), CellAlert.id)
         .limit(MY_CELL_ALERTS_LIMIT)
     ).all()
+    names = _visible_pessoa_names(
+        db, current_user, {a.pessoa_id for a, _ in rows if a.pessoa_id}
+    )
     return [
         MyCellAlertOut(
             id=str(a.id),
             celulaId=str(a.celula_id),
             celulaNome=nome,
             pessoaId=str(a.pessoa_id) if a.pessoa_id else None,
+            pessoaNome=names.get(a.pessoa_id) if a.pessoa_id else None,
             gatilho=a.gatilho,
             acaoEsperada=a.acao_esperada,
         )
