@@ -1013,7 +1013,8 @@ publica se o contrato da API do backend `afdfb78d` for igual ao que tipa o
 painel (`frontend/openapi.json` do SHA do painel). Se houver **qualquer**
 diferença, o J8 não publica nada: o painel atual fica no ar e o novo vai junto
 com o backend no release seguinte. Conferência (no V5, no computador do
-operador, sem acesso a produção):
+operador, na raiz do checkout, com a venv do backend ativa; sem acesso a
+produção):
 
 ```bash
 D=$(mktemp -d) && git archive afdfb78d backend/app | tar -x -C $D && mkdir -p $D/backend/scripts && git show <SHA>:backend/scripts/export_openapi.py > $D/backend/scripts/export_openapi.py && git show <SHA>:frontend/openapi.json > $D/painel.json && (cd $D/backend && python scripts/export_openapi.py --check --output $D/painel.json)
