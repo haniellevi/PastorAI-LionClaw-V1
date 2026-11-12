@@ -96,7 +96,7 @@ export function CellHealthList({ token }: { token: string }) {
       {showSkeleton ? (
         <div className="section-body">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div className="sk-line sk-lg" key={i} style={{ marginBottom: "var(--s3)" }} />
+            <div className="sk-line sk-lg ds-mb-3" key={i} />
           ))}
         </div>
       ) : cells.length === 0 ? (
@@ -108,7 +108,7 @@ export function CellHealthList({ token }: { token: string }) {
             const dots = h.sinais.slice(0, MAX_DOTS);
             return (
               <div className="health-row" key={h.celula_id}>
-                <div style={{ minWidth: 0 }}>
+                <div className="ds-min-w-0">
                   <div className="nm">{h.celula_nome}</div>
                   <div className="health-dots" aria-label={`${dots.length} reuniões avaliadas`}>
                     {dots.map((s) => (

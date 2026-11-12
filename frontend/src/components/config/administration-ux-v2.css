@@ -422,9 +422,10 @@
 }
 .administration-ux .admin-overview .platform-tools {
   justify-content: flex-end;
-  flex: 0 1 460px;
+  flex: 0 1 520px;
 }
-.administration-ux .admin-overview .btn {
+.administration-ux .admin-overview .btn,
+.administration-ux .admin-overview .ds-btn {
   color: var(--text-on-action);
   background: transparent;
   border-color: color-mix(in srgb, var(--text-on-action) 45%, transparent);
@@ -539,8 +540,10 @@
       background-color 140ms ease,
       border-color 140ms ease;
   }
-  .administration-ux .admin-overview .btn:hover {
+  .administration-ux .admin-overview .btn:hover,
+  .administration-ux .admin-overview .ds-btn:hover:not(:disabled) {
     background: color-mix(in srgb, var(--text-on-action) 12%, transparent);
+    text-decoration: none;
   }
 }
 @media (max-width: 860px) {

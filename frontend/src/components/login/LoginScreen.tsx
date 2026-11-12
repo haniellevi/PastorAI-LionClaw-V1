@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 
 import { AuthLayout } from "@/components/auth/AuthLayout";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Field } from "@/components/ui/Field";
 import {
   activateInvite,
@@ -332,15 +332,9 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
             onChange={(e) => setPassword(e.target.value)}
           />
 
-          <Button
-            type="submit"
-            variant="primary"
-            block
-            loading={loading}
-            loadingText="Autenticando…"
-          >
-            Entrar
-          </Button>
+          <DsButton type="submit" block loading={loading}>
+            {loading ? "Autenticando…" : "Entrar"}
+          </DsButton>
 
           <a className="auth-link-button" href="#esqueci-senha">
             Esqueci minha senha
@@ -387,15 +381,9 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
                 error={fEmailError}
                 onChange={(e) => setFEmail(e.target.value)}
               />
-              <Button
-                type="submit"
-                variant="primary"
-                block
-                loading={fStatus === "loading"}
-                loadingText="Enviando…"
-              >
-                Pedir novo link
-              </Button>
+              <DsButton type="submit" block loading={fStatus === "loading"}>
+                {fStatus === "loading" ? "Enviando…" : "Pedir novo link"}
+              </DsButton>
               <a className="auth-link-button" href="#login">
                 Voltar ao login
               </a>
@@ -427,9 +415,9 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
                 <Icon name="check" />
                 <span>Acesso ativado! Agora é só entrar com sua nova senha.</span>
               </div>
-              <Button type="button" variant="primary" block onClick={() => navigate("login")}>
+              <DsButton block onClick={() => navigate("login")}>
                 Ir para o login
-              </Button>
+              </DsButton>
             </>
           ) : (
             <>
@@ -486,15 +474,9 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
                 disabled={aStatus === "loading"}
                 onChange={(e) => setAPass2(e.target.value)}
               />
-              <Button
-                type="submit"
-                variant="primary"
-                block
-                loading={aStatus === "loading"}
-                loadingText="Ativando…"
-              >
-                Ativar e criar senha
-              </Button>
+              <DsButton type="submit" block loading={aStatus === "loading"}>
+                {aStatus === "loading" ? "Ativando…" : "Ativar e criar senha"}
+              </DsButton>
             </>
           )}
           {!aInfoError && aStatus !== "done" ? (
@@ -527,9 +509,9 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
                 <Icon name="check" />
                 <span>Senha redefinida! Agora é só entrar com a nova senha.</span>
               </div>
-              <Button type="button" variant="primary" block onClick={() => navigate("login")}>
+              <DsButton block onClick={() => navigate("login")}>
                 Ir para o login
-              </Button>
+              </DsButton>
             </>
           ) : (
             <>
@@ -561,15 +543,9 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
                 disabled={rStatus === "loading"}
                 onChange={(e) => setRPass2(e.target.value)}
               />
-              <Button
-                type="submit"
-                variant="primary"
-                block
-                loading={rStatus === "loading"}
-                loadingText="Redefinindo…"
-              >
-                Redefinir senha
-              </Button>
+              <DsButton type="submit" block loading={rStatus === "loading"}>
+                {rStatus === "loading" ? "Redefinindo…" : "Redefinir senha"}
+              </DsButton>
             </>
           )}
           {rStatus !== "done" ? (

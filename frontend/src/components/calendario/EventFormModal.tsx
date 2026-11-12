@@ -16,7 +16,6 @@ import "../cells/operations-ux-v2.css";
 import { useId, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import {
   PUBLICO_ALVO_LABEL,
@@ -29,6 +28,7 @@ import {
   type PublicoAlvo,
   type ReminderWindowHours,
 } from "@/lib/events-api";
+import { DsButton } from "@/components/ds/Button";
 
 function isReminderWindow(value: number | null | undefined): value is ReminderWindowHours {
   return REMINDER_WINDOW_OPTIONS.some((option) => option.value === value);
@@ -257,7 +257,7 @@ export function EventFormModal({
           ) : null}
         </fieldset>
 
-        <div className="field" style={{ marginBottom: 0 }}>
+        <div className="field ds-mb-0">
           <label htmlFor="ev-desc">Descrição</label>
           <textarea
             id="ev-desc"
@@ -269,12 +269,12 @@ export function EventFormModal({
         </div>
 
         <div className="modal-foot">
-          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+          <DsButton variant="secondary" onClick={onClose} disabled={busy}>
             Cancelar
-          </button>
-          <Button type="submit" variant="primary" size="sm" loading={busy} loadingText="Salvando…">
-            {isEdit ? "Salvar alterações" : "Salvar evento"}
-          </Button>
+          </DsButton>
+          <DsButton type="submit" loading={busy}>
+            {busy ? "Salvando…" : isEdit ? "Salvar alterações" : "Salvar evento"}
+          </DsButton>
         </div>
       </form>
     </DsDialog>

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Dialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { SessionExpiredError } from "@/lib/api";
 import { authedFetch, clearAuthedResponseCache } from "@/lib/dashboard-api";
 import { readDeletionReceipt, type PrivateDeletionReceipt } from "@/lib/conversations-api";
@@ -116,17 +116,17 @@ export function PrivateContentReset({
       title="Excluir conteúdo privado da pessoa"
       footer={
         <>
-          <Button disabled={busy} onClick={onClose}>
+          <DsButton variant="secondary" disabled={busy} onClick={onClose}>
             {receipt ? "Fechar" : "Cancelar"}
-          </Button>
-          <Button
-            variant={receipt ? "default" : "danger"}
+          </DsButton>
+          <DsButton
+            variant={receipt ? "secondary" : "danger"}
             loading={busy}
             disabled={busy || (!receipt && confirmation !== CONFIRMATION)}
             onClick={() => void submit()}
           >
-            {receipt ? "Atualizar recibo" : "Confirmar exclusão"}
-          </Button>
+            {busy ? "Carregando…" : receipt ? "Atualizar recibo" : "Confirmar exclusão"}
+          </DsButton>
         </>
       }
     >

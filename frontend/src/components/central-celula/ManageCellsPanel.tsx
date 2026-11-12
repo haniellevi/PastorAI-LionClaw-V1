@@ -373,7 +373,7 @@ export function ManageCellsPanel({
 
   return (
     <div className="central-stack">
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div className="ds-flex ds-justify-end">
         <DsButton variant="primary" onClick={openForm} disabled={!loaded}>
           <Icon name="plus" />
           <span>Nova célula</span>
@@ -423,7 +423,7 @@ export function ManageCellsPanel({
               <span className="count">· {cellsLookup.result.total}</span>
             ) : null}
           </div>
-          <div className="ops-search" style={{ padding: "var(--s4)", marginBottom: 0 }}>
+          <div className="ops-search ds-p-4 ds-mb-0">
             <label htmlFor="central-cell-search">Buscar célula</label>
             <input
               type="search"
@@ -466,7 +466,7 @@ export function ManageCellsPanel({
             })}
           </div>
 
-          <div style={{ padding: "var(--s4)" }}>
+          <div className="ds-p-4">
             <LookupPager
               result={cellsLookup.result}
               loading={cellsLookup.loading}

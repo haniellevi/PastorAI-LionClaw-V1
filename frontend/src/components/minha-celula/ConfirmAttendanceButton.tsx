@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
 import { confirmAttendance, revertAttendance, MeetingConflictError } from "@/lib/cell-meetings-api";
@@ -63,16 +63,21 @@ export function ConfirmAttendanceButton({
   return (
     // Gate 9 (P6): a AÇÃO a tomar é a primária — azul mineral enquanto
     // pendente; confirmado vira estado quieto (check + aria-pressed).
-    <Button
-      variant={confirmed ? "default" : "primary"}
+    <DsButton
+      variant={confirmed ? "secondary" : "primary"}
       onClick={() => void toggle()}
       disabled={disabled}
       loading={busy}
-      loadingText={confirmed ? "Confirmando…" : "Desfazendo…"}
       aria-pressed={confirmed}
     >
-      <Icon name={confirmed ? "check" : "user"} />
-      <span>{confirmed ? "Presença confirmada" : "Confirmar presença"}</span>
-    </Button>
+      {busy ? (
+        <span>{confirmed ? "Confirmando…" : "Desfazendo…"}</span>
+      ) : (
+        <>
+          <Icon name={confirmed ? "check" : "user"} />
+          <span>{confirmed ? "Presença confirmada" : "Confirmar presença"}</span>
+        </>
+      )}
+    </DsButton>
   );
 }

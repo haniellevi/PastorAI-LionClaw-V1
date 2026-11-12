@@ -33,7 +33,7 @@ export function MeetingHistoryList({ items }: { items: HistoryItem[] }) {
       </div>
 
       {items.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="empty-state ds-p-6">
           <Icon name="clock" />
           <p>
             <strong>Nenhuma reunião no histórico ainda.</strong>

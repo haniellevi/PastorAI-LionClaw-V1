@@ -15,9 +15,9 @@ import "@/components/config/administration-ux-v2.css";
 import { useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { isInvalidSetupFee, type CreateIgrejaInput } from "@/lib/admin-api";
+import { DsButton } from "@/components/ds/Button";
 
 /** Planos oferecidos no seletor (vêm do catálogo; fallback p/ os 3 padrão). */
 export interface PlanoOption {
@@ -88,19 +88,12 @@ export function CreateIgrejaModal({
       description="Crie a igreja e prepare o convite do administrador inicial. Os resultados serão informados separadamente."
       footer={
         <>
-          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+          <DsButton variant="secondary" onClick={onClose} disabled={busy}>
             Cancelar
-          </button>
-          <Button
-            type="submit"
-            form="create-igreja-form"
-            variant="primary"
-            size="sm"
-            loading={busy}
-            loadingText="Provisionando…"
-          >
-            Provisionar igreja
-          </Button>
+          </DsButton>
+          <DsButton type="submit" form="create-igreja-form" loading={busy}>
+            {busy ? "Provisionando…" : "Provisionar igreja"}
+          </DsButton>
         </>
       }
     >

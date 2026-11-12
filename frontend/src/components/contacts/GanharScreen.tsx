@@ -36,6 +36,7 @@ import { Icon, type IconKey } from "@/lib/icons";
 import { isAdmin } from "@/lib/roles";
 import { navigateToAdminRoute } from "@/lib/surface";
 
+import { DsButton } from "@/components/ds/Button";
 import { LinkCellModal } from "./LinkCellModal";
 
 import "./people-ux-v2.css";
@@ -316,9 +317,7 @@ export function GanharScreen() {
         cell: (c) => (
           <div className="row-actions" onKeyDown={(e) => e.stopPropagation()}>
             {canLinkCell && !c.celulaId ? (
-              <button
-                type="button"
-                className="btn btn-sm btn-primary"
+              <DsButton
                 disabled={busyId === c.id}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -327,19 +326,18 @@ export function GanharScreen() {
                 }}
               >
                 Vincular célula
-              </button>
+              </DsButton>
             ) : null}
             {canOpenContact ? (
-              <button
-                type="button"
-                className="btn btn-sm"
+              <DsButton
+                variant="secondary"
                 onClick={(e) => {
                   e.stopPropagation();
                   openContact(c);
                 }}
               >
                 Ver contato
-              </button>
+              </DsButton>
             ) : null}
           </div>
         ),
@@ -385,9 +383,8 @@ export function GanharScreen() {
               </p>
               <div className="row-actions">
                 {canLinkCell && !c.celulaId ? (
-                  <button
-                    type="button"
-                    className={`btn btn-sm${!canPromote || !canAdvancePipeline ? " btn-primary" : ""}`}
+                  <DsButton
+                    variant={!canPromote || !canAdvancePipeline ? "primary" : "secondary"}
                     disabled={busyId === c.id}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -396,12 +393,11 @@ export function GanharScreen() {
                     }}
                   >
                     Vincular célula
-                  </button>
+                  </DsButton>
                 ) : null}
                 {canAdvancePipeline ? (
-                  <button
-                    type="button"
-                    className={`btn btn-sm${canPromote ? " btn-primary" : ""}`}
+                  <DsButton
+                    variant={canPromote ? "primary" : "secondary"}
                     disabled={!canPromote || busyId === c.id}
                     aria-disabled={!canPromote || undefined}
                     title={
@@ -415,19 +411,18 @@ export function GanharScreen() {
                     }}
                   >
                     Avançar para Consolidar
-                  </button>
+                  </DsButton>
                 ) : null}
                 {canOpenContact ? (
-                  <button
-                    type="button"
-                    className="btn btn-sm"
+                  <DsButton
+                    variant="secondary"
                     onClick={(e) => {
                       e.stopPropagation();
                       openContact(c);
                     }}
                   >
                     Ver contato
-                  </button>
+                  </DsButton>
                 ) : null}
               </div>
             </div>
@@ -446,15 +441,10 @@ export function GanharScreen() {
           <p>Acompanhe visitantes e ajude a construir o próximo vínculo.</p>
         </div>
         <div className="actions">
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             <Icon name="refresh" />
             <span>Atualizar</span>
-          </button>
+          </DsButton>
         </div>
       </div>
 
@@ -462,14 +452,9 @@ export function GanharScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -567,25 +552,23 @@ export function GanharScreen() {
 
       {loaded && total > 50 ? (
         <div className="people-toolbar">
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             disabled={loading || pageNumber <= 1}
             onClick={() => setPageNumber((value) => value - 1)}
           >
             Página anterior
-          </button>
+          </DsButton>
           <span role="status">
             Página {pageNumber} de {Math.ceil(total / 50)} · {total} pessoas nesta aba
           </span>
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             disabled={loading || pageNumber * 50 >= total}
             onClick={() => setPageNumber((value) => value + 1)}
           >
             Próxima página
-          </button>
+          </DsButton>
         </div>
       ) : null}
       {loaded || showSkeleton ? (

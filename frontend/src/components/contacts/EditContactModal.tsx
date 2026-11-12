@@ -8,7 +8,7 @@
 import { useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Field } from "@/components/ui/Field";
 import type { Contact, UpdateContactInput } from "@/lib/contacts-api";
 
@@ -188,45 +188,36 @@ export function EditContactModal({
         <p>A aptidão à liderança é decidida pela coordenação no painel de avaliação do cadastro.</p>
 
         <div className="modal-foot" hidden={discardRequested}>
-          <button type="button" className="btn btn-sm" onClick={requestClose} disabled={busy}>
+          <DsButton variant="secondary" onClick={requestClose} disabled={busy}>
             Cancelar
-          </button>
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            disabled={discardRequested}
-            loading={busy}
-            loadingText="Salvando…"
-          >
-            Salvar alterações
-          </Button>
+          </DsButton>
+          <DsButton type="submit" disabled={discardRequested} loading={busy}>
+            {busy ? "Salvando…" : "Salvar alterações"}
+          </DsButton>
         </div>
         {discardRequested ? (
           <div className="people-discard-note" role="alert">
             <strong>Descartar alterações não salvas?</strong>
             <p>O preenchimento será perdido se você fechar agora.</p>
             <div className="people-discard-actions">
-              <button
-                type="button"
-                className="btn"
+              <DsButton
+                variant="secondary"
                 disabled={busy}
                 onClick={() => {
                   if (!busy) setDiscardRequested(false);
                 }}
               >
                 Continuar editando
-              </button>
-              <button
-                type="button"
-                className="btn btn-danger"
+              </DsButton>
+              <DsButton
+                variant="danger"
                 disabled={busy}
                 onClick={() => {
                   if (!busy) onClose();
                 }}
               >
                 Descartar alterações
-              </button>
+              </DsButton>
             </div>
           </div>
         ) : null}

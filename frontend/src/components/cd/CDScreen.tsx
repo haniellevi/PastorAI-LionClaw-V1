@@ -14,6 +14,7 @@ import {
 } from "@/lib/cd-api";
 import { Dialog } from "@/components/ds/Dialog";
 import "@/components/uv/uv.css";
+import { DsButton } from "@/components/ds/Button";
 
 type Source = { id: string; numero: number; versao: string; modulo_destino_id: string };
 type CertificatePerson = {
@@ -245,8 +246,8 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
       {busy ? <p role="status">Carregando…</p> : null}
-      <button
-        className="btn"
+      <DsButton
+        variant="secondary"
         disabled={busy}
         onClick={() =>
           void run(async () => {
@@ -256,7 +257,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
         }
       >
         Atualizar
-      </button>
+      </DsButton>
       {coordination ? (
         <>
           <form
@@ -355,24 +356,22 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                       Módulo {n}
                     </label>
                   ))}
-                  <button
-                    type="button"
-                    className="btn"
+                  <DsButton
+                    variant="secondary"
                     onClick={() => setLevels((ls) => ls.filter((_, j) => i !== j))}
                   >
                     Remover nível {i + 1}
-                  </button>
+                  </DsButton>
                 </fieldset>
               ))}
-              <button
-                type="button"
-                className="btn"
+              <DsButton
+                variant="secondary"
                 disabled={levels.length >= 6}
                 onClick={() => setLevels((ls) => [...ls, { nome: "", modulos: [] }])}
               >
                 Adicionar nível
-              </button>
-              <button className="btn btn-primary">Criar currículo</button>
+              </DsButton>
+              <DsButton type="submit">Criar currículo</DsButton>
             </fieldset>
           </form>
           <div className="card">
@@ -480,7 +479,9 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                     onChange={(e) => setEquivSearch(e.target.value)}
                   />
                 </label>
-                <button className="btn">Buscar conclusões anteriores</button>
+                <DsButton type="submit" variant="secondary">
+                  Buscar conclusões anteriores
+                </DsButton>
               </fieldset>
             </form>
             <label>
@@ -512,8 +513,8 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 ))}
               </select>
             </label>
-            <button
-              className="btn"
+            <DsButton
+              variant="secondary"
               disabled={busy || !equivPerson}
               onClick={() =>
                 void run(() =>
@@ -528,7 +529,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               }
             >
               Progresso e certificados da versão selecionada
-            </button>
+            </DsButton>
             <label>
               Conclusão de origem
               <select
@@ -560,13 +561,13 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               />
             </label>
             <p>Informe apenas o critério ou documento conferido, sem dados pessoais adicionais.</p>
-            <button
-              className="btn"
+            <DsButton
+              variant="secondary"
               disabled={busy || !sourceId || !equivEvidence.trim()}
               onClick={() => setConfirmEquiv(true)}
             >
               Registrar equivalência entre versões
-            </button>
+            </DsButton>
             <Dialog
               open={confirmEquiv}
               onClose={() => {
@@ -576,11 +577,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               description={`Reconhecer o módulo ${sources.find((r) => r.id === sourceId)?.numero ?? ""} de ${equivPeople.find((p) => p.id === equivPerson)?.nome ?? ""} na versão ${current?.versao ?? ""}. Sua identidade e a conclusão de origem serão registradas.`}
             >
               {error ? <p role="alert">{error}</p> : null}
-              <button className="btn" disabled={busy} onClick={() => setConfirmEquiv(false)}>
+              <DsButton variant="secondary" disabled={busy} onClick={() => setConfirmEquiv(false)}>
                 Voltar
-              </button>
-              <button
-                className="btn btn-primary"
+              </DsButton>
+              <DsButton
                 disabled={busy}
                 onClick={() =>
                   void run(async () => {
@@ -609,7 +609,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 }
               >
                 Confirmar reconhecimento
-              </button>
+              </DsButton>
             </Dialog>
           </div>
           <form
@@ -649,9 +649,9 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                   ))}
                 </select>
               </label>
-              <button className="btn btn-primary" disabled={!moduleId || !nome.trim()}>
+              <DsButton type="submit" disabled={!moduleId || !nome.trim()}>
                 Criar turma
-              </button>
+              </DsButton>
             </fieldset>
           </form>
         </>
@@ -690,8 +690,8 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 {c.revogada_em ? new Date(c.revogada_em).toLocaleString("pt-BR") : ""}
               </p>
             ) : (
-              <button
-                className="btn"
+              <DsButton
+                variant="secondary"
                 disabled={busy || issuing || !!revoking}
                 onClick={() => {
                   setReason("");
@@ -699,7 +699,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 }}
               >
                 Revogar certificado
-              </button>
+              </DsButton>
             )}
           </div>
         ))}
@@ -707,9 +707,9 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
         !progress?.certificados.some((c) => !c.revogada) &&
         !issuing &&
         !revoking ? (
-          <button className="btn" disabled={busy} onClick={() => setIssuing(true)}>
+          <DsButton variant="secondary" disabled={busy} onClick={() => setIssuing(true)}>
             Emitir certificado
-          </button>
+          </DsButton>
         ) : null}
         {issuing ? (
           <>
@@ -717,11 +717,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               Confirmo a emissão após todos os módulos obrigatórios. O certificado guardará os nomes
               atuais da pessoa e do currículo.
             </p>
-            <button className="btn" disabled={busy} onClick={() => setIssuing(false)}>
+            <DsButton variant="secondary" disabled={busy} onClick={() => setIssuing(false)}>
               Voltar
-            </button>
-            <button
-              className="btn btn-primary"
+            </DsButton>
+            <DsButton
               disabled={busy}
               onClick={() =>
                 void run(async () => {
@@ -736,7 +735,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               }
             >
               Confirmar emissão
-            </button>
+            </DsButton>
           </>
         ) : null}
         {revoking ? (
@@ -751,11 +750,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 onChange={(e) => setReason(e.target.value)}
               />
             </label>
-            <button className="btn" disabled={busy} onClick={() => setRevoking(null)}>
+            <DsButton variant="secondary" disabled={busy} onClick={() => setRevoking(null)}>
               Voltar
-            </button>
-            <button
-              className="btn btn-primary"
+            </DsButton>
+            <DsButton
               disabled={busy || !reason.trim()}
               onClick={() =>
                 void run(async () => {
@@ -770,11 +768,11 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               }
             >
               Confirmar revogação
-            </button>
+            </DsButton>
           </>
         ) : null}
-        <button
-          className="btn"
+        <DsButton
+          variant="secondary"
           disabled={busy}
           onClick={() => {
             setCertPerson(null);
@@ -784,12 +782,12 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
           }}
         >
           Fechar certificados
-        </button>
+        </DsButton>
       </Dialog>
       <nav className="actions" aria-label="Turmas CD">
         {turmas.map((t) => (
-          <button
-            className="btn"
+          <DsButton
+            variant="secondary"
             key={t.id}
             disabled={busy}
             aria-pressed={detail?.id === t.id}
@@ -797,7 +795,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
           >
             {t.nome}
             {t.encerrada ? " · Encerrada" : ""}
-          </button>
+          </DsButton>
         ))}
       </nav>
       {!busy && !error && !turmas.length ? <p>Nenhuma turma disponível.</p> : null}
@@ -848,7 +846,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                   />
                 </label>
               ))}
-              {coordination ? <button className="btn btn-primary">Salvar calendário</button> : null}
+              {coordination ? <DsButton type="submit">Salvar calendário</DsButton> : null}
             </fieldset>
           </form>
           <div className="card">
@@ -870,27 +868,27 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                       onChange={(e) => setSearch(e.target.value)}
                     />
                   </label>
-                  <button className="btn" disabled={busy}>
+                  <DsButton type="submit" variant="secondary" disabled={busy}>
                     Buscar pessoas
-                  </button>
+                  </DsButton>
                 </form>
                 <div className="actions">
-                  <button
-                    className="btn"
+                  <DsButton
+                    variant="secondary"
                     disabled={busy || offset === 0}
                     onClick={() =>
                       void run(() => searchPeople(searchQuery, Math.max(0, offset - 100)))
                     }
                   >
                     Página anterior
-                  </button>
-                  <button
-                    className="btn"
+                  </DsButton>
+                  <DsButton
+                    variant="secondary"
                     disabled={busy || eligible.length < 100}
                     onClick={() => void run(() => searchPeople(searchQuery, offset + 100))}
                   >
                     Próxima página
-                  </button>
+                  </DsButton>
                 </div>
                 <form
                   onSubmit={submit(async () => {
@@ -923,9 +921,9 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                       </select>
                     </label>
                     {!eligible.length ? <p>Nenhuma pessoa elegível disponível.</p> : null}
-                    <button className="btn btn-primary" disabled={!personId}>
+                    <DsButton type="submit" disabled={!personId}>
                       Matricular
-                    </button>
+                    </DsButton>
                   </fieldset>
                 </form>
               </>
@@ -939,8 +937,8 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                   {m.conclusao ? "Concluída" : m.ativa ? "Ativa" : "Cancelada"} ·{" "}
                   {m.origem_aptidao === "legado" ? "Aptidão legada" : "UV concluída"}
                 </p>
-                <button
-                  className="btn"
+                <DsButton
+                  variant="secondary"
                   disabled={busy || m.pessoa_arquivada || !detail.modulo.aulas.length}
                   onClick={() => {
                     const first = detail.modulo.aulas[0];
@@ -948,11 +946,11 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                   }}
                 >
                   Chamada de {m.nome}
-                </button>
+                </DsButton>
                 {m.ativa && !m.conclusao && !detail.encerrada ? (
-                  <button className="btn" disabled={busy} onClick={() => setCanceling(m)}>
+                  <DsButton variant="secondary" disabled={busy} onClick={() => setCanceling(m)}>
                     Cancelar matrícula de {m.nome}
-                  </button>
+                  </DsButton>
                 ) : null}
                 {m.conclusao ? (
                   <p>
@@ -967,8 +965,8 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 ) : null}
                 {m.ativa && !m.conclusao && !m.pessoa_arquivada && !detail.encerrada ? (
                   <>
-                    <button
-                      className="btn"
+                    <DsButton
+                      variant="secondary"
                       disabled={busy}
                       onClick={() => {
                         setEvidence("");
@@ -977,10 +975,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                       }}
                     >
                       Concluir módulo de {m.nome}
-                    </button>
+                    </DsButton>
                     {coordination ? (
-                      <button
-                        className="btn"
+                      <DsButton
+                        variant="secondary"
                         disabled={busy}
                         onClick={() => {
                           setEvidence("");
@@ -989,20 +987,20 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                         }}
                       >
                         Registrar equivalência de {m.nome}
-                      </button>
+                      </DsButton>
                     ) : null}
                   </>
                 ) : null}
                 {coordination ? (
-                  <button
-                    className="btn"
+                  <DsButton
+                    variant="secondary"
                     disabled={busy}
                     onClick={() =>
                       void run(() => loadCertificates({ ...m, curriculo_id: detail.curriculo_id }))
                     }
                   >
                     Certificados de {m.nome}
-                  </button>
+                  </DsButton>
                 ) : null}
               </div>
             ))}
@@ -1056,11 +1054,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 adicionais.
               </p>
             ) : null}
-            <button className="btn" disabled={busy} onClick={() => setFinishing(null)}>
+            <DsButton variant="secondary" disabled={busy} onClick={() => setFinishing(null)}>
               Voltar
-            </button>
-            <button
-              className="btn btn-primary"
+            </DsButton>
+            <DsButton
               disabled={
                 busy || (finishing?.equivalence && (!evidence.trim() || !equivalenceSource.trim()))
               }
@@ -1085,7 +1082,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               }
             >
               {finishing?.equivalence ? "Confirmar equivalência" : "Confirmar conclusão"}
-            </button>
+            </DsButton>
           </Dialog>
           <Dialog
             open={calling !== null}
@@ -1136,32 +1133,38 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 ))}
               </ol>
             )}
-            <button
-              className="btn"
+            <DsButton
+              variant="secondary"
               disabled={busy}
               onClick={() => {
                 if (calling) void run(() => loadHistory(calling, lesson));
               }}
             >
               Atualizar histórico
-            </button>
+            </DsButton>
             {history.length ? <p>A alteração corrigirá o último lançamento exibido.</p> : null}
             <fieldset
               disabled={busy || detail.encerrada || !calling?.ativa || !!calling?.conclusao}
             >
               <legend>Registrar frequência</legend>
-              <button className="btn" onClick={() => void run(() => record(true, "regular"))}>
+              <DsButton variant="secondary" onClick={() => void run(() => record(true, "regular"))}>
                 Registrar presença
-              </button>
-              <button className="btn" onClick={() => void run(() => record(false, "regular"))}>
+              </DsButton>
+              <DsButton
+                variant="secondary"
+                onClick={() => void run(() => record(false, "regular"))}
+              >
                 Registrar ausência
-              </button>
-              <button className="btn" onClick={() => void run(() => record(true, "reposicao"))}>
+              </DsButton>
+              <DsButton
+                variant="secondary"
+                onClick={() => void run(() => record(true, "reposicao"))}
+              >
                 Registrar reposição
-              </button>
+              </DsButton>
             </fieldset>
-            <button
-              className="btn"
+            <DsButton
+              variant="secondary"
               disabled={busy}
               onClick={() => {
                 setCalling(null);
@@ -1169,7 +1172,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               }}
             >
               Fechar chamada
-            </button>
+            </DsButton>
           </Dialog>
           <Dialog
             open={canceling !== null}
@@ -1183,11 +1186,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 : ""
             }
           >
-            <button className="btn" disabled={busy} onClick={() => setCanceling(null)}>
+            <DsButton variant="secondary" disabled={busy} onClick={() => setCanceling(null)}>
               Voltar
-            </button>
-            <button
-              className="btn btn-primary"
+            </DsButton>
+            <DsButton
               disabled={busy}
               onClick={() =>
                 void run(async () => {
@@ -1200,7 +1202,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               }
             >
               Confirmar cancelamento
-            </button>
+            </DsButton>
           </Dialog>
           <div className="card">
             <h3>Responsáveis</h3>
@@ -1236,15 +1238,15 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                       {u.nome}
                     </label>
                   ))}
-                  <button className="btn btn-primary">Salvar responsáveis</button>
+                  <DsButton type="submit">Salvar responsáveis</DsButton>
                 </fieldset>
               </form>
             ) : null}
           </div>
           {coordination ? (
             detail.encerrada ? (
-              <button
-                className="btn"
+              <DsButton
+                variant="secondary"
                 disabled={busy}
                 onClick={() =>
                   void run(async () => {
@@ -1255,11 +1257,11 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
                 }
               >
                 Reabrir turma
-              </button>
+              </DsButton>
             ) : (
-              <button className="btn" disabled={busy} onClick={() => setClosing(true)}>
+              <DsButton variant="secondary" disabled={busy} onClick={() => setClosing(true)}>
                 Encerrar turma
-              </button>
+              </DsButton>
             )
           ) : null}
           <Dialog
@@ -1270,11 +1272,10 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
             title="Encerrar turma?"
             description="A turma ficará disponível para consulta. A coordenação poderá reabri-la."
           >
-            <button className="btn" disabled={busy} onClick={() => setClosing(false)}>
+            <DsButton variant="secondary" disabled={busy} onClick={() => setClosing(false)}>
               Cancelar
-            </button>
-            <button
-              className="btn btn-primary"
+            </DsButton>
+            <DsButton
               disabled={busy}
               onClick={() =>
                 void run(async () => {
@@ -1286,7 +1287,7 @@ function CDPanel({ token, coordination }: { token: string; coordination: boolean
               }
             >
               Confirmar encerramento
-            </button>
+            </DsButton>
           </Dialog>
         </article>
       ) : null}
@@ -1322,9 +1323,9 @@ function Rename({
           onChange={(e) => setName(e.target.value)}
         />
       </label>
-      <button className="btn" disabled={busy || !name.trim() || name === value}>
+      <DsButton type="submit" variant="secondary" disabled={busy || !name.trim() || name === value}>
         Salvar nome
-      </button>
+      </DsButton>
     </form>
   );
 }

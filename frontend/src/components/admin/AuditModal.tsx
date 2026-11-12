@@ -10,8 +10,8 @@ import "@/components/config/administration-ux-v2.css";
 import { useCallback, useEffect, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import { AdminSessionExpiredError, fetchAudit, type AdminAuditEntry } from "@/lib/admin-api";
+import { DsButton } from "@/components/ds/Button";
 
 const ACAO_LABEL: Record<string, string> = {
   provisionar: "Provisionou igreja",
@@ -99,18 +99,12 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
       className="admin-audit-dialog administration-ux administration-dialog"
       footer={
         <>
-          <button type="button" className="btn btn-sm" onClick={onClose}>
+          <DsButton variant="secondary" onClick={onClose}>
             Fechar
-          </button>
-          <Button
-            variant="ghost"
-            size="sm"
-            loading={refreshing}
-            loadingText="Atualizando…"
-            onClick={() => void load(true)}
-          >
-            Atualizar
-          </Button>
+          </DsButton>
+          <DsButton variant="tertiary" loading={refreshing} onClick={() => void load(true)}>
+            {refreshing ? "Atualizando…" : "Atualizar"}
+          </DsButton>
         </>
       }
     >

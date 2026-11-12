@@ -61,3 +61,8 @@
   outline: 3px solid var(--primary, #2563eb);
   outline-offset: 3px;
 }
+
+/* Títulos longos nos resultados: repõe o respiro vertical do .btn legado. */
+.conhecimento-screen .ds-btn {
+  padding-block: 9px;
+}

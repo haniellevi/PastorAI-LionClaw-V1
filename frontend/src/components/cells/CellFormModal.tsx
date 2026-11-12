@@ -17,7 +17,6 @@ import "./operations-ux-v2.css";
 import { useEffect, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import type { CellSummary, UpsertCellInput } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
@@ -27,6 +26,7 @@ import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
 import { useLookupPage, type LookupLoader } from "@/components/lookups/useLookupPage";
 
 import type { CellLeaderOption } from "./cell-leadership";
+import { DsButton } from "@/components/ds/Button";
 
 const DIAS_SEMANA = [
   "Domingo",
@@ -230,9 +230,9 @@ export function CellFormModal({
         {coverageLookup.error ? (
           <p role="alert" className="sub">
             Sugestões de cobertura indisponíveis.{" "}
-            <button type="button" className="btn btn-sm" onClick={coverageLookup.retry}>
+            <DsButton variant="secondary" onClick={coverageLookup.retry}>
               Tentar novamente
-            </button>
+            </DsButton>
           </p>
         ) : null}
 
@@ -279,7 +279,7 @@ export function CellFormModal({
                   ))}
                 </select>
               )}
-              <p id="cf-lider-help" className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+              <p id="cf-lider-help" className="sub ds-muted ops-help-tight">
                 {canManageLeadership
                   ? "Somente pessoas aptas e com acesso ativo ao painel podem assumir a liderança."
                   : "Liderança é gerida exclusivamente na Central de Células."}
@@ -287,21 +287,20 @@ export function CellFormModal({
               {canManageLeadership && currentLeaderOption?.reason ? (
                 <p
                   id="cf-leader-status"
-                  className="sub"
+                  className="sub ds-text-warn ops-help-tight"
                   role={leadershipBlocked ? "alert" : "status"}
-                  style={{ color: "var(--warn)", marginTop: 6 }}
                 >
                   {currentLeaderOption.reason}.
                 </p>
               ) : null}
               {canManageLeadership && blockedLeaderOptions.length > 0 ? (
-                <details className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+                <details className="sub ds-muted ops-help-tight">
                   <summary>
                     Ver por que {blockedLeaderOptions.length}{" "}
                     {blockedLeaderOptions.length === 1 ? "Pessoa não pode" : "Pessoas não podem"}{" "}
                     assumir agora
                   </summary>
-                  <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                  <ul className="ops-reason-list">
                     {blockedLeaderOptions.map((option) => (
                       <li key={option.id}>
                         {option.nome}: {option.reason}
@@ -359,14 +358,14 @@ export function CellFormModal({
           />
           <span>Célula ativa</span>
         </label>
-        <p id="cf-active-help" className="sub" style={{ color: "var(--muted)" }}>
+        <p id="cf-active-help" className="sub ds-muted">
           {canManageLeadership
             ? "Desativar preserva o histórico e retira a célula dos fluxos ativos."
             : "Ativação e desativação são geridas exclusivamente na Central de Células."}
         </p>
 
         {publicDataEnabled ? (
-          <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+          <fieldset className="ds-fieldset-reset">
             <legend className="panel-title">Divulgação no WhatsApp</legend>
             <p className="sub">
               Informe apenas o bairro público da célula, sem endereço residencial ou contato.
@@ -452,20 +451,17 @@ export function CellFormModal({
         ) : null}
 
         <div className="modal-foot">
-          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+          <DsButton variant="secondary" onClick={onClose} disabled={busy}>
             Cancelar
-          </button>
-          <Button
+          </DsButton>
+          <DsButton
             type="submit"
-            variant="primary"
-            size="sm"
             loading={busy}
-            loadingText="Salvando…"
             disabled={leadershipBlocked}
             aria-describedby={leadershipBlocked ? "cf-leader-status" : undefined}
           >
-            {editing ? "Salvar alterações" : "Criar célula"}
-          </Button>
+            {busy ? "Salvando…" : editing ? "Salvar alterações" : "Criar célula"}
+          </DsButton>
         </div>
       </form>
     </DsDialog>

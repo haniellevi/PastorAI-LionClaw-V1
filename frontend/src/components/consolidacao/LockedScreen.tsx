@@ -27,7 +27,7 @@ export function LockedScreen({ variant }: { variant: LockedVariant }) {
           <Icon name="lock" /> Módulo indisponível
         </div>
         <p>Turmas, presença e certificação não podem ser registradas nesta área.</p>
-        <a className="btn btn-primary" href="#dashboard" style={{ marginTop: "var(--s4)" }}>
+        <a className="btn btn-primary ds-mt-4" href="#dashboard">
           Voltar ao Hoje
         </a>
       </div>

@@ -49,7 +49,8 @@
 .uv-screen legend {
   margin-bottom: var(--s3);
 }
-.uv-screen fieldset .btn {
+.uv-screen fieldset .btn,
+.uv-screen fieldset .ds-btn {
   align-self: end;
 }
 .uv-screen nav {
@@ -57,9 +58,14 @@
   flex-wrap: wrap;
   gap: var(--s2);
 }
-.uv-screen .btn {
+.uv-screen .btn,
+.uv-screen .ds-btn {
   min-height: 44px;
   white-space: normal;
+}
+/* A base .ds-btn não tem padding vertical; o rótulo aqui pode quebrar em várias linhas. */
+.uv-screen .ds-btn {
+  padding-block: var(--s2);
 }
 .uv-screen ul {
   overflow-wrap: anywhere;

@@ -15,7 +15,6 @@ import { useMemo } from "react";
 import { DeadlineBadge } from "@/components/dashboard/DeadlineBadge";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import {
   MANDATORY_ETAPAS,
   TRACK_STEPS,
@@ -32,6 +31,7 @@ import { initials } from "@/lib/g12-api";
 import { Icon } from "@/lib/icons";
 
 import "../contacts/people-ux-v2.css";
+import { DsButton } from "@/components/ds/Button";
 
 export interface TrackModalProps {
   contact: Contact;
@@ -115,14 +115,14 @@ export function TrackModal({
           <span className="avatar">{initials(contact.nome)}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="nm">{contact.nome}</div>
-            <div className="sub" style={{ color: "var(--muted)" }}>
+            <div className="sub ds-muted">
               {consolidadorName
                 ? `Consolidador: ${consolidadorName}`
                 : "Sem consolidador atribuído"}
               {session?.vinculo === "visitante" ? " · visitante" : ""}
             </div>
             {session?.vinculo === "visitante" && session.prazoConexao ? (
-              <div style={{ marginTop: 4 }}>
+              <div className="ds-mt-1">
                 <DeadlineBadge prazo={session.prazoConexao} now={now} prefix="prazo 24h" />
               </div>
             ) : null}
@@ -155,7 +155,7 @@ export function TrackModal({
           })}
         </div>
 
-        <p className="lock-note" style={{ marginTop: "var(--s4)" }}>
+        <p className="lock-note ds-mt-4">
           <Icon name="lock" />
           {note}
         </p>
@@ -167,35 +167,41 @@ export function TrackModal({
         ) : null}
 
         <div className="modal-foot">
-          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+          <DsButton variant="secondary" onClick={onClose} disabled={busy}>
             Fechar
-          </button>
+          </DsButton>
           {allDone ? (
-            <Button
-              variant="primary"
-              size="sm"
+            <DsButton
               loading={busy}
-              loadingText="Concluindo…"
               disabled={!canAct}
               aria-disabled={!canAct || undefined}
               onClick={onConclude}
             >
-              <Icon name="check" />
-              <span>Concluir consolidação</span>
-            </Button>
+              {busy ? (
+                <span>Concluindo…</span>
+              ) : (
+                <>
+                  <Icon name="check" />
+                  <span>Concluir consolidação</span>
+                </>
+              )}
+            </DsButton>
           ) : (
-            <Button
-              variant="primary"
-              size="sm"
+            <DsButton
               loading={busy}
-              loadingText="Confirmando…"
               disabled={!canAct || !next}
               aria-disabled={!canAct || !next || undefined}
               onClick={() => next && onConfirm(next)}
             >
-              <Icon name="check" />
-              <span>{next ? `Confirmar: ${etapaLabel(next)}` : "Etapas confirmadas"}</span>
-            </Button>
+              {busy ? (
+                <span>Confirmando…</span>
+              ) : (
+                <>
+                  <Icon name="check" />
+                  <span>{next ? `Confirmar: ${etapaLabel(next)}` : "Etapas confirmadas"}</span>
+                </>
+              )}
+            </DsButton>
           )}
         </div>
       </>

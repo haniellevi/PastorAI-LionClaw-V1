@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { SessionExpiredError } from "@/lib/api";
 import { useLookupPage, type LookupLoader } from "./useLookupPage";
 import { LookupPager } from "./LookupPager";
+import { DsButton } from "@/components/ds/Button";
 
 export function PaginatedLookup<T extends { id: string }>({
   loadPage,
@@ -52,23 +53,18 @@ export function PaginatedLookup<T extends { id: string }>({
         </p>
       ) : null}
       {allowClear && selected ? (
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() => onSelect(null)}
-          disabled={disabled}
-        >
+        <DsButton variant="secondary" onClick={() => onSelect(null)} disabled={disabled}>
           Limpar seleção
-        </button>
+        </DsButton>
       ) : null}
       {lookup.error ? (
         <div role="alert">
           {lookup.error instanceof Error
             ? lookup.error.message
             : "Não foi possível carregar as opções."}{" "}
-          <button type="button" className="btn btn-sm" onClick={lookup.retry}>
+          <DsButton variant="secondary" onClick={lookup.retry}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
       {lookup.loading ? (
@@ -78,11 +74,16 @@ export function PaginatedLookup<T extends { id: string }>({
       ) : (
         <div style={{ maxHeight: 220, overflowY: "auto" }}>
           {lookup.result?.items.map((item) => (
-            <button
+            <DsButton
               key={item.id}
-              type="button"
-              className="btn"
-              style={{ display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
+              variant="secondary"
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                marginTop: 4,
+                paddingBlock: 9,
+              }}
               disabled={disabled || isDisabled?.(item)}
               aria-pressed={selected?.id === item.id}
               onClick={() => onSelect(item)}
@@ -91,7 +92,7 @@ export function PaginatedLookup<T extends { id: string }>({
               {getDescription?.(item) ? (
                 <span className="sub"> · {getDescription(item)}</span>
               ) : null}
-            </button>
+            </DsButton>
           ))}
           {lookup.result?.items.length === 0 ? (
             <p className="sub">Nenhum resultado encontrado.</p>

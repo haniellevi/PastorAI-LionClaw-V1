@@ -8,6 +8,7 @@ import {
   type EnviarHistorico,
   type EnviarPage,
 } from "@/lib/enviar-api";
+import { DsButton } from "@/components/ds/Button";
 
 type View = "pendentes" | "aptos" | "historico";
 const operation = {
@@ -92,9 +93,8 @@ export function EnviarPanorama({
             ["historico", "Histórico"],
           ] as const
         ).map(([key, label]) => (
-          <button
-            type="button"
-            className="btn"
+          <DsButton
+            variant="secondary"
             key={key}
             aria-pressed={view === key}
             onClick={() => {
@@ -103,7 +103,7 @@ export function EnviarPanorama({
             }}
           >
             {label}
-          </button>
+          </DsButton>
         ))}
       </div>
       <form
@@ -126,9 +126,9 @@ export function EnviarPanorama({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <button className="btn" type="submit">
+        <DsButton variant="secondary" type="submit">
           Buscar
-        </button>
+        </DsButton>
       </form>
       <nav aria-label="Ações de Enviar" className="actions">
         <a
@@ -150,9 +150,9 @@ export function EnviarPanorama({
       ) : error ? (
         <div role="alert">
           <p>{error}</p>
-          <button type="button" className="btn" onClick={() => setReload((n) => n + 1)}>
+          <DsButton variant="secondary" onClick={() => setReload((n) => n + 1)}>
             Repetir consulta
-          </button>
+          </DsButton>
         </div>
       ) : data ? (
         <>
@@ -225,22 +225,20 @@ export function EnviarPanorama({
             </ul>
           )}
           <div className="actions" role="group" aria-label="Paginação de Enviar">
-            <button
-              type="button"
-              className="btn"
+            <DsButton
+              variant="secondary"
               disabled={page === 1}
               onClick={() => setPage((n) => n - 1)}
             >
               Página anterior
-            </button>
-            <button
-              type="button"
-              className="btn"
+            </DsButton>
+            <DsButton
+              variant="secondary"
               disabled={page * data.page_size >= data.total}
               onClick={() => setPage((n) => n + 1)}
             >
               Próxima página
-            </button>
+            </DsButton>
           </div>
         </>
       ) : null}

@@ -709,9 +709,8 @@ export function ConversationThread({
         }}
       >
         {hasOlderMessages ? (
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             disabled={olderMessagesLoading}
             onClick={() => {
               const el = bodyRef.current;
@@ -721,7 +720,7 @@ export function ConversationThread({
             }}
           >
             {olderMessagesLoading ? "Carregando histórico…" : "Carregar mensagens anteriores"}
-          </button>
+          </DsButton>
         ) : null}
         {messagesLoading && messages.length === 0 ? (
           <p

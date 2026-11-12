@@ -17,7 +17,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 
-import { Button } from "@/components/ui/Button";
 import {
   addIgrejaAdmin,
   AdminAuthError,
@@ -50,6 +49,7 @@ import { formatAiCostUsd } from "@/lib/ai-cost";
 import type { PlanoOption } from "./CreateIgrejaModal";
 import { ConsentGovernanceDraftTab } from "./ConsentGovernanceDraftTab";
 import { EditIgrejaModal } from "./EditIgrejaModal";
+import { DsButton } from "@/components/ds/Button";
 
 const STATUS_LABEL: Record<string, string> = {
   ativa: "Ativa",
@@ -283,48 +283,39 @@ export function ChurchPage({
 
   return (
     <div className="administration-ux platform-church">
-      <button type="button" className="btn btn-sm btn-ghost" onClick={onBack}>
+      <DsButton variant="tertiary" onClick={onBack}>
         ← Voltar
-      </button>
+      </DsButton>
 
       <header className="platform-target" style={{ margin: "var(--s3) 0 var(--s4)" }}>
         <p className="sub">Igreja selecionada · Console da Plataforma</p>
-        <h1 style={{ margin: 0 }}>{igreja.nome}</h1>
-        <p className="sub" style={{ margin: 0, color: "var(--muted)" }}>
+        <h1 className="ds-m-0">{igreja.nome}</h1>
+        <p className="sub ds-m-0 ds-muted">
           {STATUS_LABEL[igreja.status] ?? igreja.status}
           {igreja.plano ? ` · ${PLANO_LABEL[igreja.plano] ?? igreja.plano}` : ""}
         </p>
       </header>
 
       {error ? (
-        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+        <div className="error-banner ds-mb-3" role="alert">
           <span>{error}</span>
         </div>
       ) : null}
 
       {governanceLoad.kind === "forbidden" || governanceLoad.kind === "error" ? (
-        <div
-          className="error-banner"
-          role="alert"
-          style={{ marginBottom: "var(--s3)", flexWrap: "wrap" }}
-        >
+        <div className="error-banner ds-mb-3 ds-wrap" role="alert">
           <span>
             {governanceLoad.kind === "forbidden"
               ? "Acesso à governança desta igreja foi negado."
               : "A governança está temporariamente indisponível."}
           </span>
-          <Button variant="ghost" size="sm" onClick={() => void loadGovernance()}>
+          <DsButton variant="tertiary" onClick={() => void loadGovernance()}>
             Tentar novamente
-          </Button>
+          </DsButton>
         </div>
       ) : null}
 
-      <div
-        className="tabs"
-        role="tablist"
-        aria-label="Seções da igreja"
-        style={{ marginBottom: "var(--s4)" }}
-      >
+      <div className="tabs ds-mb-4" role="tablist" aria-label="Seções da igreja">
         {visibleTabs.map((t) => (
           <button
             key={t}
@@ -418,10 +409,8 @@ export function ChurchPage({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card" style={{ padding: "var(--s3)" }}>
-      <div className="sub" style={{ color: "var(--muted)" }}>
-        {label}
-      </div>
+    <div className="card ds-p-3">
+      <div className="sub ds-muted">{label}</div>
       <div style={{ fontWeight: 700, fontSize: "1.1rem" }}>{value}</div>
     </div>
   );
@@ -470,9 +459,9 @@ function DashboardTab({
       </div>
 
       {detail?.assinatura ? (
-        <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
+        <div className="card card-pad ds-mb-4">
           <div style={{ fontWeight: 600, marginBottom: "var(--s2)" }}>Assinatura</div>
-          <div className="sub" style={{ color: "var(--muted)" }}>
+          <div className="sub ds-muted">
             Plano {detail.assinatura.plano ?? "—"} · {detail.assinatura.status ?? "—"} · próxima
             cobrança {detail.assinatura.proximaCobranca ?? "—"} · setup{" "}
             {detail.assinatura.setupPago ? "pago" : "pendente"}
@@ -480,23 +469,17 @@ function DashboardTab({
         </div>
       ) : null}
 
-      <div style={{ display: "flex", gap: "var(--s2)", flexWrap: "wrap" }}>
-        <Button variant={pending ? "ghost" : "primary"} size="sm" onClick={onEdit} disabled={busy}>
+      <div className="ds-flex ds-gap-2 ds-wrap">
+        <DsButton variant={pending ? "tertiary" : "primary"} onClick={onEdit} disabled={busy}>
           Editar dados
-        </Button>
+        </DsButton>
         {pending ? (
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={onApprove}
-            loading={busy}
-            loadingText="Aprovando…"
-          >
-            Aprovar igreja
-          </Button>
+          <DsButton onClick={onApprove} loading={busy}>
+            {busy ? "Aprovando…" : "Aprovar igreja"}
+          </DsButton>
         ) : null}
       </div>
-      <p className="sub" style={{ color: "var(--muted)", marginTop: "var(--s2)" }}>
+      <p className="sub ds-muted ds-mt-2">
         A chave de LLM ({igreja.nome}) é cadastrada pela própria igreja no painel dela.
       </p>
     </>
@@ -665,7 +648,7 @@ function AgenteTab({
         }}
       >
         {err ? (
-          <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+          <div className="error-banner ds-mb-3" role="alert">
             <span>{err}</span>
           </div>
         ) : null}
@@ -674,7 +657,7 @@ function AgenteTab({
           Revise o comportamento e o estado desejado antes de salvar. A credencial da igreja
           continua separada desta configuração.
         </p>
-        <div className="field" style={{ marginBottom: "var(--s3)" }}>
+        <div className="field ds-mb-3">
           <label htmlFor="cp-nome">Nome do agente</label>
           <input
             id="cp-nome"
@@ -683,7 +666,7 @@ function AgenteTab({
             placeholder="Ex.: Pastora Ana"
           />
         </div>
-        <div className="field" style={{ marginBottom: "var(--s3)" }}>
+        <div className="field ds-mb-3">
           <label htmlFor="cp-tom">Tom de voz</label>
           <input
             id="cp-tom"
@@ -692,7 +675,7 @@ function AgenteTab({
             placeholder="Ex.: acolhedor e pastoral"
           />
         </div>
-        <div className="field" style={{ marginBottom: "var(--s3)" }}>
+        <div className="field ds-mb-3">
           <label htmlFor="cp-comp">Comportamento e instruções</label>
           <textarea
             id="cp-comp"
@@ -719,44 +702,40 @@ function AgenteTab({
           />
           <span>Agente ativo</span>
         </label>
-        <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+        <p className="sub ds-muted ds-mb-3">
           {CRED_LABEL[credStatus]}
           {credStatus !== "active"
             ? " — a igreja precisa cadastrar a chave de LLM para ligar."
             : ""}
         </p>
-        <div style={{ display: "flex", gap: "var(--s2)" }}>
-          <Button type="submit" variant="primary" size="sm" loading={busy} loadingText="Salvando…">
-            Salvar agente
-          </Button>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
+        <div className="ds-flex ds-gap-2">
+          <DsButton type="submit" loading={busy}>
+            {busy ? "Salvando…" : "Salvar agente"}
+          </DsButton>
+          <DsButton
+            variant="tertiary"
             disabled={busy || resetting}
             onClick={() => void usarPadrao()}
             title="Preenche com o modelo padrão do orquestrador (você revisa e salva)"
           >
             Usar o padrão
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
+          </DsButton>
+          <DsButton
+            variant="tertiary"
             disabled={busy || resetting}
             onClick={() => void restaurarPadrao()}
             title="Restaura já a config para o modelo padrão (mantém ligado/desligado)"
           >
             {resetting ? "Restaurando…" : "Restaurar padrão"}
-          </button>
+          </DsButton>
         </div>
       </form>
 
       {/* ── Requisições do admin desta igreja ──────────────────────────── */}
-      <div className="card card-pad" style={{ marginTop: "var(--s4)" }}>
+      <div className="card card-pad ds-mt-4">
         <div className="panel-title">Requisições de mudança do admin</div>
         {requests.length === 0 ? (
-          <p className="sub" style={{ color: "var(--muted)" }}>
-            Nenhuma requisição desta igreja.
-          </p>
+          <p className="sub ds-muted">Nenhuma requisição desta igreja.</p>
         ) : (
           <table className="data-table">
             <thead>
@@ -771,35 +750,31 @@ function AgenteTab({
               {requests.map((r) => (
                 <tr key={r.id}>
                   <td className="sub">{r.solicitanteNome ?? "—"}</td>
-                  <td style={{ whiteSpace: "pre-wrap" }}>{r.mensagem}</td>
+                  <td className="ds-prewrap">{r.mensagem}</td>
                   <td className="sub">
                     {REQUEST_STATUS_LABEL[r.status]}
                     {r.resposta ? ` — “${r.resposta}”` : ""}
                   </td>
                   <td>
                     {r.status === "pendente" ? (
-                      <div style={{ display: "flex", gap: "var(--s2)" }}>
-                        <button
-                          type="button"
-                          className="btn btn-sm"
+                      <div className="ds-flex ds-gap-2">
+                        <DsButton
+                          variant="secondary"
                           disabled={resolvingId !== null}
                           onClick={() => void resolver(r, "atendida")}
                         >
                           Atender
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-ghost"
+                        </DsButton>
+                        <DsButton
+                          variant="tertiary"
                           disabled={resolvingId !== null}
                           onClick={() => void resolver(r, "recusada")}
                         >
                           Recusar
-                        </button>
+                        </DsButton>
                       </div>
                     ) : (
-                      <span className="sub" style={{ color: "var(--muted)" }}>
-                        Resolvida
-                      </span>
+                      <span className="sub ds-muted">Resolvida</span>
                     )}
                   </td>
                 </tr>
@@ -866,7 +841,7 @@ function AdminsTab({
     <div className="card card-pad">
       <div style={{ fontWeight: 600, marginBottom: "var(--s3)" }}>Administradores (owner)</div>
       {err ? (
-        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s2)" }}>
+        <div className="error-banner ds-mb-2" role="alert">
           <span>{err}</span>
         </div>
       ) : null}
@@ -885,13 +860,9 @@ function AdminsTab({
       ) : null}
 
       {admins === null ? (
-        <p className="sub" style={{ color: "var(--muted)" }}>
-          Carregando…
-        </p>
+        <p className="sub ds-muted">Carregando…</p>
       ) : admins.length === 0 ? (
-        <p className="sub" style={{ color: "var(--muted)" }}>
-          Nenhum administrador.
-        </p>
+        <p className="sub ds-muted">Nenhum administrador.</p>
       ) : (
         <div
           style={{
@@ -939,15 +910,14 @@ function AdminsTab({
                     </span>
                   ) : null}
                 </div>
-                <div className="sub" style={{ color: "var(--muted)" }}>
+                <div className="sub ds-muted">
                   {a.email} · {a.status === "ativo" ? "ativo" : "convite pendente"}
                 </div>
               </div>
-              <div style={{ display: "flex", gap: "var(--s2)" }}>
+              <div className="ds-flex ds-gap-2">
                 {a.status !== "ativo" ? (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
+                  <DsButton
+                    variant="tertiary"
                     disabled={busy}
                     onClick={() =>
                       void run(
@@ -957,12 +927,11 @@ function AdminsTab({
                     }
                   >
                     Reenviar
-                  </button>
+                  </DsButton>
                 ) : null}
                 {!a.isDono ? (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost"
+                  <DsButton
+                    variant="tertiary"
                     disabled={busy}
                     onClick={() => {
                       if (
@@ -978,11 +947,10 @@ function AdminsTab({
                     }}
                   >
                     Tornar dono
-                  </button>
+                  </DsButton>
                 ) : null}
-                <button
-                  type="button"
-                  className="btn btn-sm btn-danger"
+                <DsButton
+                  variant="danger"
                   disabled={busy}
                   onClick={() => {
                     if (window.confirm(`Remover ${a.nome} como administrador?`)) {
@@ -994,7 +962,7 @@ function AdminsTab({
                   }}
                 >
                   Remover
-                </button>
+                </DsButton>
               </div>
             </div>
           ))}
@@ -1003,7 +971,7 @@ function AdminsTab({
 
       <div style={{ borderTop: "1px solid var(--border)", paddingTop: "var(--s3)" }}>
         <div style={{ fontWeight: 600, marginBottom: "var(--s2)" }}>Convidar admin</div>
-        <div className="field" style={{ marginBottom: "var(--s2)" }}>
+        <div className="field ds-mb-2">
           <label htmlFor="ad-nome">Nome</label>
           <input
             id="ad-nome"
@@ -1012,7 +980,7 @@ function AdminsTab({
             placeholder="Nome do administrador"
           />
         </div>
-        <div className="field" style={{ marginBottom: "var(--s2)" }}>
+        <div className="field ds-mb-2">
           <label htmlFor="ad-email">E-mail</label>
           <input
             id="ad-email"
@@ -1022,9 +990,9 @@ function AdminsTab({
             placeholder="usuario@example.com"
           />
         </div>
-        <Button variant="primary" size="sm" onClick={add} loading={busy} loadingText="Enviando…">
-          Convidar
-        </Button>
+        <DsButton onClick={add} loading={busy}>
+          {busy ? "Enviando…" : "Convidar"}
+        </DsButton>
       </div>
     </div>
   );

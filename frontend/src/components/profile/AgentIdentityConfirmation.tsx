@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Field } from "@/components/ui/Field";
 import { SessionExpiredError } from "@/lib/api";
 import { ApiError, confirmAgentIdentity } from "@/lib/dashboard-api";
@@ -112,15 +112,13 @@ export function AgentIdentityConfirmation({
         disabled={!sameSession || pending}
         error={sameSession ? (error ?? undefined) : undefined}
       />
-      <Button
+      <DsButton
         type="submit"
-        variant="primary"
         loading={sameSession && pending}
-        loadingText="Confirmando…"
         disabled={!sameSession || !challenge.trim() || challenge.trim().length > 128}
       >
-        Confirmar conversa
-      </Button>
+        {sameSession && pending ? "Confirmando…" : "Confirmar conversa"}
+      </DsButton>
       {sameSession && confirmed ? (
         <>
           <p role="status">Conversa confirmada. Volte ao WhatsApp.</p>

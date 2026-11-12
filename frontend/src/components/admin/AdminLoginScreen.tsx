@@ -8,7 +8,7 @@
 import { useState, type FormEvent } from "react";
 
 import { AuthLayout } from "@/components/auth/AuthLayout";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Field } from "@/components/ui/Field";
 import { AdminAuthError } from "@/lib/admin-api";
 import { LoginError } from "@/lib/api";
@@ -94,9 +94,9 @@ export function AdminLoginScreen() {
           error={passwordError}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <Button type="submit" variant="primary" block loading={loading} loadingText="Entrando…">
-          Entrar
-        </Button>
+        <DsButton type="submit" block loading={loading}>
+          {loading ? "Entrando…" : "Entrar"}
+        </DsButton>
       </form>
     </AuthLayout>
   );
