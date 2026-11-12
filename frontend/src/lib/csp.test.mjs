@@ -65,12 +65,21 @@ describe("nonce dos scripts", () => {
     }
   });
 
-  it("mantém estilos com 'unsafe-inline' por enquanto", () => {
+  it("aceita <style> só do painel ou com o nonce e deixa inline só nos atributos", () => {
     const csp = directives(
-      buildContentSecurityPolicy({ apiUrl: "https://api.example.test", nonce: generateNonce() }),
+      buildContentSecurityPolicy({ apiUrl: "https://api.example.test", nonce: "abc123+/=" }),
     );
 
+    expect(csp["style-src-elem"]).toEqual(["'self'", "'nonce-abc123+/='"]);
+    expect(csp["style-src-attr"]).toEqual(["'unsafe-inline'"]);
+    // Reserva para navegadores sem CSP nível 3.
     expect(csp["style-src"]).toEqual(["'self'", "'unsafe-inline'"]);
+  });
+
+  it("sem nonce, <style> volta a aceitar inline em vez de quebrar o painel", () => {
+    const csp = directives(buildContentSecurityPolicy({ apiUrl: "https://api.example.test" }));
+
+    expect(csp["style-src-elem"]).toEqual(["'self'", "'unsafe-inline'"]);
   });
 
   it("gera nonces de 128 bits, válidos e diferentes a cada chamada", () => {

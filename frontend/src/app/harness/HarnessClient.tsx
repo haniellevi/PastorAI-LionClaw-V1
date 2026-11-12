@@ -23,6 +23,8 @@ import { DsPageHeader } from "@/components/ds/PageHeader";
 import { Tabs } from "@/components/ds/Tabs";
 import { DsToast, DsToastRegion } from "@/components/ds/Toast";
 
+import "./harness.css";
+
 /* ---------- medição de cor/contraste (runtime) ---------- */
 
 type Rgb = [number, number, number];
@@ -214,49 +216,6 @@ function MotionDiamond() {
 
 /* ---------- CSS exclusivo do harness (layout + simulações de estado) ---------- */
 
-const HARNESS_CSS = `
-.hx-root { background: var(--surface-canvas); min-height: 100dvh; color: var(--text-primary); font: var(--type-body); }
-.hx-main { max-width: 1100px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s8); }
-.hx-nav { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); padding: var(--s3) 0; border-bottom: 1px solid var(--border-subtle); }
-.hx-nav a { color: var(--action-primary); font: 650 13px/1.4 var(--font); text-decoration: none; }
-.hx-nav a:hover { text-decoration: underline; }
-.hx-nav a:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.hx-section { margin-top: var(--s7); display: grid; gap: var(--s4); }
-.hx-section > h2 { font: var(--type-h2); color: var(--text-primary); margin: 0; }
-.hx-note { font: var(--type-meta); color: var(--text-secondary); margin: 0; }
-.hx-row { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: center; }
-.hx-row--end { align-items: flex-end; }
-.hx-row--scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--s2); min-width: 0; max-width: 100%; }
-.hx-section { min-width: 0; }
-/* Itens do grid não podem alargar a página (min-width:auto padrão do grid) */
-.hx-section > * { min-width: 0; }
-.hx-card { min-width: 0; }
-.hx-fig { margin: 0; display: grid; gap: var(--s1); justify-items: center; }
-.hx-fig figcaption { font: var(--type-meta); color: var(--text-secondary); }
-.hx-card { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-panel); padding: var(--s4); display: grid; gap: var(--s3); }
-.hx-table { border-collapse: collapse; width: 100%; font: var(--type-meta); }
-/* Em viewports estreitos a tabela rola no próprio contêiner (nunca alarga a página) */
-table.hx-table { display: block; overflow-x: auto; max-width: 100%; }
-table.hx-table thead, table.hx-table tbody { display: table; width: 100%; min-width: max-content; }
-.hx-table th, .hx-table td { text-align: left; padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border-subtle); }
-.hx-table th { color: var(--text-secondary); }
-.hx-swatch { width: 44px; height: 28px; border-radius: var(--radius-control); border: 1px solid var(--border-subtle); }
-.hx-mono { font-family: ui-monospace, monospace; font-size: 12px; }
-/* max-width em viewport (não em %): o grid dimensiona o track pelo conteúdo, o que anularia % */
-.hx-phone { width: 390px; max-width: calc(100dvw - 2 * var(--s4) - 2px); border: 1px solid var(--border-emphasis); border-radius: var(--radius-panel); padding: var(--s3); background: var(--surface-raised); }
-.hx-dim { opacity: 0.5; }
-.hx-foot { margin-top: var(--s8); padding-top: var(--s4); border-top: 1px solid var(--border-subtle); font: var(--type-meta); color: var(--text-secondary); }
-/* Simulações de estado dos botões (só no harness) */
-.hx-hover.ds-btn--primary { background: var(--action-primary-hover); }
-.hx-hover.ds-btn--secondary { background: var(--selection-soft); }
-.hx-hover.ds-btn--tertiary { text-decoration: underline; }
-.hx-active.ds-btn { transform: translateY(1px); }
-/* Chip de seleção (demo de transição produtiva) */
-.hx-chip { border: 1px solid var(--border-subtle); background: var(--surface-raised); color: var(--text-secondary); min-height: 40px; padding: 0 var(--s4); border-radius: var(--radius-pill); font: 650 13px/1 var(--font); cursor: pointer; transition: background-color var(--motion-fast) var(--ease-out-productive), border-color var(--motion-fast) var(--ease-out-productive); }
-.hx-chip[aria-pressed="true"] { background: var(--selection-soft); border-color: var(--selection-strong); color: var(--action-primary); }
-.hx-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-`;
-
 /* ---------- página ---------- */
 
 export function HarnessClient() {
@@ -346,8 +305,6 @@ export function HarnessClient() {
 
   return (
     <div className="hx-root">
-      {/* dangerouslySetInnerHTML: SSR e cliente serializam o texto do <style> de formas diferentes */}
-      <style dangerouslySetInnerHTML={{ __html: HARNESS_CSS }} />
       <main className="hx-main">
         <DsPageHeader
           title="Harness — fundação visual"

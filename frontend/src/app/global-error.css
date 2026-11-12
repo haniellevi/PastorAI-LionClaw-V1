@@ -1,0 +1,6 @@
+/* Foco visível da tela de erro global. Arquivo próprio, e não <style> inline,
+   para a CSP aceitar só folhas de estilo do próprio painel. */
+.global-recovery button:focus-visible {
+  outline: 3px solid #1c6197;
+  outline-offset: 3px;
+}

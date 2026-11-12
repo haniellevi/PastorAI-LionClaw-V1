@@ -88,6 +88,13 @@ function assertDocumentHeaders(response, label) {
   assert(nonce, `${label}: script-src sem nonce`);
   assert(scriptSrc.includes("'strict-dynamic'"), `${label}: script-src sem 'strict-dynamic'`);
   assert(!scriptSrc.includes("'unsafe-inline'"), `${label}: script-src ainda com 'unsafe-inline'`);
+  const styleSrcElem = directives.find((directive) => directive.startsWith("style-src-elem "));
+  assert(styleSrcElem?.includes(`'nonce-${nonce}'`), `${label}: style-src-elem sem o nonce`);
+  assert(!styleSrcElem.includes("'unsafe-inline'"), `${label}: style-src-elem com 'unsafe-inline'`);
+  assert(
+    directives.includes("style-src-attr 'unsafe-inline'"),
+    `${label}: sem style-src-attr 'unsafe-inline'`,
+  );
   assert(!seenNonces.has(nonce), `${label}: nonce repetido entre documentos`);
   seenNonces.add(nonce);
 
@@ -97,6 +104,12 @@ function assertDocumentHeaders(response, label) {
     assert(
       tag.includes(`nonce="${nonce}"`),
       `${label}: <script> sem o nonce do header: ${tag.slice(0, 80)}`,
+    );
+  }
+  for (const [tag] of response.body.matchAll(/<style\b[^>]*>/g)) {
+    assert(
+      tag.includes(`nonce="${nonce}"`),
+      `${label}: <style> inline sem o nonce: ${tag.slice(0, 80)}`,
     );
   }
   return scripts.length;

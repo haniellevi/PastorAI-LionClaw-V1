@@ -16,8 +16,11 @@
  * script injetado sem o nonce é recusado. Sem nonce, a política cai no modo
  * antigo (`'unsafe-inline'`) em vez de quebrar o painel.
  *
- * Estilos ainda aceitam `'unsafe-inline'`: o HTML do servidor traz atributos
- * `style=""`. Separar `style-src-elem` de `style-src-attr` é o passo seguinte.
+ * Estilos: `style-src-elem` aceita só folhas do próprio painel e `<style>`
+ * com o nonce; o painel não usa `<style>` inline (os estilos vêm de arquivos
+ * .css). `style-src-attr` mantém `'unsafe-inline'` porque o HTML do servidor
+ * traz atributos `style=""` dos componentes. `style-src` fica como reserva
+ * para navegadores sem CSP nível 3.
  */
 
 const NONCE_PATTERN = /^[A-Za-z0-9+/_-]+={0,2}$/;
@@ -42,14 +45,15 @@ export function apiOrigin(apiUrl) {
 
 export function buildContentSecurityPolicy({ apiUrl, dev = false, nonce } = {}) {
   const api = apiOrigin(apiUrl);
-  const scripts =
-    typeof nonce === "string" && NONCE_PATTERN.test(nonce)
-      ? [`'nonce-${nonce}'`, "'strict-dynamic'"]
-      : ["'unsafe-inline'"];
+  const hasNonce = typeof nonce === "string" && NONCE_PATTERN.test(nonce);
+  const scripts = hasNonce ? [`'nonce-${nonce}'`, "'strict-dynamic'"] : ["'unsafe-inline'"];
+  const styleElements = hasNonce ? [`'nonce-${nonce}'`] : ["'unsafe-inline'"];
   const directives = [
     ["default-src", "'self'"],
     ["script-src", "'self'", ...scripts, dev && "'unsafe-eval'"],
     ["style-src", "'self'", "'unsafe-inline'"],
+    ["style-src-elem", "'self'", ...styleElements],
+    ["style-src-attr", "'unsafe-inline'"],
     ["img-src", "'self'", "data:", "blob:", "https:", api],
     ["media-src", "'self'", "blob:", "https:", api],
     ["font-src", "'self'", "data:"],
