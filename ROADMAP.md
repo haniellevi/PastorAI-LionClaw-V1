@@ -372,7 +372,7 @@ autorização. Leitura por amostragem: sem testes, typecheck nem lint na anális
 |---|---|---|---|
 | 1 | Erros do backend | "Hoje" pelo dia da igreja (`app.datas.hoje_da_igreja`) no desligamento de pessoa, no catálogo privilegiado do agente e no DPA do Jev; `igreja_id` explícito na troca de plano do worker de cobrança e nos telefones do SLA (defesa além da RLS); teto de páginas com falha nas listagens do Asaas e do Storage | feita (#645) |
 | 2 | Erros do painel | limpar o store de consolidação no logout; erro explícito sem `NEXT_PUBLIC_API_URL` em produção; tirar o harness do build; conferir trava no backend de cada tela escondida por `isOwner` | feita (#646) |
-| 3 | CSP | primeiro `Content-Security-Policy-Report-Only`, depois bloqueando. Cookie de sessão HttpOnly (hoje legível por script, em `.igreja12.com.br` e no `localStorage`) fica como item próprio, com revisão independente de autenticação | modo de teste feito (#647); falta bloquear |
+| 3 | CSP | primeiro `Content-Security-Policy-Report-Only`, depois bloqueando. Cookie de sessão HttpOnly (hoje legível por script, em `.igreja12.com.br` e no `localStorage`) fica como item próprio, com revisão independente de autenticação | modo de teste feito (#647); scripts com nonce (#655); falta separar estilos e bloquear |
 | 4 | Verificação Python | ruff ampliado (fuso, `except` amplo, import sem uso) só em código novo ou alterado | feita (#648) |
 | 5 | CI | `backend-tests` em partes paralelas; instalação reaproveitada entre workflows | feita (#649) |
 | 6 | Documentos | `SPEC.md`, `SPEC_PROGRESS.md`, `Plan-Designer-Igreja12/`, `relatorio-shard3-rls.md` e o histórico deste roteiro para `docs/historico/` | feita (#650) |

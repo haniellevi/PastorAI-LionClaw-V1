@@ -59,8 +59,10 @@ const SCREEN_MODULES = [
 ].sort();
 
 describe("fronteiras de carregamento do frontend", () => {
-  it("mantém o root layout estático e escopa os providers às superfícies da igreja", () => {
+  it("mantém o root layout sem dados de usuário e escopa os providers às superfícies da igreja", () => {
     expect(layout).not.toContain("AppProviders");
+    // Renderiza a cada acesso só para receber o nonce da CSP (src/lib/csp.mjs).
+    expect(layout).toContain("await connection()");
     expect(layout).not.toContain('dynamic = "force-dynamic"');
     expect(home).toContain("<AppProviders>");
     expect(gestao).toContain("<AppProviders>");
