@@ -26,6 +26,42 @@ SITE = """server {{
     listen 443 ssl;
 }}
 """
+# Production API site shape (certbot TLS, IPv6, proxy headers, port-80 redirect), sanitized:
+# public name and include folder are synthetic; paths are certbot's defaults, no secrets.
+CERTBOT_SITE = """server {
+    server_name api.example.test;
+    INCLUDE
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    listen [::]:443 ssl ipv6only=on; # managed by Certbot
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/api.example.test/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/api.example.test/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+}
+server {
+    if ($host = api.example.test) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+    listen 80;
+    listen [::]:80;
+    server_name api.example.test;
+    return 404; # managed by Certbot
+
+
+}"""
 
 
 class Nginx:
@@ -53,13 +89,14 @@ class Nginx:
         return 0, b'HTTP/1.1 404 Not Found\r\ncontent-type: application/json\r\n\r\n'
 
 
-def _nginx(tmp_path, include=True, test_rc=0):
+def _nginx(tmp_path, include=True, test_rc=0, site=None):
     folder = tmp_path / 'igreja12-window'
     folder.mkdir(mode=0o755)
     config = wb.NginxConfig(nginx_binary='/usr/sbin/nginx', systemctl_binary='/usr/bin/systemctl',
                             curl_binary='/usr/bin/curl', site_path=str(tmp_path / 'site'),
                             server_name='api.example.test', include_dir=str(folder))
-    (tmp_path / 'site').write_text(SITE.format(include=config.include_line if include else ''))
+    line = config.include_line if include else ''
+    (tmp_path / 'site').write_text(SITE.format(include=line) if site is None else site.replace('INCLUDE', line))
     os.chmod(tmp_path / 'site', 0o644)
     fake = Nginx(folder / wb.SNIPPET_NAME, test_rc)
     return wb.NginxMaintenanceIngress(config, scope=SCOPE, run=fake, sleep=lambda _: None, owner_uid=UID), fake
@@ -180,6 +217,60 @@ def test_nginx_nominal_comments_and_blank_lines_pass(tmp_path):
     ingress.verify_topology(timeout=5)
     assert fake.calls == [(ingress.config.nginx_binary, '-T')]
 
+
+def test_nginx_certbot_production_shape_round_trips(tmp_path):
+    ingress, fake = _nginx(tmp_path, site=CERTBOT_SITE)
+    ingress.verify_topology(timeout=5)
+    assert ingress.observe(SCOPE, timeout=5) == 'open'
+    assert ingress.block(SCOPE, timeout=5) is True
+    assert ingress.observe(SCOPE, timeout=5) == 'blocked'
+    assert ingress.open(SCOPE, timeout=5) is True
+    assert ingress.observe(SCOPE, timeout=5) == 'open'
+
+
+def test_nginx_certbot_production_shape_without_include_refuses(tmp_path):
+    ingress, fake = _nginx(tmp_path, include=False, site=CERTBOT_SITE)
+    with pytest.raises(Refused, match='^window-nginx-include-missing$'):
+        ingress.verify_topology(timeout=5)
+    assert fake.calls == []
+
+
+CERTBOT_FAULTS = {
+    'second-proxy-pass': ('        proxy_http_version', '        proxy_pass http://127.0.0.1:9000;\n        proxy_http_version'),
+    'other-upstream': ('proxy_pass http://127.0.0.1:8000;', 'proxy_pass http://127.0.0.1:9000;'),
+    'other-location': ('    listen 443', '    location /admin {\n        proxy_pass http://127.0.0.1:8000;\n    }\n    listen 443'),
+    'foreign-include': ('    ssl_dhparam', '    include /synthetic/other.conf;\n    ssl_dhparam'),
+    'foreign-include-certbot': ('include /etc/letsencrypt/options-ssl-nginx.conf;', 'include /etc/letsencrypt/other.conf;'),
+    'include-after-location': ('    INCLUDE\n', '', '    }\n\n    listen [::]:443', '    }\n    INCLUDE\n    listen [::]:443'),
+    'duplicate-header': ('        proxy_set_header Host $host;', '        proxy_set_header Host $host;\n        proxy_set_header Host $host;'),
+    'spoofed-header': ('$proxy_add_x_forwarded_for', '$http_x_forwarded_for'),
+    'extra-location-line': ('        proxy_http_version 1.1;', '        proxy_http_version 1.1;\n        add_header X-Test 1;'),
+    'other-certificate': ('live/api.example.test/fullchain', 'live/other.example.test/fullchain'),
+    'certificate-without-key': ('    ssl_certificate_key /etc/letsencrypt/live/api.example.test/privkey.pem; # managed by Certbot\n', ''),
+    'certbot-comment-hides-directive': ('    listen 443 ssl; # managed by Certbot', '    listen 443 ssl; # managed by Certbot; return 200;'),
+    'certbot-comment-on-foreign-line': ('    ssl_dhparam', '    return 200; # managed by Certbot\n    ssl_dhparam'),
+    'trailing-comment': ('    listen 443 ssl; # managed by Certbot', '    listen 443 ssl; # other'),
+    'redirect-other-host': ('return 301 https://$host$request_uri;', 'return 301 https://evil.example.test$request_uri;'),
+    'redirect-if-other-name': ('if ($host = api.example.test)', 'if ($host = other.example.test)'),
+    'redirect-proxy': ('    return 404;', '    location / {\n        proxy_pass http://127.0.0.1:8000;\n    }\n    return 404;'),
+    'redirect-include': ('    listen 80;', '    include /synthetic/other.conf;\n    listen 80;'),
+    'redirect-other-name': ('    listen [::]:80;\n    server_name api.example.test;', '    listen [::]:80;\n    server_name other.example.test;'),
+    'redirect-without-404': ('    return 404; # managed by Certbot\n', ''),
+    'third-server': (None, '\nserver {\n    listen 80;\n    server_name api.example.test;\n    return 404;\n}\n'),
+    'two-https': (None, '\n' + CERTBOT_SITE.split('}\nserver {')[0].replace('    INCLUDE\n', '') + '}\n'),
+}
+
+
+@pytest.mark.parametrize('fault', sorted(CERTBOT_FAULTS))
+def test_nginx_certbot_shape_variations_refuse_before_any_external_io(tmp_path, fault):
+    site, edits = CERTBOT_SITE, CERTBOT_FAULTS[fault]
+    for old, new in zip(edits[::2], edits[1::2]):
+        site = site + new if old is None else site.replace(old, new, 1)
+    assert site != CERTBOT_SITE and site.count('INCLUDE') == 1
+    ingress, fake = _nginx(tmp_path, site=site)
+    with pytest.raises(Refused, match='^window-nginx-topology$'):
+        ingress.verify_topology(timeout=5)
+    assert fake.calls == [] and not ingress.snippet.exists()
 
 class Nft:
     """Fake nft holding one ruleset; lists it in the exact JSON shape of nft 1.0.9."""
@@ -409,8 +500,9 @@ def test_window_preflight_metadata_queries_on_owned_postgres(database):  # noqa:
 @pytest.mark.parametrize('names', ['alias.example.test api.example.test', 'api.example.test alias.example.test',
                                  'API.EXAMPLE.TEST alias.example.test', '"api.example.test" alias.example.test',
                                  "'API.EXAMPLE.TEST' alias.example.test"])
-def test_effective_nginx_duplicate_server_alias_refuses(tmp_path, names):
-    ingress, fake = _nginx(tmp_path)
+@pytest.mark.parametrize('site', [None, CERTBOT_SITE])
+def test_effective_nginx_duplicate_server_alias_refuses(tmp_path, names, site):
+    ingress, fake = _nginx(tmp_path, site=site)
     def run(argv, **kwargs):
         rc, data = fake(argv, **kwargs)
         if argv[1:] == ('-T',):

@@ -160,43 +160,103 @@ class NginxConfig:
         return 'include ' + self.include_dir + '/*.conf;'
 
 
-def _validate_nginx_topology(text, config):
-    """Pure, deliberately narrow nominal grammar; other site formats need manual review.
+CERTBOT_SUFFIX = re.compile(r'[ \t]+# managed by Certbot$')
+PROXY_PASS = 'proxy_pass http://127.0.0.1:8000;'
+# Optional lines of the root location; each at most once. X-Forwarded-For feeds the API rate limit.
+LOCATION_OPTIONAL = frozenset({
+    'proxy_http_version 1.1;',
+    'proxy_set_header Host $host;',
+    'proxy_set_header X-Real-IP $remote_addr;',
+    'proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;',
+    'proxy_set_header X-Forwarded-Proto $scheme;',
+})
 
-    Only a single HTTPS server and its single root proxy location are supported. Comments
-    occupy whole lines; quotes, escapes, inline blocks and extra directives are not inferred.
-    The maintenance include belongs to the server rewrite phase, before the location.
+
+def _nginx_tree(text):
+    """[(head, children|None)] in file order; one statement or one brace per line, else refuse.
+
+    Comments occupy whole lines; the only trailing comment accepted is the exact
+    ``# managed by Certbot`` marker, stripped before the allowlist sees the line.
     """
-    stack, seen = [], set()
-    server_commands = {'server_name ' + config.server_name + ';', config.include_line, 'listen 443 ssl;'}
+    root = []
+    stack = [root]
     # Only LF ends a line/comment in this grammar; Unicode separators cannot
     # manufacture directives hidden inside one nginx comment.
     for raw in text.split('\n'):
-        line = raw.strip(' \t\r')
+        line = CERTBOT_SUFFIX.sub('', raw.strip(' \t\r'))
         if not line or line.startswith('#'):
             continue
-        if line == 'server {':
-            require(not stack and 'server' not in seen, 'window-nginx-topology')
-            seen.add('server')
-            stack.append('server')
-        elif line == 'location / {':
-            require(stack == ['server'] and config.include_line in seen and 'location' not in seen,
-                    'window-nginx-topology')
-            seen.add('location')
-            stack.append('location')
-        elif line == '}':
-            require(bool(stack), 'window-nginx-topology')
+        if line == '}':
+            require(len(stack) > 1, 'window-nginx-topology')
             stack.pop()
-        elif stack == ['server'] and line in server_commands:
-            require(line not in seen and (line != config.include_line or 'location' not in seen),
-                    'window-nginx-topology')
-            seen.add(line)
-        elif stack == ['server', 'location'] and line == 'proxy_pass http://127.0.0.1:8000;':
-            require('proxy' not in seen, 'window-nginx-topology')
-            seen.add('proxy')
+        elif line.endswith(' {') and not any(c in line[:-2] for c in '{};#'):
+            node = (line[:-2].rstrip(' \t'), [])
+            stack[-1].append(node)
+            stack.append(node[1])
+        elif line.endswith(';') and not any(c in line[:-1] for c in '{};#'):
+            stack[-1].append((line, None))
         else:
             raise Refused('window-nginx-topology')
-    require(not stack and seen == server_commands | {'server', 'location', 'proxy'}, 'window-nginx-topology')
+    require(len(stack) == 1, 'window-nginx-topology')
+    return root
+
+
+def _exact(children, required, optional=frozenset()):
+    """Plain statements only, each once, all of ``required``, nothing outside the allowlist."""
+    heads = [head for head, _ in children]
+    require(all(body is None for _, body in children) and len(heads) == len(set(heads))
+            and required <= set(heads) <= required | optional, 'window-nginx-topology')
+
+
+def _validate_https_server(children, config):
+    name = config.server_name
+    heads = [head for head, _ in children]
+    require(heads.count('location /') == 1 and heads.count(config.include_line) == 1
+            # The maintenance include belongs to the server rewrite phase, before the location.
+            and heads.index(config.include_line) < heads.index('location /'), 'window-nginx-topology')
+    location = children[heads.index('location /')][1]
+    require(location is not None, 'window-nginx-topology')
+    _exact(location, {PROXY_PASS}, LOCATION_OPTIONAL)
+    certificate = {'ssl_certificate /etc/letsencrypt/live/' + name + '/fullchain.pem;',
+                   'ssl_certificate_key /etc/letsencrypt/live/' + name + '/privkey.pem;'}
+    require(len(certificate & set(heads)) in (0, 2), 'window-nginx-topology')
+    _exact([c for c in children if c[0] != 'location /'],
+           {'server_name ' + name + ';', config.include_line, 'listen 443 ssl;'},
+           certificate | {'listen [::]:443 ssl ipv6only=on;', 'include /etc/letsencrypt/options-ssl-nginx.conf;',
+                          'ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;'})
+
+
+def _validate_redirect_server(children, config):
+    """Certbot's port-80 block: redirect the public name to HTTPS, 404 anything else."""
+    name = config.server_name
+    branch = 'if ($host = ' + name + ')'
+    heads = [head for head, _ in children]
+    require(heads.count(branch) == 1, 'window-nginx-topology')
+    body = children[heads.index(branch)][1]
+    require(body == [('return 301 https://$host$request_uri;', None)], 'window-nginx-topology')
+    _exact([c for c in children if c[0] != branch],
+           {'server_name ' + name + ';', 'listen 80;', 'return 404;'}, {'listen [::]:80;'})
+
+
+def _validate_nginx_topology(text, config):
+    """Pure, deliberately narrow allowlist of the API site; other formats need manual review.
+
+    Exactly one HTTPS server (certbot TLS lines optional) with a single root proxy location,
+    plus at most one certbot port-80 redirect server for the same name. Every line must match
+    the allowlist exactly; quotes, escapes, inline blocks and extra directives are refused.
+    Returns the number of server blocks (each declares ``server_name`` once).
+    """
+    tree = _nginx_tree(text)
+    require(all(head == 'server' and body is not None for head, body in tree) and 1 <= len(tree) <= 2,
+            'window-nginx-topology')
+    https = [body for _, body in tree if any(head == 'location /' for head, _ in body)]
+    require(len(https) == 1, 'window-nginx-topology')
+    for _, body in tree:
+        if body is https[0]:
+            _validate_https_server(body, config)
+        else:
+            _validate_redirect_server(body, config)
+    return len(tree)
 
 
 class NginxMaintenanceIngress(_Binding):
@@ -226,18 +286,24 @@ class NginxMaintenanceIngress(_Binding):
         """Constrained nominal site only; complex/ambiguous server routing refuses for review."""
         deadline = _deadline(timeout)
         text = self._include_present()
-        _validate_nginx_topology(text, self.config)
+        servers = _validate_nginx_topology(text, self.config)
         rc, out = self._run((self.config.nginx_binary, '-T'), deadline, code='window-nginx-topology')
         require(rc == 0, 'window-nginx-topology')
         marker = '# configuration file ' + self.config.site_path + ':\n'
         effective = out.decode('utf-8')
         require(effective.count(marker) == 1, 'window-nginx-topology')
-        selected = effective.split(marker, 1)[1].split('# configuration file ', 1)[0]
-        require(selected.strip() == text.strip()
-                and sum(self.config.server_name.lower() in [token.strip("'\"").lower() for token in names.split()]
-                        for names in re.findall(
-                    r'\bserver_name\s+([^;{}]+);', re.sub(r'#[^\n]*', '', effective))) == 1,
+        before, after = effective.split(marker, 1)
+        selected = after.split('# configuration file ', 1)[0]
+        outside = before + after[len(selected):]
+        require(selected.strip() == text.strip(), 'window-nginx-topology')
+        # The public name lives only in this site: once per server block here (HTTPS and the
+        # optional port-80 redirect), never in any other effective file.
+        require(self._name_count(selected) == servers and self._name_count(outside) == 0,
                 'window-nginx-topology')
+
+    def _name_count(self, config_text):
+        return sum(self.config.server_name.lower() in [token.strip("'\"").lower() for token in names.split()]
+                   for names in re.findall(r'\bserver_name\s+([^;{}]+);', re.sub(r'#[^\n]*', '', config_text)))
 
     def _directory(self):
         try:

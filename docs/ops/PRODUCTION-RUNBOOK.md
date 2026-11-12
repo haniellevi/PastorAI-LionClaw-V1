@@ -810,6 +810,7 @@ contenção até a A9 numa execução só. O modo `a10` é uma execução separa
 | V3 | Ensaio sintético verde no SHA escolhido e os quatro checks do CI. | — |
 | V4 | Aviso à equipe: todos serão deslogados; painel e WhatsApp ficam pausados durante a janela. | Raniel envia |
 | V5 | Pré-requisitos do painel (seção 12.5): Vercel CLI logada na conta certa, checkout limpo do SHA ligado ao projeto, variáveis conferidas por nome, publicação automática desligada e ID do deployment atual anotado. | dentro do SIM 1 (só leitura) |
+| V6 | Edição única do site nginx da API: pasta vazia `/etc/nginx/igreja12-window` (root, 0755) e a linha `include /etc/nginx/igreja12-window/*.conf;` logo após `server_name` no bloco 443, com backup, `nginx -t` e reload. Certificado, IPv6, cabeçalhos de proxy e o bloco de redirecionamento da porta 80 continuam como estão: a ferramenta aceita esse formato do certbot (seção "Topologia nginx nominal" do `RELEASE-LOTE-2026-10.md`). | **SIM próprio** (edição na VPS) |
 
 ### 12.2 Janela
 
