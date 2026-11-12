@@ -175,6 +175,12 @@ def config(tmp_path, **overrides):
     return wb.WindowBackupConfig(**values)
 
 
+def sub(tmp_path, name):
+    path = tmp_path / name
+    path.mkdir()
+    return path
+
+
 def expectation(plan, rows=RESTORED_ROWS):
     return fdb.DatabaseExpectation('c' * 64, plan.baseline, digest([list(r) for r in rows]))
 
@@ -187,7 +193,12 @@ def request(plan, expected, **overrides):
     return value
 
 
+PINNED = (('event_trigger_names', ('issue_pg_net_access',)), ('event_triggers', 2), ('vault_extension', 2),
+          ('vault_schema', 2))
+
+
 def provider(plan, tmp_path, host, expected=None, **overrides):
+    overrides.setdefault('restore_excluded_expected', PINNED)
     return wb.WindowBackup(config(tmp_path, **overrides), plan, expected or expectation(plan),
                            secret=lambda: SOURCE_URL, connect=source_connect, run=host.run,
                            clone_connect=host.clone_connect, migrate_run=host.migrate, sleep=lambda s: None)
@@ -435,7 +446,9 @@ def test_restore_uses_a_filtered_list_without_vault_and_foreign_owned_event_trig
 
 def test_event_triggers_owned_by_a_clone_superuser_are_kept(plan, tmp_path):
     host, expected = Host(plan), expectation(plan)
-    provider(plan, tmp_path, host, expected, clone_superusers=('postgres', 'supabase_admin'))(request(plan, expected))
+    provider(plan, tmp_path, host, expected, clone_superusers=('postgres', 'supabase_admin'),
+             restore_excluded_expected=(('event_trigger_names', ()), ('event_triggers', 0), ('vault_extension', 2),
+                                        ('vault_schema', 2)))(request(plan, expected))
     text = host.copied[wb.CLONE_LIST].decode()
     assert 'EVENT TRIGGER - issue_pg_net_access supabase_admin' in text and 'supabase_vault' not in text
 
@@ -483,3 +496,65 @@ def test_restore_stderr_is_bounded_when_read(plan, tmp_path):
     host.restore_stderr = b'pg_restore: from TOC entry 9; 1 2 EXTENSION - x y\n' + b'x' * (wb.STDERR_BOUND * 3)
     with pytest.raises(Refused, match='^window-backup-restore-failed-extension$'):
         provider(plan, tmp_path, host)(request(plan, expectation(plan)))
+
+
+def test_vault_namespace_entries_are_removed_but_lookalikes_stay():
+    listing = LISTING + '\n'.join([
+        '4020; 0 16500 TABLE DATA vault secrets supabase_admin',
+        '4021; 0 0 SEQUENCE SET vault secrets_id_seq supabase_admin',
+        '4022; 1259 16501 TABLE public vault_notes postgres',
+        '4023; 0 16501 TABLE DATA public vault_notes postgres',
+        '4024; 1259 16502 TABLE public vault postgres',
+        '4025; 1255 16503 FUNCTION public vault vault_helper() postgres',
+    ]) + '\n'
+    lines, removed = wb.filter_restore_list(listing, frozenset({'postgres'}))
+    text = '\n'.join(lines)
+    assert removed['vault_schema'] == 4 and 'DATA vault secrets' not in text and 'secrets_id_seq' not in text
+    for stays in ('TABLE public vault_notes', 'TABLE DATA public vault_notes', 'TABLE public vault postgres'):
+        assert stays in text
+
+
+def test_excluded_pin_equal_passes_different_refuses_before_any_restore(plan, tmp_path):
+    host, expected = Host(plan), expectation(plan)
+    provider(plan, tmp_path, host, expected)(request(plan, expected))  # PINNED equals the synthetic dump
+    for bad in ((('event_trigger_names', ('outro',)), ('event_triggers', 2), ('vault_extension', 2), ('vault_schema', 2)),
+                (('event_trigger_names', ('issue_pg_net_access',)), ('event_triggers', 2), ('vault_extension', 2),
+                 ('vault_schema', 1))):
+        host = Host(plan)
+        with pytest.raises(Refused, match='^window-backup-restore-excluded$'):
+            provider(plan, sub(tmp_path, 'x%d' % len(bad[0][1][0])), host, expected, restore_excluded_expected=bad)(
+                request(plan, expected))
+        assert not host.restored and host.copied == {} and host.migrations == []
+        assert 'window-backup-restore-excluded' in wb.BACKUP_CODES
+
+
+def test_excluded_pin_is_required_for_the_window_and_optional_for_the_rehearsal(plan, tmp_path):
+    expected = expectation(plan)
+    host = Host(plan)
+    with pytest.raises(Refused, match='^window-backup-restore-excluded$'):
+        provider(plan, sub(tmp_path, 'a'), host, expected, restore_excluded_expected=())(request(plan, expected))
+    assert host.calls == []  # nothing ran, not even the dump
+    host = Host(plan)
+    rehearsal = request(plan, expected, schema=wb.REHEARSAL_SCHEMA)
+    receipt = provider(plan, sub(tmp_path, 'b'), host, expected, restore_excluded_expected=())(rehearsal)
+    assert receipt['clone_rehearsal']['restore_excluded']['event_trigger_names'] == ['issue_pg_net_access']
+    assert isinstance(receipt['restore_seconds'], float)
+    # a pinned value is honoured in the rehearsal too
+    host = Host(plan)
+    with pytest.raises(Refused, match='^window-backup-restore-excluded$'):
+        provider(plan, sub(tmp_path, 'c'), host, expected, restore_excluded_expected=(
+            ('event_trigger_names', ()), ('event_triggers', 0), ('vault_extension', 0), ('vault_schema', 0)))(
+            request(plan, expected, schema=wb.REHEARSAL_SCHEMA))
+
+
+def test_excluded_pin_from_dict_validates_shape():
+    base = dict(docker_binary='/usr/bin/docker', docker_endpoint='unix:///run/docker.sock',
+                docker_config_dir='/state/docker-cli', backup_root='/b', clone_workdir='/c', python='/p/python',
+                dump_image=IMAGE, clone_image=CLONE_IMAGE)
+    good = dict(vault_extension=2, vault_schema=2, event_triggers=2, event_trigger_names=['a'])
+    assert dict(wb.WindowBackupConfig.from_dict({**base, 'restore_excluded_expected': good}
+                                                ).restore_excluded_expected)['event_trigger_names'] == ('a',)
+    for bad in ({**good, 'extra': 1}, {**good, 'event_triggers': -1}, {**good, 'event_trigger_names': ['a b']},
+                {**good, 'vault_schema': True}, 'x', {**good, 'event_trigger_names': 'a'}):
+        with pytest.raises(Refused, match='^window-backup-restore-excluded$'):
+            wb.WindowBackupConfig.from_dict({**base, 'restore_excluded_expected': bad})

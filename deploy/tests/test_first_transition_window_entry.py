@@ -99,7 +99,9 @@ class Entry:
                            backup_root=str(tmp_path / 'backups'), clone_workdir=str(tmp_path / 'clone-work'),
                            python=c.python, dump_image='registry.invalid/dump@sha256:' + '1' * 64,
                            clone_image='registry.invalid/clone@sha256:' + '2' * 64,
-                           clone_command=['postgres', '-c', 'shared_preload_libraries='])
+                           clone_command=['postgres', '-c', 'shared_preload_libraries='],
+                           restore_excluded_expected=dict(vault_extension=2, vault_schema=2, event_triggers=2,
+                                                          event_trigger_names=['issue_pg_net_access']))
         self.paths = {k: tmp_path / (k + '.json') for k in ('config', 'backup', 'bindings')}
         self.write()
         self.calls, self.connections = [], []

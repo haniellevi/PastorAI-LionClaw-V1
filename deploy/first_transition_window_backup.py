@@ -62,7 +62,10 @@ STDERR_BOUND = 65536
 # pg_restore -l entry: "<dump id>; <catalog oid> <oid> <DESC> <namespace|-> <tag...> <owner|->"
 TOC_ENTRY = re.compile(r'(\d+); \d+ \d+ (.+)')
 TOC_VAULT_EXTENSION = re.compile(r'(?:EXTENSION - supabase_vault|COMMENT - EXTENSION supabase_vault)(?: \S+)?')
-TOC_VAULT_SCHEMA = re.compile(r'(?:ACL|DEFAULT ACL|COMMENT|SECURITY LABEL) (?:vault .*|- SCHEMA vault(?: \S+)?)')
+# Any entry whose namespace is the vault schema (TABLE DATA, SEQUENCE SET, ACL, COMMENT, ...). The namespace is the
+# token right after the uppercase DESC words, so ``TABLE public vault_notes`` is NOT matched.
+TOC_VAULT_SCHEMA = re.compile(r'(?:[A-Z]+ )+(?:vault .*|- SCHEMA vault(?: \S+)?)')
+EXCLUDED_KEYS = ('event_trigger_names', 'event_triggers', 'vault_extension', 'vault_schema')
 TOC_EVENT_TRIGGER = re.compile(r'EVENT TRIGGER - (\S+) (\S+)')
 TOC_EVENT_COMMENT = re.compile(r'COMMENT - EVENT TRIGGER (\S+)(?: \S+)?')
 # Fixed vocabulary of the object kind that stopped pg_restore (never a name, value or message text).
@@ -93,6 +96,9 @@ class WindowBackupConfig:
     restore_user: str = 'postgres'
     migration_user: str = 'postgres'
     clone_superusers: tuple = ()
+    # Optional pin of what filter_restore_list must remove (copied from the V9 receipt's ``restore_excluded``).
+    # Optional for rehearse-backup; REQUIRED for the window request. Stored as sorted (key, value) pairs.
+    restore_excluded_expected: tuple = ()
     timeouts: tuple = tuple(sorted(TIMEOUTS.items()))
 
     def validated(self):
@@ -108,6 +114,15 @@ class WindowBackupConfig:
         require(all(isinstance(r, str) and ROLE.fullmatch(r) for r in (self.admin_user, self.restore_user,
                                                                          self.migration_user, *self.clone_superusers))
                 and type(self.clone_superusers) is tuple, 'window-backup-roles')
+        pinned = dict(self.restore_excluded_expected)
+        require(type(self.restore_excluded_expected) is tuple
+                and (not pinned or (set(pinned) == set(EXCLUDED_KEYS)
+                                    and all(type(pinned[k]) is int and 0 <= pinned[k] <= 64
+                                            for k in ('event_triggers', 'vault_extension', 'vault_schema'))
+                                    and type(pinned['event_trigger_names']) is tuple
+                                    and all(isinstance(n, str) and ROLE.fullmatch(n)
+                                            for n in pinned['event_trigger_names']))),
+                'window-backup-restore-excluded')
         values = dict(self.timeouts)
         require(type(self.timeouts) is tuple and set(values) == set(TIMEOUTS)
                 and all(type(v) is int and 0 < v <= 3600 for v in values.values()), 'window-backup-timeouts')
@@ -129,6 +144,12 @@ class WindowBackupConfig:
             if key in values:
                 require(isinstance(values[key], list), 'window-backup-config-keys')
                 values[key] = tuple(values[key])
+        if 'restore_excluded_expected' in values:
+            pinned = values['restore_excluded_expected']
+            require(isinstance(pinned, dict) and set(pinned) == set(EXCLUDED_KEYS)
+                    and isinstance(pinned['event_trigger_names'], list), 'window-backup-restore-excluded')
+            values['restore_excluded_expected'] = tuple(sorted(
+                (k, tuple(v) if isinstance(v, list) else v) for k, v in pinned.items()))
         if 'timeouts' in values:
             require(isinstance(values['timeouts'], dict) and set(values['timeouts']) <= set(TIMEOUTS),
                     'window-backup-timeouts')
@@ -239,7 +260,8 @@ BACKUP_CODES = frozenset({
     'window-backup-config-keys', 'window-backup-dump-failed', 'window-backup-dump-format',
     'window-backup-final-invalid-index', 'window-backup-final-ledger', 'window-backup-image-unpinned',
     'window-backup-network', 'window-backup-network-failed', 'window-backup-output', 'window-backup-paths',
-    'window-backup-plan', 'window-backup-request', 'window-backup-restore-catalog', 'window-backup-restore-failed',
+    'window-backup-plan', 'window-backup-request', 'window-backup-restore-catalog',
+    'window-backup-restore-excluded', 'window-backup-restore-failed',
     'window-backup-restore-invalid-index', 'window-backup-restore-ledger', 'window-backup-restore-list',
     'window-backup-restore-list-failed', 'window-backup-roles', 'window-backup-root-missing',
     'window-backup-run-exists', 'window-backup-secret', 'window-backup-source-roles', 'window-backup-spawn-failed',
@@ -399,6 +421,10 @@ class WindowBackup:
             raise Refused('window-backup-restore-list') from None
         superusers = frozenset((self.config.restore_user, *self.config.clone_superusers))
         lines, removed = filter_restore_list(listing, superusers)
+        pinned = dict(self.config.restore_excluded_expected)
+        # Before anything is copied or restored: a pinned value that differs means the dump changed shape.
+        require(not pinned or {**removed, 'event_trigger_names': tuple(removed['event_trigger_names'])} == pinned,
+                'window-backup-restore-excluded')
         kept = run_dir / 'restore.list'
         fd = os.open(kept, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'w', encoding='utf-8') as out:
@@ -464,6 +490,8 @@ class WindowBackup:
                 and request.get('baseline_digest') == self.expected.baseline_digest
                 and isinstance(request.get('nonce'), str) and re.fullmatch('[0-9a-f]{64}', request['nonce']),
                 'window-backup-request')
+        require(request['schema'] != BACKUP_REQUEST_SCHEMA or self.config.restore_excluded_expected,
+                'window-backup-restore-excluded')
         request_digest = digest(request)
         started = self.clock()
         run_dir = self._run_dir(request_digest)
@@ -477,7 +505,9 @@ class WindowBackup:
             created = self._prepare_clone(admin, roles, password)
             admin.close()
             admin = None
+            restore_started = self.clock()
             removed = self._restore(name, path, password, run_dir)
+            restore_seconds = round(self.clock() - restore_started, 1)
             restored = self._state(address, password)
             require(restored['ledger'] == self.plan.baseline, 'window-backup-restore-ledger')
             require(restored['invalid'] == 0, 'window-backup-restore-invalid-index')
@@ -503,4 +533,4 @@ class WindowBackup:
                         final_schema_digest=final['catalog'], restored_catalog=restored['catalog'],
                         roles_created=created, restore_excluded=removed, clone_image=self.config.clone_image,
                         dump_image=self.config.dump_image),
-                    seconds=round(self.clock() - started, 1))
+                    restore_seconds=restore_seconds, seconds=round(self.clock() - started, 1))

@@ -1212,7 +1212,21 @@ então outras extensões do Supabase podem exigir novo ensaio; o sufixo é o tip
 parou o restore, nunca nome ou valor). O restore copia o dump também para
 dentro do clone (some com ele; mais disco e um pouco mais de tempo, que conta
 no `seconds`); nada foi alterado no sistema antigo. O `rehearse-backup` guarda uma cópia do banco em
-`window-backups` (root 0700); ela fica até o fim da janela.
+`window-backups` (root 0700); ela fica até o fim da janela. Na mesma pasta
+ficam também `restore-full.list` e `restore.list` (só nomes de objetos do
+banco, sem dados; 0600).
+
+**Travar os números do restore no `backup.json` (ao dar o SIM 2).** O recibo
+do V9 traz `restore_excluded` (`vault_extension`, `vault_schema`,
+`event_triggers`, `event_trigger_names`) e `restore_seconds` (só o restore;
+`seconds` continua sendo o total). O operador confere os nomes e copia o
+`restore_excluded` do recibo, sem mudar nada, para o campo
+`restore_excluded_expected` do `$W/backup.json` na VPS (arquivo do kit, fora
+do Git; o `rehearse-backup` funciona sem o campo, é assim que se descobre o
+valor). No modo `run` o campo é **obrigatório**: sem ele, ou com números
+diferentes dos do dump da hora, a janela recusa com
+`window-backup-restore-excluded`, antes de copiar ou restaurar qualquer coisa
+no clone. Mudou o `backup.json`? Refazer o `prepare` e conferir os digests.
 
 #### Roteiro do dia
 
