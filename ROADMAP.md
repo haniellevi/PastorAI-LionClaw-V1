@@ -399,10 +399,12 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
   auditorias das dependências de produção registradas como limpas em 10/10, mas permaneciam cinco
   alertas altos nas ferramentas ligados a `braces`. Situação atual **não verificado**.
 - **falta (decidido em 12/11, implementar):** B3 inbox só para os papéis fixos
-  atuais, removendo da configuração a opção de acesso customizado; B4 envio
-  humano bloqueia contato com opt-out e visitante em reunião passada é aceito
-  no painel e recusado no WhatsApp. Preservar opt-out global e regras por
-  canal; refatoração não muda comportamento silenciosamente.
+  atuais, removendo da configuração a opção de acesso customizado.
+- **feito (código, sem release):** B4 — o envio humano pelo painel (texto e
+  mídia) usa a mesma checagem de opt-out global do agente e recusa com 409 e
+  motivo visível ao atendente, antes de Storage/Evolution; a indicação de
+  visitante para reunião passada é uma regra única por canal (aceita no painel,
+  recusada no WhatsApp com orientação para usar o painel).
 - **em andamento:** B5 (CSIM comercial) integrado pela #591 (`de437cf2`; checks
   do SHA `a9ca7c0a` verdes antes do merge): "comercial" passa a exigir
   oferta explícita do próprio contato (verbo em 1ª pessoa ou após auxiliar em

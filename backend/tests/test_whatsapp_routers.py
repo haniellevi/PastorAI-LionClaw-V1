@@ -208,6 +208,8 @@ def test_send_media_guard_blocks_before_storage_upload(monkeypatch) -> None:
         estado="humano",
         assumido_por=app_user_id,
         telefone="5511999990000",
+        pessoa_id=None,
+        igreja_id=igreja_id,
     )
     connection = SimpleNamespace(status="online", instance="igreja-1")
 
@@ -251,6 +253,49 @@ def test_send_media_guard_blocks_before_storage_upload(monkeypatch) -> None:
         )
 
     assert exc_info.value.status_code == 503
+
+
+def test_send_media_blocked_by_optout_before_storage_upload(monkeypatch) -> None:
+    """B4: contato em opt-out bloqueia mídia humana antes de Storage/Evolution."""
+    from app.domain.consent import OPTOUT_HUMAN_SEND_BLOCKED_DETAIL
+    from app.routers import conversations
+
+    app_user_id = uuid.uuid4()
+    igreja_id = uuid.uuid4()
+    conv = SimpleNamespace(
+        id=uuid.uuid4(), estado="humano", assumido_por=app_user_id,
+        telefone="5500000000000", pessoa_id=uuid.uuid4(), igreja_id=igreja_id,
+    )
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return True  # pessoas.optout
+
+    class _DB:
+        def execute(self, _query):
+            return _Result()
+
+    class _Forbidden:
+        def __getattr__(self, _name):  # pragma: no cover - must not run
+            raise AssertionError("nenhum efeito externo com opt-out")
+
+    monkeypatch.setattr(conversations, "_get_conversation_for_update", lambda *_a: conv)
+    monkeypatch.setattr(conversations, "_authorize_conversation_view", lambda *_a: None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        conversations.send_media_message(
+            str(conv.id),
+            conversations.SendMediaRequest(mime="image/png", base64="Zm9v"),
+            db=_DB(),
+            current_user=SimpleNamespace(
+                igreja_id=str(igreja_id), app_user_id=str(app_user_id),
+                chat_nome=None, nome="Pastor Teste",
+            ),
+            evolution=_Forbidden(),
+            storage=_Forbidden(),
+        )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == OPTOUT_HUMAN_SEND_BLOCKED_DETAIL
 
 
 # ---- MessageOut carrega o nome de quem respondeu (Parte A) -----------------

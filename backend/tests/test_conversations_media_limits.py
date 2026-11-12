@@ -293,6 +293,7 @@ def test_send_media_rejects_decoded_payload_over_limit(monkeypatch) -> None:
             "estado": "humano",
             "assumido_por": app_user_id,
             "telefone": "5511999990000",
+            "pessoa_id": None,  # sem Pessoa vinculada: sem checagem de opt-out
         },
     )()
     monkeypatch.setattr(conversations, "_get_conversation_for_update", lambda *_: conv)
