@@ -1,4 +1,7 @@
 target-version = "py313"
 
+# Regras que valem para todo o código. Fuso (DTZ), except amplo (BLE001) e
+# import sem uso (F401) valem só para linhas novas ou alteradas, pelo gate
+# backend/scripts/ruff_changed_lines.py (rodado no backend-tests).
 [lint]
 select = ["E9", "F63", "F7", "F82", "F841"]

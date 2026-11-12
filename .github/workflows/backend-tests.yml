@@ -105,6 +105,15 @@ jobs:
         working-directory: .
         run: PATH="$RUNNER_TEMP/pip-audit-venv/bin:$PATH" ruff check backend
 
+      # Fuso (DTZ), except amplo (BLE001) e import sem uso (F401) só nas linhas
+      # novas ou alteradas: o código antigo tem centenas de casos e não muda aqui.
+      # Em pull_request o checkout é o merge do PR, então HEAD^1 é a base atual.
+      - name: Ruff ampliado em linhas novas ou alteradas
+        working-directory: .
+        run: >-
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" backend/scripts/ruff_changed_lines.py
+          --base HEAD^1 --ruff "$RUNNER_TEMP/pip-audit-venv/bin/ruff"
+
   deploy-release:
     name: backend-deploy-release
     runs-on: ubuntu-24.04
