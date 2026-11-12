@@ -1117,6 +1117,18 @@ consulta), 78 migrations no ledger, banco com 23 MB, PostgreSQL 17.6.
    com 23 MB de banco nenhuma migration deve chegar perto de 2 min, e o
    ensaio V9 mede isso no clone. Se alguma passar de 60 s no clone, parar e
    decidir antes da janela.
+   - Não altere a role (`ALTER ROLE` nem outro ajuste persistente).
+   - `PGOPTIONS` não serve aqui. O executor da janela monta o ambiente do
+     processo do `migrate.py` do zero e só aceita `PATH`, `LC_ALL`, `LANG`,
+     `PYTHON_DOTENV_DISABLED`, `MIGRATION_DATABASE_URL`, `PGAPPNAME` e
+     `PGCONNECT_TIMEOUT`.
+   - A URL do aplicador também recusa o parâmetro `options`.
+   - O `migrate.py` fixo (`37c7d68d`) só define `lock_timeout` (2 s, `SET
+     LOCAL`) e não mexe no `statement_timeout`. Cada migration roda, portanto,
+     com os 2 min da role.
+   - O pooler do Supabase também ignora `PGOPTIONS` (regra no topo deste
+     runbook).
+   - Conferido no código em 12/11. Decisão com o orquestrador.
 
 #### Preparação (V8, SIM próprio; V9 dentro dele)
 
