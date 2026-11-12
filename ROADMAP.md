@@ -375,7 +375,7 @@ autorização. Leitura por amostragem: sem testes, typecheck nem lint na anális
 | 3 | CSP | primeiro `Content-Security-Policy-Report-Only`, depois bloqueando. Cookie de sessão HttpOnly (hoje legível por script, em `.igreja12.com.br` e no `localStorage`) fica como item próprio, com revisão independente de autenticação | modo de teste feito (#647); falta bloquear |
 | 4 | Verificação Python | ruff ampliado (fuso, `except` amplo, import sem uso) só em código novo ou alterado | feita (#648) |
 | 5 | CI | `backend-tests` em partes paralelas; instalação reaproveitada entre workflows | feita (#649) |
-| 6 | Documentos | `SPEC.md`, `SPEC_PROGRESS.md`, `Plan-Designer-Igreja12/`, `relatorio-shard3-rls.md` e o histórico deste roteiro para `docs/historico/` | PR #650 aberta |
+| 6 | Documentos | `SPEC.md`, `SPEC_PROGRESS.md`, `Plan-Designer-Igreja12/`, `relatorio-shard3-rls.md` e o histórico deste roteiro para `docs/historico/` | feita (#650) |
 | 7 | Arquivar E4B | retirar do app o código de consentimento E4B sem uso | PR #651 aberta |
 | 8 | Tipos gerados | tipos do painel gerados do OpenAPI do backend | PR #652 aberta |
 | 9 | Tipagem Python | checagem de tipos começando por poucas pastas | PR #653 aberta |
