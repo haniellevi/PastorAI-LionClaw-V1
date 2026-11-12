@@ -107,8 +107,8 @@ def test_handoff_revokes_media_read_before_storage_call(app, history_db):
     p = history_db
     with p.factory.begin() as db:
         db.get(Conversation, CONV).assumido_por = uuid.UUID(p.actors['membro'].app_user_id)
-        db.add(RolePermission(igreja_id=TENANT, papel="secretaria", tela="inbox"))
-    client, calls = client_for(app, history_db, roles=("secretaria",))
+        db.add(RolePermission(igreja_id=TENANT, papel="operador", tela="inbox"))
+    client, calls = client_for(app, history_db, roles=("operador",))
     response = client.get(f"/conversations/{CONV}/messages/media-urls", params={"ids": str(uuid.UUID(int=101))})
     assert response.status_code == 404
     assert calls == []

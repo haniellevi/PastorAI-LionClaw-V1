@@ -138,6 +138,25 @@ def tier_a_optout_confirmation_key(igreja_id: UUID, conversation_id: UUID) -> st
     )
 
 
+# Decisão B4 (12/11/2026): o opt-out global vale para QUALQUER envio ao contato,
+# do agente ou de uma pessoa da equipe pelo painel. Uma única checagem para os
+# dois caminhos; reativar comunicações é ação própria (Contatos, admin/pastor).
+OPTOUT_HUMAN_SEND_BLOCKED_DETAIL = (
+    "Este contato pediu para não receber mensagens (opt-out). O envio foi "
+    "bloqueado. Só um admin ou pastor pode reativar as comunicações em "
+    "Contatos, e apenas se a própria pessoa pedir."
+)
+
+
+def outbound_blocked_by_optout(optout: object) -> bool:
+    """True quando o contato está em opt-out global e nada pode ser enviado.
+
+    ``pessoas.optout`` é NOT NULL; o caminho humano trata a linha ausente antes
+    (falha fechada). Aqui mantém-se a semântica histórica do agente.
+    """
+    return bool(optout)
+
+
 def term_text(current_version: str, igreja_nome: str | None = None) -> str:
     """Render the consent term message presented before extra data collection."""
     quem = igreja_nome or "nossa igreja"

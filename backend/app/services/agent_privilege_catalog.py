@@ -32,7 +32,7 @@ from app.deps import CurrentUser
 from app.domain import cell_meetings_schedule
 from app.domain.agent_authz import MINISTERIAL_ROLES, CONSOLIDATION_TOOL_ROLES
 from app.domain.consolidation import VALID_VINCULOS
-from app.domain.visitor import VisitorNameError, canonical_visitor_name
+from app.domain.visitor import CANAL_WHATSAPP, VisitorNameError, canonical_visitor_name
 from app.services.ministerial_actions import (
     can_mark_for_other, confirm_meeting_attendance, register_decision,
     register_own_visitor_expectation,
@@ -1295,7 +1295,8 @@ def execute_catalog_action(session: Session, context, code: str, arguments: Mapp
             raise HTTPException(403, 'Ação não autorizada')
         row = register_own_visitor_expectation(session, _user(context),
             reuniao_id=uuid.UUID(args['reuniao_id']), nome_visitante=args['nome_visitante'],
-            observacao_oracao=None, expected_actor_pessoa_id=context.pessoa_id)
+            observacao_oracao=None, expected_actor_pessoa_id=context.pessoa_id,
+            canal=CANAL_WHATSAPP)
         return str(row.id)
     person_id = uuid.UUID(args['pessoa_id'])
     if code == 'marcar_presenca':

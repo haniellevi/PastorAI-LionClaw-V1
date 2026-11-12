@@ -42,6 +42,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role, require_screen
 from app.domain.agent_reply import AGENT_REPLY_CONFIRMED
+from app.domain.consent import OPTOUT_HUMAN_SEND_BLOCKED_DETAIL, outbound_blocked_by_optout
 from app.domain.conversations import (
     can_access_inbox,
     has_full_inbox,
@@ -693,6 +694,7 @@ def send_message(
             status_code=status.HTTP_409_CONFLICT,
             detail="Assuma o atendimento antes de responder.",
         )
+    _assert_contact_reachable(db, conv)
 
     conn = db.execute(
         select(WhatsappConnection).where(
@@ -770,6 +772,7 @@ def send_media_message(
             status_code=status.HTTP_409_CONFLICT,
             detail="Assuma o atendimento antes de responder.",
         )
+    _assert_contact_reachable(db, conv)
 
     conn = db.execute(
         select(WhatsappConnection).where(
@@ -950,6 +953,33 @@ def _get_conversation_for_update(db: Session, conversation_id: str) -> Conversat
             status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada"
         )
     return conv
+
+
+def _assert_contact_reachable(db: Session, conv: Conversation) -> None:
+    """B4: envio humano obedece ao mesmo opt-out global do agente.
+
+    Roda depois da autorização da conversa e ANTES de qualquer efeito externo
+    (Storage ou Evolution). A conversa já está travada (FOR UPDATE) pelo
+    chamador, o que serializa com o registro de opt-out pelo agente.
+    """
+    if conv.pessoa_id is None:
+        return
+    optout = db.execute(
+        select(Pessoa.optout).where(
+            Pessoa.id == conv.pessoa_id, Pessoa.igreja_id == conv.igreja_id
+        )
+    ).scalar_one_or_none()
+    if optout is None:
+        # Vínculo inconsistente: falha fechada, sem revelar detalhes.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Contato indisponível para envio.",
+        )
+    if outbound_blocked_by_optout(optout):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=OPTOUT_HUMAN_SEND_BLOCKED_DETAIL,
+        )
 
 
 def _authorize_conversation_view(conv: Conversation, current_user: CurrentUser) -> None:
