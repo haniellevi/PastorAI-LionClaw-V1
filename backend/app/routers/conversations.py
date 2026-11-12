@@ -36,7 +36,6 @@ from app.db.models import (
     Conversation,
     Message,
     Pessoa,
-    UserRole,
     WhatsappConnection,
 )
 from app.db.session import get_db
@@ -44,7 +43,6 @@ from app.deps import CurrentUser, require_role, require_screen
 from app.domain.agent_reply import AGENT_REPLY_CONFIRMED
 from app.domain.consent import OPTOUT_HUMAN_SEND_BLOCKED_DETAIL, outbound_blocked_by_optout
 from app.domain.conversations import (
-    can_access_inbox,
     has_full_inbox,
     media_snippet,
     resolve_handoff,
@@ -55,6 +53,11 @@ from app.services.evolution import (
     EvolutionClient,
     EvolutionError,
     get_evolution_client,
+)
+from app.services.conversation_assignment import (
+    AssignmentTargetNotFound,
+    AssignmentTargetWithoutInbox,
+    assign_conversation_locked,
 )
 from app.services.conversation_handoff import fence_agent_replies_for_handoff
 from app.services.outbound_guard import external_sends_allowed, log_suppressed
@@ -423,41 +426,24 @@ def transfer_conversation(
                 detail="Assuma o atendimento antes de transferir.",
             )
 
-    igreja_id = uuid.UUID(current_user.igreja_id)
     target_id = uuid.UUID(payload.toUserId)
-    target = db.execute(
-        select(AppUser).where(
-            AppUser.id == target_id,
-            AppUser.igreja_id == igreja_id,
-            or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+    try:
+        target = assign_conversation_locked(
+            db,
+            conversation=conv,
+            target_user_id=target_id,
+            igreja_id=uuid.UUID(current_user.igreja_id),
         )
-    ).scalar_one_or_none()
-    if target is None:
+    except AssignmentTargetNotFound as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuário de destino não encontrado",
-        )
-    target_roles = db.execute(
-        select(UserRole.papel).where(
-            UserRole.user_id == target_id,
-            UserRole.igreja_id == igreja_id,
-        )
-    ).scalars().all()
-    if not can_access_inbox(target_roles):
+        ) from exc
+    except AssignmentTargetWithoutInbox as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="O usuário escolhido não tem acesso ao inbox",
-        )
-
-    conv.estado = "humano"
-    conv.assumido_por = target_id
-    conv.assumido_em = dt.datetime.now(dt.timezone.utc)
-    conv.espera_desde = None
-    fence_agent_replies_for_handoff(
-        db,
-        igreja_id=conv.igreja_id,
-        conversation_id=conv.id,
-    )
+        ) from exc
     db.flush()
     db.commit()
 

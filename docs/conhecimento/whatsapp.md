@@ -23,9 +23,12 @@ não criam documentos nem alimentam a busca. Não há novos vetores ou migration
 Opt-out, crise e pedido de humano prevalecem; consentimento, handoff existente,
 conexão, piloto, credencial e gates de envio continuam no caminho comum.
 Sem fonte autorizada, declara lacuna sem revelar se existem fontes restritas e,
-após entregar o aviso, marca a conversa para humano pelo serviço existente.
-A decisão 21 permanece provisória: encaminhamento vai ao inbox humano comum;
-não há distribuição automática a um responsável de setor ainda não configurado.
+após entregar o aviso, encaminha a conversa (decisão 21): vai ao responsável
+vigente do setor `conhecimento_oficial` (Responsabilidades por área), desde que
+seja usuário ativo da igreja com acesso ao inbox. Sem responsável, com mais de
+um vigente ou sem acesso ao inbox, entra na fila humana comum (admin). Conversa
+já assumida por alguém não muda de dono. Escalar ao admin é a transferência
+humana existente; a responsabilidade não concede acesso a conversas.
 
 Sarah deve revisar autorização do agente e compatibilidade com RLS/migrations
 existentes e com a exclusão da fatia 5 antes da integração/qualquer ativação.
