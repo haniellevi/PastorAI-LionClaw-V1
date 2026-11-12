@@ -57,12 +57,7 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
   return (
     // Fechar bloqueado enquanto salva (Esc/backdrop/botão do DsDialog); o foco
     // inicial vai para o campo Nome via [data-autofocus].
-    <DsDialog
-      className="people-ux-dialog"
-      open
-      onClose={requestClose}
-      title="Novo contato"
-    >
+    <DsDialog className="people-ux-dialog" open onClose={requestClose} title="Novo contato">
       <form
         className="modal-form"
         onSubmit={(e) => {
@@ -132,7 +127,14 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
           <button type="button" className="btn btn-sm" onClick={requestClose} disabled={busy}>
             Cancelar
           </button>
-          <Button type="submit" variant="primary" size="sm" disabled={discardRequested} loading={busy} loadingText="Salvando…">
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            disabled={discardRequested}
+            loading={busy}
+            loadingText="Salvando…"
+          >
             Salvar contato
           </Button>
         </div>
@@ -141,8 +143,26 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
             <strong>Descartar alterações não salvas?</strong>
             <p>O preenchimento será perdido se você fechar agora.</p>
             <div className="people-discard-actions">
-              <button type="button" className="btn" disabled={busy} onClick={() => { if (!busy) setDiscardRequested(false); }}>Continuar editando</button>
-              <button type="button" className="btn btn-danger" disabled={busy} onClick={() => { if (!busy) onClose(); }}>Descartar alterações</button>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={() => {
+                  if (!busy) setDiscardRequested(false);
+                }}
+              >
+                Continuar editando
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                disabled={busy}
+                onClick={() => {
+                  if (!busy) onClose();
+                }}
+              >
+                Descartar alterações
+              </button>
             </div>
           </div>
         ) : null}

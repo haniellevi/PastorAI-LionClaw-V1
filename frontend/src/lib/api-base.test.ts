@@ -10,12 +10,8 @@ describe("resolveApiBase", () => {
   });
 
   it("falha no build de produção sem o endereço da API", () => {
-    expect(() => resolveApiBase(undefined, "production")).toThrow(
-      "NEXT_PUBLIC_API_URL",
-    );
-    expect(() => resolveApiBase("   ", "production")).toThrow(
-      "NEXT_PUBLIC_API_URL",
-    );
+    expect(() => resolveApiBase(undefined, "production")).toThrow("NEXT_PUBLIC_API_URL");
+    expect(() => resolveApiBase("   ", "production")).toThrow("NEXT_PUBLIC_API_URL");
   });
 
   it("usa a API local em desenvolvimento e testes", () => {

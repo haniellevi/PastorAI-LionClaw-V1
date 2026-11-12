@@ -16,13 +16,7 @@
  * Reaproveita o transporte autenticado (authedFetch) e o envelope Page.
  */
 
-import {
-  ApiError,
-  authedFetch,
-  isRecord,
-  readDetail,
-  type Page,
-} from "./dashboard-api";
+import { ApiError, authedFetch, isRecord, readDetail, type Page } from "./dashboard-api";
 
 export type { Page } from "./dashboard-api";
 
@@ -45,11 +39,7 @@ export type CellRequestType =
 
 /** Status do ciclo da solicitação. */
 export type CellRequestStatus =
-  | "aguardando"
-  | "ajuste_solicitado"
-  | "aprovada"
-  | "rejeitada"
-  | "cancelada";
+  "aguardando" | "ajuste_solicitado" | "aprovada" | "rejeitada" | "cancelada";
 
 /** Solicitação (CellRequestOut). `payload_proposto` mantém o snake_case do backend. */
 export interface CellRequest {
@@ -144,7 +134,10 @@ export async function createRequest(
     throw new CellRequestConflictError(message);
   }
   if (!res.ok) {
-    throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível criar a solicitação."));
+    throw new ApiError(
+      res.status,
+      await detailOrFallback(res, "Não foi possível criar a solicitação."),
+    );
   }
   return (await res.json()) as CellRequest;
 }
@@ -163,19 +156,22 @@ export async function listRequests(
   if (statusFilter) query.set("status", statusFilter);
   const res = await authedFetch(token, `/cell-requests?${query.toString()}`);
   if (!res.ok) {
-    throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível carregar as solicitações."));
+    throw new ApiError(
+      res.status,
+      await detailOrFallback(res, "Não foi possível carregar as solicitações."),
+    );
   }
   return (await res.json()) as Page<CellRequest>;
 }
 
 /** Detalhe de uma solicitação + trilha de eventos. */
-export async function getRequest(
-  token: string,
-  requestId: string,
-): Promise<CellRequestDetail> {
+export async function getRequest(token: string, requestId: string): Promise<CellRequestDetail> {
   const res = await authedFetch(token, `/cell-requests/${requestId}`);
   if (!res.ok) {
-    throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível abrir a solicitação."));
+    throw new ApiError(
+      res.status,
+      await detailOrFallback(res, "Não foi possível abrir a solicitação."),
+    );
   }
   return (await res.json()) as CellRequestDetail;
 }
@@ -191,22 +187,25 @@ export async function resubmitRequest(
     body: JSON.stringify({ payload_proposto: payloadProposto ?? null }),
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível reenviar a solicitação."));
+    throw new ApiError(
+      res.status,
+      await detailOrFallback(res, "Não foi possível reenviar a solicitação."),
+    );
   }
   return (await res.json()) as CellRequest;
 }
 
 /** Cancela (autor) uma solicitação em `aguardando`/`ajuste_solicitado` (E12). */
-export async function cancelRequest(
-  token: string,
-  requestId: string,
-): Promise<CellRequest> {
+export async function cancelRequest(token: string, requestId: string): Promise<CellRequest> {
   const res = await authedFetch(token, `/cell-requests/${requestId}/cancel`, {
     method: "POST",
     body: JSON.stringify({}),
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível cancelar a solicitação."));
+    throw new ApiError(
+      res.status,
+      await detailOrFallback(res, "Não foi possível cancelar a solicitação."),
+    );
   }
   return (await res.json()) as CellRequest;
 }
@@ -226,7 +225,10 @@ export async function approveRequest(
     body: JSON.stringify({ idempotency_key: idempotencyKey ?? null, ...nomeacao }),
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível aprovar a solicitação."));
+    throw new ApiError(
+      res.status,
+      await detailOrFallback(res, "Não foi possível aprovar a solicitação."),
+    );
   }
   return (await res.json()) as CellRequest;
 }
@@ -242,7 +244,10 @@ export async function rejectRequest(
     body: JSON.stringify({ observacao_central: observacaoCentral }),
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível rejeitar a solicitação."));
+    throw new ApiError(
+      res.status,
+      await detailOrFallback(res, "Não foi possível rejeitar a solicitação."),
+    );
   }
   return (await res.json()) as CellRequest;
 }
@@ -253,16 +258,15 @@ export async function requestAdjustment(
   requestId: string,
   observacaoCentral: string,
 ): Promise<CellRequest> {
-  const res = await authedFetch(
-    token,
-    `/cell-requests/${requestId}/request-adjustment`,
-    {
-      method: "POST",
-      body: JSON.stringify({ observacao_central: observacaoCentral }),
-    },
-  );
+  const res = await authedFetch(token, `/cell-requests/${requestId}/request-adjustment`, {
+    method: "POST",
+    body: JSON.stringify({ observacao_central: observacaoCentral }),
+  });
   if (!res.ok) {
-    throw new ApiError(res.status, await detailOrFallback(res, "Não foi possível solicitar ajuste."));
+    throw new ApiError(
+      res.status,
+      await detailOrFallback(res, "Não foi possível solicitar ajuste."),
+    );
   }
   return (await res.json()) as CellRequest;
 }

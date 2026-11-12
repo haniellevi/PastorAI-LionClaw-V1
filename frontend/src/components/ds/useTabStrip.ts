@@ -33,7 +33,8 @@ export function useTabStrip(
     const viewLeft = scroller.scrollLeft;
     const viewRight = viewLeft + scroller.clientWidth - TABSTRIP_FADE;
     if (left < viewLeft) scroller.scrollLeft = Math.max(0, left - 12);
-    else if (right > viewRight) scroller.scrollLeft = right - (scroller.clientWidth - TABSTRIP_FADE);
+    else if (right > viewRight)
+      scroller.scrollLeft = right - (scroller.clientWidth - TABSTRIP_FADE);
     const next = el.nextElementSibling as HTMLElement | null;
     if (next) {
       const needed = next.offsetLeft + next.offsetWidth - (scroller.clientWidth - TABSTRIP_FADE);

@@ -13,12 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DiamondMark } from "@/components/brand/DiamondMark";
 import type { SessionUser } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
-import {
-  NAV_SECTIONS,
-  STAGE_ACCENT,
-  type NavItem,
-  type NavSection,
-} from "@/lib/navigation";
+import { NAV_SECTIONS, STAGE_ACCENT, type NavItem, type NavSection } from "@/lib/navigation";
 import { allowedScreens } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { isAdmin } from "@/lib/roles";
@@ -153,7 +148,15 @@ export function Sidebar({
         aria-current={!item.locked && route === item.target ? "page" : undefined}
         aria-disabled={item.locked || undefined}
         onClick={(event) => {
-          if (item.locked || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          if (
+            item.locked ||
+            event.button !== 0 ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.shiftKey ||
+            event.altKey
+          )
+            return;
           event.preventDefault();
           onNavigate(item.target);
         }}
@@ -187,9 +190,7 @@ export function Sidebar({
 
   function renderSection(section: NavSection) {
     // Itens diretos + heads de estágio (flat) que o usuário pode ver.
-    const directItems = (section.items ?? []).filter(
-      (i) => visible(i.target) || i.locked,
-    );
+    const directItems = (section.items ?? []).filter((i) => visible(i.target) || i.locked);
     const stageHeads = (section.stages ?? [])
       .filter((st) => visible(st.head.target))
       .map((st) => ({ item: st.head, accent: STAGE_ACCENT[st.stage] }));
@@ -260,10 +261,7 @@ export function Sidebar({
         </button>
       </div>
 
-      <div
-        className={`side-church${showLogo ? " has-logo" : ""}`}
-        data-tip={igrejaNome}
-      >
+      <div className={`side-church${showLogo ? " has-logo" : ""}`} data-tip={igrejaNome}>
         {showLogo ? (
           // Com logo: só a logo horizontal da igreja, sem nome e sem subtítulo.
           <span className="church-logo">
@@ -321,7 +319,14 @@ export function Sidebar({
             onMouseEnter={() => onPreload?.("perfil")}
             onFocus={() => onPreload?.("perfil")}
             onClick={(event) => {
-              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              if (
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              )
+                return;
               event.preventDefault();
               onNavigate("perfil");
             }}

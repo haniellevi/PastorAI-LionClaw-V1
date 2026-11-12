@@ -27,7 +27,9 @@ function AuthSurface() {
 
 function Routes() {
   const [route, navigate] = useHashRoute();
-  return h("main", null,
+  return h(
+    "main",
+    null,
     h("output", null, route),
     h("button", { onClick: () => navigate("inbox") }, "Abrir conversas"),
     h("button", { onClick: () => navigate("#dashboard") }, "Abrir Hoje"),
@@ -77,17 +79,27 @@ describe("useHashRoute: SSR e hidratação", () => {
       });
       expect(guard).toHaveBeenCalledTimes(1);
       expect(previousGuard).not.toHaveBeenCalled();
-      expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual(["dashboard", "dashboard"]);
+      expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual([
+        "dashboard",
+        "dashboard",
+      ]);
       removeGuard();
       await act(async () => window.dispatchEvent(new HashChangeEvent("hashchange")));
-      expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual(["inbox", "inbox"]);
+      expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual([
+        "inbox",
+        "inbox",
+      ]);
     } finally {
       removeGuard();
     }
   });
 
   it("indexa entradas sem perder state Next e mantém o índice na mesma rota", async () => {
-    const nextState = { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE: ["sintetico"], custom: "preservar" };
+    const nextState = {
+      __NA: true,
+      __PRIVATE_NEXTJS_INTERNALS_TREE: ["sintetico"],
+      custom: "preservar",
+    };
     window.history.replaceState(nextState, "", "/#dashboard");
     await act(async () => {
       root = createRoot(container);
@@ -110,7 +122,10 @@ describe("useHashRoute: SSR e hidratação", () => {
     });
     expect(getHashRouteHistoryIndex()).toBe(firstIndex);
     expect(window.history.state).toMatchObject(nextState);
-    expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual(["dashboard", "dashboard"]);
+    expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual([
+      "dashboard",
+      "dashboard",
+    ]);
   });
 
   it.each(["redefinir-senha/token-sintetico", "ativar/token-sintetico"])(
@@ -226,7 +241,10 @@ describe("useHashRoute: SSR e hidratação", () => {
       window.history.replaceState(null, "", "/#inbox");
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
-    expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual(["inbox", "inbox"]);
+    expect(Array.from(container.querySelectorAll("output"), (item) => item.textContent)).toEqual([
+      "inbox",
+      "inbox",
+    ]);
     await act(async () => root!.unmount());
     root = undefined;
     window.history.replaceState(null, "", "/#setup");

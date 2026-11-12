@@ -8,18 +8,12 @@ export interface PrayerRequest {
   created_at: string;
   responsavel_id: string | null;
 }
-export async function prayerFetch<T>(
-  token: string,
-  path: string,
-  init?: RequestInit,
-): Promise<T> {
+export async function prayerFetch<T>(token: string, path: string, init?: RequestInit): Promise<T> {
   const response = await authedFetch(token, `/prayer-requests${path}`, {
     ...init,
     cache: "no-store",
   });
   if (!response.ok)
-    throw new Error(
-      (await readDetail(response)) ?? "Não foi possível carregar os pedidos.",
-    );
+    throw new Error((await readDetail(response)) ?? "Não foi possível carregar os pedidos.");
   return response.json() as Promise<T>;
 }

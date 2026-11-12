@@ -48,7 +48,9 @@ afterEach(() => {
 
 describe("DashboardPanel", () => {
   it("não anuncia ausência sem dashboard confirmado, mesmo com a página de fila vazia", async () => {
-    await act(async () => root.render(<DashboardPanel {...props} dashboard={null} error="Resumo indisponível." />));
+    await act(async () =>
+      root.render(<DashboardPanel {...props} dashboard={null} error="Resumo indisponível." />),
+    );
     expect(container.textContent).toContain("Resumo indisponível.");
     expect(container.textContent).not.toContain("Nenhuma exceção aberta");
     expect(container.textContent).not.toContain("Nenhuma pendência na lista carregada.");

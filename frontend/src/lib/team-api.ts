@@ -88,10 +88,7 @@ export async function updateRoles(
 }
 
 /** Reenvia o e-mail de ativação para um membro convidado (best-effort). */
-export async function resendInvite(
-  token: string,
-  usuarioId: string,
-): Promise<InviteResult> {
+export async function resendInvite(token: string, usuarioId: string): Promise<InviteResult> {
   const res = await authedFetch(token, `/team/${usuarioId}/resend`, {
     method: "POST",
   });
@@ -103,18 +100,13 @@ export async function resendInvite(
 }
 
 /** Revoga o acesso de um membro (soft: status 'revogado'; 409 no último admin). */
-export async function revokeAccess(
-  token: string,
-  usuarioId: string,
-): Promise<RevokeResult> {
+export async function revokeAccess(token: string, usuarioId: string): Promise<RevokeResult> {
   const res = await authedFetch(token, `/team/${usuarioId}`, {
     method: "DELETE",
   });
   if (res.status === 409) {
     const detail = await readDetail(res);
-    throw new TeamConflictError(
-      detail ?? "Não é possível revogar o último administrador.",
-    );
+    throw new TeamConflictError(detail ?? "Não é possível revogar o último administrador.");
   }
   if (!res.ok) {
     const detail = await readDetail(res);
@@ -134,7 +126,10 @@ export async function linkPessoa(
     body: JSON.stringify({ pessoaId }),
   });
   if (!res.ok) {
-    throw new ApiError(res.status, await readDetail(res) ?? "Não foi possível alterar o vínculo.");
+    throw new ApiError(
+      res.status,
+      (await readDetail(res)) ?? "Não foi possível alterar o vínculo.",
+    );
   }
-  return await res.json() as { usuarioId: string; pessoaId: string | null };
+  return (await res.json()) as { usuarioId: string; pessoaId: string | null };
 }

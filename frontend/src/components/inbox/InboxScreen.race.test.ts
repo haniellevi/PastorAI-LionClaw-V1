@@ -50,7 +50,15 @@ vi.mock("@/lib/conversations-api", async (importOriginal) => {
     fetchConversations: apiMock.fetchConversations,
     fetchInboxAgentStatus: apiMock.fetchInboxAgentStatus,
     fetchMessages: apiMock.fetchMessages,
-    fetchMessageWindow: async (token: string, convId: string, _options: unknown, signal: AbortSignal) => ({ items: await apiMock.fetchMessages(token, convId, 200, signal), cursorSupported: false }),
+    fetchMessageWindow: async (
+      token: string,
+      convId: string,
+      _options: unknown,
+      signal: AbortSignal,
+    ) => ({
+      items: await apiMock.fetchMessages(token, convId, 200, signal),
+      cursorSupported: false,
+    }),
     fetchMessageMediaUrls: async () => ({}),
     fetchConversationPhoto: apiMock.fetchConversationPhoto,
     fetchInboxTransferTargets: apiMock.fetchInboxTransferTargets,
@@ -109,7 +117,15 @@ const MSGS_A_2A_VISITA = [msg("m-a-v2", "resposta da 2a visita a Ana")];
 // Snapshots sequenciais da mesma visita, usados para provar o single-flight.
 const SNAPSHOT_M1 = [msg("m-s1", "snapshot antigo M1")];
 const SNAPSHOT_M2 = [msg("m-s2", "snapshot mais novo M2")];
-const scopeChanges = ["roles", "church", "session", "status", "identity", "missingChurch", "missingToken"] as const;
+const scopeChanges = [
+  "roles",
+  "church",
+  "session",
+  "status",
+  "identity",
+  "missingChurch",
+  "missingToken",
+] as const;
 type ScopeChange = (typeof scopeChanges)[number];
 
 function changeScope(change: ScopeChange) {
@@ -336,10 +352,7 @@ describe("InboxScreen — estado global do agente", () => {
 
     await renderInbox();
 
-    expect(apiMock.fetchInboxAgentStatus).toHaveBeenCalledWith(
-      "tok-1",
-      expect.any(AbortSignal),
-    );
+    expect(apiMock.fetchInboxAgentStatus).toHaveBeenCalledWith("tok-1", expect.any(AbortSignal));
     expect(container.textContent).toContain("IA pausada pela igreja");
     expect(container.textContent).not.toContain("IA ativa");
   });
@@ -630,27 +643,37 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
 
   it("timeout inicial mostra erro e permite nova tentativa sem afirmar histórico vazio", async () => {
     await cargaInicialPendente();
-    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
-    expect(container.textContent).toContain("O carregamento do histórico demorou mais que o esperado.");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(container.textContent).toContain(
+      "O carregamento do histórico demorou mais que o esperado.",
+    );
     expect(threadBody().textContent).not.toContain("Ainda não há mensagens nesta conversa.");
-    const retry = [...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Tentar novamente'))!;
+    const retry = [...container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Tentar novamente"),
+    )!;
     expect(retry).toBeDefined();
     await act(async () => retry.click());
-    expect(activeRequests('conv-a')).toHaveLength(1);
-    await resolveActiveMessages('conv-a', MSGS_A);
-    expect(threadBody().textContent).toContain('mensagem antiga da Ana');
-    expect(container.textContent).not.toContain('O carregamento do histórico demorou');
+    expect(activeRequests("conv-a")).toHaveLength(1);
+    await resolveActiveMessages("conv-a", MSGS_A);
+    expect(threadBody().textContent).toContain("mensagem antiga da Ana");
+    expect(container.textContent).not.toContain("O carregamento do histórico demorou");
   });
 
   it("cancelamento ao trocar de conversa não vira erro de timeout na conversa atual", async () => {
     await cargaInicialPendente();
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
-    await act(async () => selectConversation('Bruno Lima'));
-    await act(async () => { await vi.advanceTimersByTimeAsync(11_000); });
-    expect(threadBody().textContent).toContain('Carregando conversa…');
-    expect(container.textContent).not.toContain('O carregamento do histórico demorou');
-    await resolveActiveMessages('conv-b', MSGS_B);
-    expect(threadBody().textContent).toContain('mensagem atual do Bruno');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    await act(async () => selectConversation("Bruno Lima"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11_000);
+    });
+    expect(threadBody().textContent).toContain("Carregando conversa…");
+    expect(container.textContent).not.toContain("O carregamento do histórico demorou");
+    await resolveActiveMessages("conv-b", MSGS_B);
+    expect(threadBody().textContent).toContain("mensagem atual do Bruno");
   });
 
   it("uma requisição que nunca resolve expira e o próximo tick tenta novamente", async () => {
@@ -705,7 +728,9 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
     // retrying, while the canceled request cannot remain a second flight.
     expect(apiMock.fetchMessages).toHaveBeenCalledTimes(2);
     expect(activeRequests("conv-a")).toHaveLength(0);
-    await act(async () => { vi.advanceTimersByTime(30_000); });
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
     expect(apiMock.fetchMessages).toHaveBeenCalledTimes(3);
     expect(activeRequests("conv-a")).toHaveLength(1);
 
@@ -731,7 +756,9 @@ describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
     });
     expect(apiMock.fetchMessages).toHaveBeenCalledTimes(2);
 
-    const input = container.querySelector<HTMLInputElement>("input[placeholder='Escreva uma resposta…']");
+    const input = container.querySelector<HTMLInputElement>(
+      "input[placeholder='Escreva uma resposta…']",
+    );
     const send = container.querySelector<HTMLButtonElement>("button[aria-label='Enviar mensagem']");
     if (!input || !send) throw new Error("composer habilitado não encontrado");
     await act(async () => {
@@ -762,18 +789,34 @@ describe("AUD02 authorized parent context", () => {
     async (change) => {
       apiMock.fetchConversations.mockResolvedValue({
         items: [{ ...CONV_A, estado: "humano", assumidoPor: "u-1" }],
-        page: 1, pageSize: 100, total: 1,
+        page: 1,
+        pageSize: 100,
+        total: 1,
       });
       let resolve!: (stream: MediaStream) => void;
-      const getUserMedia = vi.fn(() => new Promise<MediaStream>((yes) => { resolve = yes; }));
+      const getUserMedia = vi.fn(
+        () =>
+          new Promise<MediaStream>((yes) => {
+            resolve = yes;
+          }),
+      );
       const tracks = [{ stop: vi.fn() }, { stop: vi.fn() }];
       vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
-      vi.stubGlobal("MediaRecorder", class {
-        static isTypeSupported() { return true; }
-        state = "inactive";
-        start() { this.state = "recording"; }
-        stop() { this.state = "inactive"; }
-      });
+      vi.stubGlobal(
+        "MediaRecorder",
+        class {
+          static isTypeSupported() {
+            return true;
+          }
+          state = "inactive";
+          start() {
+            this.state = "recording";
+          }
+          stop() {
+            this.state = "inactive";
+          }
+        },
+      );
       await renderInbox();
       const mic = container.querySelector<HTMLButtonElement>('[aria-label="Gravar áudio"]')!;
       expect(mic.disabled).toBe(false);
@@ -802,7 +845,9 @@ describe("AUD02 parent scope while recording or with an attachment ready", () =>
   function ownConversation() {
     apiMock.fetchConversations.mockResolvedValue({
       items: [{ ...CONV_A, estado: "humano", assumidoPor: "u-1" }],
-      page: 1, pageSize: 100, total: 1,
+      page: 1,
+      pageSize: 100,
+      total: 1,
     });
   }
 
@@ -811,10 +856,16 @@ describe("AUD02 parent scope while recording or with an attachment ready", () =>
     const tracks = [{ stop: vi.fn() }, { stop: vi.fn() }];
     const mediaStream = { getTracks: () => tracks } as unknown as MediaStream;
     class Recorder {
-      static isTypeSupported() { return true; }
+      static isTypeSupported() {
+        return true;
+      }
       state = "inactive";
-      start() { this.state = "recording"; }
-      stop = vi.fn(() => { this.state = "inactive"; });
+      start() {
+        this.state = "recording";
+      }
+      stop = vi.fn(() => {
+        this.state = "inactive";
+      });
     }
     vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn(async () => mediaStream) } });
     vi.stubGlobal("MediaRecorder", Recorder);
@@ -853,7 +904,9 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
   function ownConversations() {
     apiMock.fetchConversations.mockResolvedValue({
       items: [CONV_A, CONV_B].map((c) => ({ ...c, estado: "humano", assumidoPor: "u-1" })),
-      page: 1, pageSize: 100, total: 2,
+      page: 1,
+      pageSize: 100,
+      total: 2,
     });
   }
 
@@ -865,16 +918,19 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
 
   function typeDraft(value: string) {
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(composer(), value);
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        composer(),
+        value,
+      );
       composer().dispatchEvent(new Event("input", { bubbles: true }));
     });
   }
 
   async function submitText() {
     await act(async () => {
-      container.querySelector("form.thread-foot")!.dispatchEvent(
-        new Event("submit", { bubbles: true, cancelable: true }),
-      );
+      container
+        .querySelector("form.thread-foot")!
+        .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });
   }
 
@@ -882,7 +938,10 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     ownConversations();
     let finishSend!: () => void;
     apiMock.sendMedia.mockImplementation(
-      () => new Promise<void>((resolve) => { finishSend = resolve; }),
+      () =>
+        new Promise<void>((resolve) => {
+          finishSend = resolve;
+        }),
     );
     await renderInbox();
     attachFile();
@@ -890,17 +949,25 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     const send = container.querySelector<HTMLButtonElement>('[aria-label="Enviar mensagem"]');
     if (!send) throw new Error("botão de envio não encontrado");
 
-    act(() => { send.click(); send.click(); });
+    act(() => {
+      send.click();
+      send.click();
+    });
     expect(apiMock.sendMedia).toHaveBeenCalledTimes(1);
 
-    await act(async () => { finishSend(); });
+    await act(async () => {
+      finishSend();
+    });
   });
 
   it("clears an unchanged old caption after A->B->A under StrictMode", async () => {
     ownConversations();
     let finishSend!: () => void;
     apiMock.sendMedia.mockImplementation(
-      () => new Promise<void>((resolve) => { finishSend = resolve; }),
+      () =>
+        new Promise<void>((resolve) => {
+          finishSend = resolve;
+        }),
     );
     await renderInbox({ strict: true });
     attachFile();
@@ -913,7 +980,9 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     selectConversation("Ana Souza");
     expect(composer().value).toBe("legenda antiga");
 
-    await act(async () => { finishSend(); });
+    await act(async () => {
+      finishSend();
+    });
     expect(composer().value).toBe("");
   });
 
@@ -921,7 +990,10 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     ownConversations();
     let finishSend!: () => void;
     apiMock.sendMedia.mockImplementation(
-      () => new Promise<void>((resolve) => { finishSend = resolve; }),
+      () =>
+        new Promise<void>((resolve) => {
+          finishSend = resolve;
+        }),
     );
     await renderInbox();
     attachFile("anexo-antigo.txt");
@@ -938,7 +1010,9 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     expect(composer().value).toBe("legenda antiga");
     expect(container.querySelector(".attach-name")?.textContent).toBe("anexo-novo.txt");
 
-    await act(async () => { finishSend(); });
+    await act(async () => {
+      finishSend();
+    });
     expect(composer().value).toBe("legenda antiga");
     expect(container.querySelector(".attach-name")?.textContent).toBe("anexo-novo.txt");
   });
@@ -957,21 +1031,36 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
   it("rascunhos A/B persistem na visita; conclusão tardia de A não limpa B nem permite dupla submissão", async () => {
     ownConversations();
     let finish!: () => void;
-    apiMock.sendMessage.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    apiMock.sendMessage.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
     await renderInbox();
     typeDraft("Resposta A");
     await submitText();
     await submitText();
     expect(apiMock.sendMessage).toHaveBeenCalledTimes(1);
-    await act(async () => { selectConversation("Bruno Lima"); });
+    await act(async () => {
+      selectConversation("Bruno Lima");
+    });
     typeDraft("Rascunho B");
-    await act(async () => { selectConversation("Ana Souza"); });
+    await act(async () => {
+      selectConversation("Ana Souza");
+    });
     expect(composer().value).toBe("Resposta A");
     expect(composer().disabled).toBe(true);
-    await act(async () => { selectConversation("Bruno Lima"); });
-    await act(async () => { finish(); });
+    await act(async () => {
+      selectConversation("Bruno Lima");
+    });
+    await act(async () => {
+      finish();
+    });
     expect(composer().value).toBe("Rascunho B");
-    await act(async () => { selectConversation("Ana Souza"); });
+    await act(async () => {
+      selectConversation("Ana Souza");
+    });
     expect(composer().value).toBe("");
   });
 
@@ -979,27 +1068,45 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     ownConversations();
     let finishSend!: () => void;
     apiMock.sendMedia.mockImplementation(
-      () => new Promise<void>((resolve) => { finishSend = resolve; }),
+      () =>
+        new Promise<void>((resolve) => {
+          finishSend = resolve;
+        }),
     );
     class Recorder {
       static instances: Recorder[] = [];
-      static isTypeSupported() { return true; }
+      static isTypeSupported() {
+        return true;
+      }
       state = "inactive";
       mimeType = "audio/webm";
       ondataavailable: ((event: { data: Blob }) => void) | null = null;
       onstop: (() => void) | null = null;
-      constructor(_stream: MediaStream) { Recorder.instances.push(this); }
-      start() { this.state = "recording"; }
-      stop() { this.state = "inactive"; }
-      data() { this.ondataavailable?.({ data: new Blob(["audio-sintetico"]) }); }
-      stopped() { this.onstop?.(); }
+      constructor(_stream: MediaStream) {
+        Recorder.instances.push(this);
+      }
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+      }
+      data() {
+        this.ondataavailable?.({ data: new Blob(["audio-sintetico"]) });
+      }
+      stopped() {
+        this.onstop?.();
+      }
     }
     vi.stubGlobal("MediaRecorder", Recorder);
     vi.stubGlobal("navigator", {
       mediaDevices: {
-        getUserMedia: vi.fn(async () => ({
-          getTracks: () => [{ stop: vi.fn() }],
-        } as unknown as MediaStream)),
+        getUserMedia: vi.fn(
+          async () =>
+            ({
+              getTracks: () => [{ stop: vi.fn() }],
+            }) as unknown as MediaStream,
+        ),
       },
     });
 
@@ -1015,7 +1122,8 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     act(() => recorder.data());
     act(() => {
       [...container.querySelectorAll<HTMLButtonElement>("button")]
-        .find((button) => button.textContent?.trim() === "Pronto")!.click();
+        .find((button) => button.textContent?.trim() === "Pronto")!
+        .click();
     });
     act(() => recorder.stopped());
     typeDraft("legenda antiga");
@@ -1024,7 +1132,10 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     if (!send) throw new Error("botão de envio não encontrado");
     act(() => send.click());
     expect(apiMock.sendMedia).toHaveBeenCalledWith(
-      "tok-1", "conv-a", expect.any(File), "legenda antiga",
+      "tok-1",
+      "conv-a",
+      expect.any(File),
+      "legenda antiga",
     );
 
     selectConversation("Bruno Lima");
@@ -1032,14 +1143,21 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     typeDraft("rascunho novo A");
     expect(composer().value).toBe("rascunho novo A");
 
-    await act(async () => { finishSend(); });
+    await act(async () => {
+      finishSend();
+    });
     expect(composer().value).toBe("rascunho novo A");
   });
 
   it("troca de sessão descarta rascunho privado e uma resposta da sessão anterior", async () => {
     ownConversations();
     let finish!: () => void;
-    apiMock.sendMessage.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
+    apiMock.sendMessage.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
     await renderInbox();
     typeDraft("Texto da sessão A");
     await submitText();
@@ -1049,9 +1167,13 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
       await renderInbox();
       expect(composer().value).toBe("");
       typeDraft("Texto da nova sessão");
-      await act(async () => { finish(); });
+      await act(async () => {
+        finish();
+      });
       expect(composer().value).toBe("Texto da nova sessão");
-    } finally { auth.token = originalToken; }
+    } finally {
+      auth.token = originalToken;
+    }
   });
 
   it("alcança conversa 101 com a paginação existente e identifica a busca parcial", async () => {
@@ -1062,13 +1184,23 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     );
     await renderInbox();
     expect(container.textContent).toContain("100 de 101 conversas carregadas");
-    expect(container.textContent).toContain("A busca e os filtros abrangem as conversas carregadas");
-    const more = [...container.querySelectorAll<HTMLButtonElement>("button")]
-      .find((b) => b.textContent?.includes("Carregar mais conversas"));
+    expect(container.textContent).toContain(
+      "A busca e os filtros abrangem as conversas carregadas",
+    );
+    const more = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("Carregar mais conversas"),
+    );
     expect(more).toBeDefined();
-    await act(async () => { more!.click(); });
+    await act(async () => {
+      more!.click();
+    });
     expect(convButton("Contato da página dois")).toBeDefined();
-    expect(apiMock.fetchConversations).toHaveBeenCalledWith("tok-1", 100, expect.any(AbortSignal), 2);
+    expect(apiMock.fetchConversations).toHaveBeenCalledWith(
+      "tok-1",
+      100,
+      expect.any(AbortSignal),
+      2,
+    );
     expect(container.textContent).not.toContain("100 de 101 conversas carregadas");
   });
 
@@ -1078,7 +1210,8 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     typeDraft("Rascunho no filtro");
     act(() => {
       [...container.querySelectorAll<HTMLButtonElement>(".ib-filter-btn")]
-        .find((b) => b.textContent?.includes("IA"))!.click();
+        .find((b) => b.textContent?.includes("IA"))!
+        .click();
     });
     expect(container.textContent).toContain("Conversa aberta fora deste filtro");
     expect(composer().value).toBe("Rascunho no filtro");
@@ -1097,7 +1230,9 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     });
     body.scrollTop = 100;
     act(() => body.dispatchEvent(new Event("scroll", { bubbles: true })));
-    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
     await resolveActiveMessages("conv-a", [...MSGS_A, msg("m-new", "Nova mensagem sintética")]);
     expect(body.scrollTop).toBe(100);
   });
@@ -1107,7 +1242,11 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
     await renderInbox();
     expect(container.textContent).toContain("Não foi possível carregar o histórico");
     expect(container.textContent).not.toContain("Ainda não há mensagens nesta conversa");
-    expect([...container.querySelectorAll("button")].some((b) => b.textContent?.includes("Tentar novamente"))).toBe(true);
+    expect(
+      [...container.querySelectorAll("button")].some((b) =>
+        b.textContent?.includes("Tentar novamente"),
+      ),
+    ).toBe(true);
   });
 
   it("falha na página seguinte mantém a lista existente e a cobertura parcial", async () => {
@@ -1117,13 +1256,16 @@ describe("Inbox UX v1 — rascunho, cobertura e contexto", () => {
         : Promise.reject(new Error("falha página dois")),
     );
     await renderInbox();
-    const more = [...container.querySelectorAll<HTMLButtonElement>("button")]
-      .find((b) => b.textContent?.includes("Carregar mais conversas"))!;
-    await act(async () => { more.click(); });
+    const more = [...container.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("Carregar mais conversas"),
+    )!;
+    await act(async () => {
+      more.click();
+    });
     expect(convButton("Ana Souza")).toBeDefined();
     expect(container.textContent).toContain("1 de 101 conversas carregadas");
     expect(container.textContent).toContain("Não foi possível carregar as conversas");
-});
+  });
 });
 
 it("não anuncia o snapshot ao abrir conversas e anuncia somente o próximo inbound", async () => {
@@ -1135,7 +1277,9 @@ it("não anuncia o snapshot ao abrir conversas e anuncia somente o próximo inbo
   selectConversation(CONV_B.nome!);
   await resolveMessages(CONV_B.id, MSGS_B);
   expect(status()).toBe("");
-  await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(15_000);
+  });
   await resolveMessages(CONV_B.id, [...MSGS_B, msg("new-inbound", "Nova entrada sintética")]);
   expect(status()).toBe("1 nova mensagem recebida.");
 });

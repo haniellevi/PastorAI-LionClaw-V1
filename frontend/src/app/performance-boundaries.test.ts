@@ -108,9 +108,7 @@ describe("fronteiras de carregamento do frontend", () => {
 
   it("antecipa chunk e dados por intenção usando cache curto por sessão", () => {
     expect(appShell).toContain("preloadScreenModule(targetBase)");
-    expect(appShell).toContain(
-      "preloadRouteData(token, targetBase, user.roles, matrix)",
-    );
+    expect(appShell).toContain("preloadRouteData(token, targetBase, user.roles, matrix)");
 
     for (const source of [sidebar, bottomNav]) {
       expect(source).toContain("onPreload?.");
@@ -122,7 +120,7 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(routeDataPreload).toContain('case "dashboard"');
     expect(routeDataPreload).toContain('case "ganhar"');
     expect(routeDataPreload).toContain('case "inbox"');
-    expect(responseCache).toContain('private key(token: string, path: string)');
+    expect(responseCache).toContain("private key(token: string, path: string)");
     expect(responseCache).not.toContain("localStorage.setItem");
     expect(responseCache).not.toContain("sessionStorage.setItem");
     expect(dashboardApi).toContain("responseCache.get(token, path)");

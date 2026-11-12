@@ -3,11 +3,7 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AdminAuthError,
-  AdminRequestError,
-  AdminSessionExpiredError,
-} from "@/lib/admin-api";
+import { AdminAuthError, AdminRequestError, AdminSessionExpiredError } from "@/lib/admin-api";
 
 import { ChurchPage } from "./ChurchPage";
 
@@ -55,7 +51,8 @@ vi.mock("@/lib/admin-api", () => {
 });
 
 vi.mock("./ConsentGovernanceDraftTab", () => ({
-  ConsentGovernanceDraftTab: () => h("div", { "data-testid": "governance-tab" }, "Governança draft"),
+  ConsentGovernanceDraftTab: () =>
+    h("div", { "data-testid": "governance-tab" }, "Governança draft"),
 }));
 
 declare global {
@@ -193,8 +190,8 @@ describe("ChurchPage governança", () => {
     render();
     await flush();
 
-    const membersCard = [...container.querySelectorAll<HTMLElement>(".card")].find(
-      (card) => card.textContent?.includes("Membros (painel)"),
+    const membersCard = [...container.querySelectorAll<HTMLElement>(".card")].find((card) =>
+      card.textContent?.includes("Membros (painel)"),
     );
     expect(membersCard?.textContent).toContain("0");
     expect(membersCard?.textContent).not.toContain("…");

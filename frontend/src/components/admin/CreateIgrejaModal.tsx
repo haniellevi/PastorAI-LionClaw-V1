@@ -59,8 +59,7 @@ export function CreateIgrejaModal({
     touched && !adminNome.trim() ? "Informe o nome do administrador." : undefined;
   const adminEmailError =
     touched && !adminEmail.includes("@") ? "Informe um e-mail válido." : undefined;
-  const setupFeeValue =
-    setupFeeOverride.trim() === "" ? null : Number(setupFeeOverride);
+  const setupFeeValue = setupFeeOverride.trim() === "" ? null : Number(setupFeeOverride);
   const setupFeeInvalid = setupFeeValue !== null && isInvalidSetupFee(setupFeeValue);
   const setupFeeError =
     touched && setupFeeInvalid
@@ -69,8 +68,7 @@ export function CreateIgrejaModal({
 
   const submit = () => {
     setTouched(true);
-    if (!nome.trim() || !adminNome.trim() || !adminEmail.includes("@") || setupFeeInvalid)
-      return;
+    if (!nome.trim() || !adminNome.trim() || !adminEmail.includes("@") || setupFeeInvalid) return;
     onSubmit({
       nome: nome.trim(),
       plano: plano || null,
@@ -174,15 +172,35 @@ export function CreateIgrejaModal({
         <details className="admin-disclosure">
           <summary>Conferir dados de criação</summary>
           <dl className="detail-list">
-            <div><dt>Igreja</dt><dd>{nome.trim() || "Nome não informado"}</dd></div>
-            <div><dt>Plano</dt><dd>{planOptions.find((option) => option.codigo === plano)?.nome ?? "Sem plano definido"}</dd></div>
-            <div><dt>Taxa de setup</dt><dd>{setupFeeValue === null
-              ? "Taxa padrão da plataforma"
-              : setupFeeInvalid
-                ? "Taxa inválida, confira o campo."
-                : setupFeeValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</dd></div>
-            <div><dt>Administrador</dt><dd>{adminNome.trim() || "Nome não informado"}</dd></div>
-            <div><dt>Convite para</dt><dd>{adminEmail.trim() || "E-mail não informado"}</dd></div>
+            <div>
+              <dt>Igreja</dt>
+              <dd>{nome.trim() || "Nome não informado"}</dd>
+            </div>
+            <div>
+              <dt>Plano</dt>
+              <dd>
+                {planOptions.find((option) => option.codigo === plano)?.nome ??
+                  "Sem plano definido"}
+              </dd>
+            </div>
+            <div>
+              <dt>Taxa de setup</dt>
+              <dd>
+                {setupFeeValue === null
+                  ? "Taxa padrão da plataforma"
+                  : setupFeeInvalid
+                    ? "Taxa inválida, confira o campo."
+                    : setupFeeValue.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </dd>
+            </div>
+            <div>
+              <dt>Administrador</dt>
+              <dd>{adminNome.trim() || "Nome não informado"}</dd>
+            </div>
+            <div>
+              <dt>Convite para</dt>
+              <dd>{adminEmail.trim() || "E-mail não informado"}</dd>
+            </div>
           </dl>
         </details>
       </form>

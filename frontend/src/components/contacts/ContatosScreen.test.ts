@@ -65,9 +65,8 @@ vi.mock("@/lib/dashboard-api", async (importOriginal) => {
   };
 });
 
-const realContactsApi = await vi.importActual<typeof import("@/lib/contacts-api")>(
-  "@/lib/contacts-api",
-);
+const realContactsApi =
+  await vi.importActual<typeof import("@/lib/contacts-api")>("@/lib/contacts-api");
 const { ArchiveBlockedError } = await import("@/lib/contacts-api");
 const { ApiError } = await import("@/lib/dashboard-api");
 const { ContatosScreen } = await import("./ContatosScreen");
@@ -179,8 +178,10 @@ function findConfirmButton(): HTMLButtonElement | undefined {
 
 function setTextarea(value: string) {
   const textarea = container.querySelector("textarea")!;
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!
-    .set!;
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
   act(() => {
     setter.call(textarea, value);
     textarea.dispatchEvent(new Event("input", { bubbles: true }));
@@ -227,10 +228,10 @@ afterEach(() => {
 describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
   it("fetchContactsPage faz exatamente uma requisição para a página solicitada", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ items: [contactB], page: 2, pageSize: 50, total: 75 }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      new Response(JSON.stringify({ items: [contactB], page: 2, pageSize: 50, total: 75 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -242,9 +243,7 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     expect(result.page).toBe(2);
     expect(result.items).toEqual([contactB]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
-      "/contacts?page=2&pageSize=50&view=all",
-    );
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/contacts?page=2&pageSize=50&view=all");
   });
 
   it("fetchContacts preserva a compatibilidade e agrega todas as páginas", async () => {
@@ -272,13 +271,12 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
   });
 
   it("não antecipa outras páginas; navegação e filtro pedem somente a página escolhida", async () => {
-    apiMock.fetchContactsPage.mockImplementation(
-      (_token: string, params: { page?: number }) =>
-        Promise.resolve(
-          params.page === 2
-            ? { items: [contactB], page: 2, pageSize: 1, total: 2 }
-            : { items: [contact], page: 1, pageSize: 1, total: 2 },
-        ),
+    apiMock.fetchContactsPage.mockImplementation((_token: string, params: { page?: number }) =>
+      Promise.resolve(
+        params.page === 2
+          ? { items: [contactB], page: 2, pageSize: 1, total: 2 }
+          : { items: [contact], page: 1, pageSize: 1, total: 2 },
+      ),
     );
 
     act(() => {
@@ -415,7 +413,9 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     expect(apiMock.fetchOffboardingPreflight).toHaveBeenCalledWith("tok-1", "p1");
     expect(container.querySelector("textarea")).not.toBeNull();
 
-    apiMock.archiveContact.mockResolvedValue(archiveResult({ arquivada_motivo: "Mudou de cidade" }));
+    apiMock.archiveContact.mockResolvedValue(
+      archiveResult({ arquivada_motivo: "Mudou de cidade" }),
+    );
     apiMock.fetchContactsPage.mockResolvedValue({
       items: [],
       page: 1,
@@ -704,10 +704,6 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     });
     await flush();
     expect(apiMock.archiveContact).toHaveBeenCalledWith("tok-1", "p2", "Motivo B");
-    expect(apiMock.archiveContact).not.toHaveBeenCalledWith(
-      "tok-1",
-      "p1",
-      expect.anything(),
-    );
+    expect(apiMock.archiveContact).not.toHaveBeenCalledWith("tok-1", "p1", expect.anything());
   });
 });

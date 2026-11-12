@@ -25,7 +25,10 @@ export function MineralBackdrop({ compact = false }: { compact?: boolean }) {
       art!.style.setProperty("--mineral-y", "0px");
     }
     function editable(target: EventTarget | null) {
-      return target instanceof Element && target.matches("input, textarea, select, [contenteditable='true']");
+      return (
+        target instanceof Element &&
+        target.matches("input, textarea, select, [contenteditable='true']")
+      );
     }
     function configure() {
       detach();
@@ -48,9 +51,14 @@ export function MineralBackdrop({ compact = false }: { compact?: boolean }) {
         });
       };
       const focus = (event: FocusEvent) => {
-        if (editable(event.target)) { suspended = true; reset(); }
+        if (editable(event.target)) {
+          suspended = true;
+          reset();
+        }
       };
-      const blur = (event: FocusEvent) => { suspended = editable(event.relatedTarget); };
+      const blur = (event: FocusEvent) => {
+        suspended = editable(event.relatedTarget);
+      };
       surface!.addEventListener("pointermove", move, { passive: true });
       surface!.addEventListener("pointerleave", reset);
       surface!.addEventListener("focusin", focus);
@@ -74,7 +82,11 @@ export function MineralBackdrop({ compact = false }: { compact?: boolean }) {
   }, []);
 
   return (
-    <div ref={ref} className={`mineral-backdrop${compact ? " mineral-backdrop--compact" : ""}`} aria-hidden="true">
+    <div
+      ref={ref}
+      className={`mineral-backdrop${compact ? " mineral-backdrop--compact" : ""}`}
+      aria-hidden="true"
+    >
       <span className="mineral-facet mineral-facet--one" />
       <span className="mineral-facet mineral-facet--two" />
     </div>

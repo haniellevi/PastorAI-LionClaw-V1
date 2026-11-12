@@ -14,9 +14,7 @@ describe("adminSurfaceRouteHref", () => {
   it("troca app pelo subdomínio admin e preserva o deep-link em produção", () => {
     locationAt("https:", "app.igreja12.com.br");
 
-    expect(adminSurfaceRouteHref("contatos/p1")).toBe(
-      "https://admin.igreja12.com.br/#contatos/p1",
-    );
+    expect(adminSurfaceRouteHref("contatos/p1")).toBe("https://admin.igreja12.com.br/#contatos/p1");
   });
 
   it.each([
@@ -25,14 +23,10 @@ describe("adminSurfaceRouteHref", () => {
   ])("usa /gestao no host sem subdomínio app (%s//%s)", (protocol, host) => {
     locationAt(protocol, host);
 
-    expect(adminSurfaceRouteHref("#contatos/p1")).toBe(
-      "/gestao#contatos/p1",
-    );
+    expect(adminSurfaceRouteHref("#contatos/p1")).toBe("/gestao#contatos/p1");
   });
 
   it("mantém o fallback de servidor", () => {
-    expect(adminSurfaceRouteHref("contatos/p1")).toBe(
-      "/gestao#contatos/p1",
-    );
+    expect(adminSurfaceRouteHref("contatos/p1")).toBe("/gestao#contatos/p1");
   });
 });

@@ -99,13 +99,7 @@ function activateDashboardLink(
   target: string,
   onNavigate: (target: string) => void,
 ): void {
-  if (
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  ) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
     return;
   }
   event.preventDefault();
@@ -130,8 +124,7 @@ interface ContextUnavailable {
 
 type CellContextMode = "leader" | "member" | "general";
 
-const DASHBOARD_HONORIFIC =
-  /^(?:pr(?:a)?\.?|pastor(?:a)?|bispo(?:a)?|ap\.?|ap[oó]stol(?:o|a))$/i;
+const DASHBOARD_HONORIFIC = /^(?:pr(?:a)?\.?|pastor(?:a)?|bispo(?:a)?|ap\.?|ap[oó]stol(?:o|a))$/i;
 
 /** Usa o nome de conversa quando existe e evita saudações como "Boa noite, Pr.". */
 export function dashboardGreetingName(
@@ -237,13 +230,8 @@ export function DashboardScreen() {
   const rolesKey = [...(user?.roles ?? [])].sort().join("|");
   const responsibilities = resolveDashboardResponsibilities(user?.roles ?? []);
   const normalizedRoles = normalizeRoles(user?.roles ?? []);
-  const {
-    hasWorkQueue,
-    canLinkCell,
-    canAssignQueue,
-    showOverview,
-    showTeamWorkload,
-  } = responsibilities;
+  const { hasWorkQueue, canLinkCell, canAssignQueue, showOverview, showTeamWorkload } =
+    responsibilities;
   const canSeeCentral = user ? canSee("central-celula", user.roles, matrix) : false;
   const canSeeCalendar = user ? canSee("calendario", user.roles, matrix) : false;
   const canSeeMyCell = user ? canSee("minha-celula", user.roles, matrix) : false;
@@ -256,8 +244,7 @@ export function DashboardScreen() {
   const shortcutTargets = responsibilities.shortcutCandidates
     .filter((target) => (user ? canSee(target, user.roles, matrix) : false))
     .slice(0, 4) as DashboardShortcutTarget[];
-  const operationsKey =
-    token && hasWorkQueue ? `${token}:${rolesKey || "sem-papel"}` : null;
+  const operationsKey = token && hasWorkQueue ? `${token}:${rolesKey || "sem-papel"}` : null;
   const contextKey = token
     ? `${token}:${rolesKey || "sem-papel"}:${canSeeCalendar ? "agenda" : "sem-agenda"}:${cellContextMode}:${
         showCellMeeting ? "reuniao" : "sem-reuniao"
@@ -267,10 +254,7 @@ export function DashboardScreen() {
   const contextReady = contextKey != null && loadedContextKey === contextKey;
   const canUseAssignment = canAssignQueue && supplementsReady && !teamUnavailable;
   const canUseCellLink = canLinkCell && supplementsReady && !cellsUnavailable;
-  const memberById = useMemo(
-    () => new Map(members.map((m) => [m.usuarioId, m])),
-    [members],
-  );
+  const memberById = useMemo(() => new Map(members.map((m) => [m.usuarioId, m])), [members]);
   const operationsRequest = useRef(0);
   const contextRequest = useRef(0);
   const locallyRemovedItemIds = useRef<Set<string>>(new Set());
@@ -335,12 +319,9 @@ export function DashboardScreen() {
       ]);
 
       try {
-        const firstPage = await fetchWorkQueuePage(
-          token,
-          1,
-          DASHBOARD_QUEUE_PAGE_SIZE,
-          { hoje: true },
-        );
+        const firstPage = await fetchWorkQueuePage(token, 1, DASHBOARD_QUEUE_PAGE_SIZE, {
+          hoje: true,
+        });
         if (requestId !== operationsRequest.current) return;
 
         setItems(firstPage.items);
@@ -357,21 +338,15 @@ export function DashboardScreen() {
 
           const expired = [teamResult, cellResult, overviewResult].find(
             (result) =>
-              result.status === "rejected" &&
-              result.reason instanceof SessionExpiredError,
+              result.status === "rejected" && result.reason instanceof SessionExpiredError,
           );
-          if (
-            expired &&
-            expired.status === "rejected" &&
-            handleSessionError(expired.reason)
-          ) {
+          if (expired && expired.status === "rejected" && handleSessionError(expired.reason)) {
             return;
           }
 
           const team = teamResult.status === "fulfilled" ? teamResult.value : null;
           const cellPage = cellResult.status === "fulfilled" ? cellResult.value : null;
-          const nextOverview =
-            overviewResult.status === "fulfilled" ? overviewResult.value : null;
+          const nextOverview = overviewResult.status === "fulfilled" ? overviewResult.value : null;
 
           setMembers(team?.items ?? []);
           setCells(cellPage?.items ?? []);
@@ -389,10 +364,7 @@ export function DashboardScreen() {
             if (requestId !== operationsRequest.current) return;
 
             const stableFirstPage = remainder.firstPage ?? firstPage;
-            const completeServerItems = [
-              ...stableFirstPage.items,
-              ...remainder.items,
-            ];
+            const completeServerItems = [...stableFirstPage.items, ...remainder.items];
             const removedIds = locallyRemovedItemIds.current;
             const removedCount = completeServerItems.filter((item) =>
               removedIds.has(item.id),
@@ -430,22 +402,13 @@ export function DashboardScreen() {
         if (requestId !== operationsRequest.current) return;
         if (handleSessionError(err)) return;
         const message =
-          err instanceof ApiError
-            ? err.message
-            : "Não foi possível carregar a fila de trabalho.";
+          err instanceof ApiError ? err.message : "Não foi possível carregar a fila de trabalho.";
         setOperationError({ key: expectedKey, message });
       } finally {
         if (requestId === operationsRequest.current) setLoading(false);
       }
     },
-    [
-      token,
-      hasWorkQueue,
-      canAssignQueue,
-      canLinkCell,
-      showOverview,
-      handleSessionError,
-    ],
+    [token, hasWorkQueue, canAssignQueue, canLinkCell, showOverview, handleSessionError],
   );
 
   useEffect(() => {
@@ -496,19 +459,13 @@ export function DashboardScreen() {
           ...(showCellMeeting && cellContextMode === "leader"
             ? ["/cells/me/leading", "/cells/"]
             : []),
-          ...(showCellMeeting && cellContextMode === "member"
-            ? ["/cells/me/next-meeting"]
-            : []),
-          ...(cellContextMode === "member"
-            ? ["/cells/me/notices"]
-            : ["/cell-notices?"]),
+          ...(showCellMeeting && cellContextMode === "member" ? ["/cells/me/next-meeting"] : []),
+          ...(cellContextMode === "member" ? ["/cells/me/notices"] : ["/cell-notices?"]),
         ]);
       }
       setContextError(null);
 
-      const meetingPromise: Promise<
-        LedCellsTodayContext | NextMeetingResponse | null
-      > =
+      const meetingPromise: Promise<LedCellsTodayContext | NextMeetingResponse | null> =
         showCellMeeting && cellContextMode === "leader"
           ? getLedCellsTodayContext(token)
           : showCellMeeting && cellContextMode === "member"
@@ -527,8 +484,7 @@ export function DashboardScreen() {
         (result) => result.status === "rejected",
       );
       const expired = failures.find(
-        (result) =>
-          result.status === "rejected" && result.reason instanceof SessionExpiredError,
+        (result) => result.status === "rejected" && result.reason instanceof SessionExpiredError,
       );
       if (expired && expired.status === "rejected" && handleSessionError(expired.reason)) {
         return;
@@ -575,13 +531,7 @@ export function DashboardScreen() {
       setLoadedContextKey(expectedKey);
       setContextLoading(false);
     },
-    [
-      token,
-      canSeeCalendar,
-      showCellMeeting,
-      cellContextMode,
-      handleSessionError,
-    ],
+    [token, canSeeCalendar, showCellMeeting, cellContextMode, handleSessionError],
   );
 
   useEffect(() => {
@@ -658,9 +608,7 @@ export function DashboardScreen() {
     });
     return full.charAt(0).toUpperCase() + full.slice(1);
   }, []);
-  const acoesAbertas = queueComplete
-    ? openItems.length
-    : Math.max(queueTotal, openItems.length);
+  const acoesAbertas = queueComplete ? openItems.length : Math.max(queueTotal, openItems.length);
 
   // ---- resumo do escopo (dados reais; sem deltas inventados) ----------------
   const relatoriosPendentes = useMemo(
@@ -750,8 +698,7 @@ export function DashboardScreen() {
   const handleStale = useCallback(
     (item: WorkItem, err: StaleItemError) => {
       const name =
-        (err.responsavelId && memberById.get(err.responsavelId)?.nome) ||
-        "outro usuário";
+        (err.responsavelId && memberById.get(err.responsavelId)?.nome) || "outro usuário";
       setConflicts((prev) => ({ ...prev, [item.id]: `Já tratado por ${name}` }));
       patchItem(item.id, {
         status: err.itemStatus ?? "assumido",
@@ -803,7 +750,12 @@ export function DashboardScreen() {
           (currentModal.kind === "assign" && currentModal.item.id === item.id);
         patchItem(item.id, { status: res.status, responsavelId: res.responsavelId });
         const name = memberById.get(responsavelId)?.nome ?? "responsável";
-        flashToast({ kind: "ok", text: res.conviteId ? `Convite registrado para ${name}. Aguardando aceite no painel.` : `Atribuído a ${name}.` });
+        flashToast({
+          kind: "ok",
+          text: res.conviteId
+            ? `Convite registrado para ${name}. Aguardando aceite no painel.`
+            : `Atribuído a ${name}.`,
+        });
         setModal((current) =>
           current?.kind === "assign" && current.item.id === item.id ? null : current,
         );
@@ -874,9 +826,7 @@ export function DashboardScreen() {
         flashToast({ kind: "ok", text: "Conectado à célula." });
         removeWithAnim(item.id);
         setModal((current) =>
-          current?.kind === "linkCell" && current.item.id === item.id
-            ? null
-            : current,
+          current?.kind === "linkCell" && current.item.id === item.id ? null : current,
         );
         if (ownsOrClosedModal) setQueueFocusRequest((request) => request + 1);
       } catch (err) {
@@ -926,8 +876,7 @@ export function DashboardScreen() {
     operationsReady &&
     visibleItems.length === 0 &&
     (queueComplete || (tab === "todos" && queueTotal === 0));
-  const isPartialFilterEmpty =
-    operationsReady && visibleItems.length === 0 && !isEmpty;
+  const isPartialFilterEmpty = operationsReady && visibleItems.length === 0 && !isEmpty;
   const dashboardUpdating = loading || queueHydrating || contextLoading;
   const unavailableOperationParts = [
     ...(teamUnavailable ? ["equipe"] : []),
@@ -937,7 +886,16 @@ export function DashboardScreen() {
 
   return (
     <div className="screen dashboard dh" key="dashboard">
-      {user?.roles.some(role => ["admin", "pastor", "lider_consol", "lider_g12", "lider_celula"].includes(role)) ? <AssignmentPanel team={members} onChanged={() => { if (operationsKey) void loadOperations("retry", operationsKey); }} /> : null}
+      {user?.roles.some((role) =>
+        ["admin", "pastor", "lider_consol", "lider_g12", "lider_celula"].includes(role),
+      ) ? (
+        <AssignmentPanel
+          team={members}
+          onChanged={() => {
+            if (operationsKey) void loadOperations("retry", operationsKey);
+          }}
+        />
+      ) : null}
       {/* Farol compacto: calor pastoral, estado real do dia e uma ação quieta. */}
       <header
         data-mineral-surface
@@ -966,7 +924,8 @@ export function DashboardScreen() {
               Cuidados que precisam de você:{" "}
               <strong>
                 {acoesAbertas} {acoesAbertas === 1 ? "pendência" : "pendências"}
-              </strong>.
+              </strong>
+              .
             </p>
           ) : hasWorkQueue ? (
             <p className="dh-lead">{responsibilities.emptyQueueText}</p>
@@ -1037,8 +996,7 @@ export function DashboardScreen() {
             </DsButton>
           }
         >
-          {queueHydrationError.message} {openItems.length} de {queueTotal} ações estão
-          disponíveis.
+          {queueHydrationError.message} {openItems.length} de {queueTotal} ações estão disponíveis.
         </DsBanner>
       ) : null}
 
@@ -1047,8 +1005,7 @@ export function DashboardScreen() {
           {queueComplete
             ? "A fila está atualizada."
             : "As ações já carregadas permanecem disponíveis."}{" "}
-          Dados complementares indisponíveis agora:{" "}
-          {unavailableOperationParts.join(", ")}.
+          Dados complementares indisponíveis agora: {unavailableOperationParts.join(", ")}.
         </DsBanner>
       ) : null}
 
@@ -1077,155 +1034,148 @@ export function DashboardScreen() {
             aria-label={responsibilities.queueTitle}
             aria-busy={loading || queueHydrating}
           >
-          <div className="dh-queue-head">
-            <div className="dh-queue-heading">
-              <span className="dh-queue-symbol" aria-hidden="true">
-                <Icon name="bell" />
-              </span>
-              <div className="dh-queue-titles">
-                <span className="dh-queue-title-line">
-                  <h3 id="dashboard-queue-title" className="dh-queue-title" tabIndex={-1}>
-                    {responsibilities.queueTitle}
-                  </h3>
-                  {!showSkeleton && operationsReady ? (
-                    <span className="dh-queue-count" aria-hidden="true">
-                      {acoesAbertas}
-                    </span>
-                  ) : null}
+            <div className="dh-queue-head">
+              <div className="dh-queue-heading">
+                <span className="dh-queue-symbol" aria-hidden="true">
+                  <Icon name="bell" />
                 </span>
-                <p className="dh-queue-sub">{responsibilities.queueHint}</p>
-              </div>
-            </div>
-            <div className="dh-filter" role="group" aria-label="Filtrar fila">
-              <button
-                type="button"
-                className={`dh-filter-btn${tab === "todos" ? " active" : ""}`}
-                aria-pressed={tab === "todos"}
-                onClick={() => setTab("todos")}
-              >
-                Todos
-              </button>
-              <button
-                type="button"
-                className={`dh-filter-btn${tab === "meus" ? " active" : ""}`}
-                aria-pressed={tab === "meus"}
-                onClick={() => setTab("meus")}
-              >
-                Meus
-              </button>
-            </div>
-          </div>
-
-          {operationsReady && queueHydrating ? (
-            <p className="dh-queue-progress">
-              {tab === "meus"
-                ? "Conferindo todas as páginas para completar suas ações."
-                : `${openItems.length} de ${queueTotal} ações carregadas. Completando a fila.`}
-            </p>
-          ) : null}
-
-          {showSkeleton ? (
-            <div className="dh-queue" aria-hidden="true">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div className="dh-item skeleton" key={i}>
-                  <span className="dh-avatar sk-icon" />
-                  <div className="dh-item-body">
-                    <div className="sk-line sk-md" />
-                    <div className="sk-line sk-sm" />
-                  </div>
+                <div className="dh-queue-titles">
+                  <span className="dh-queue-title-line">
+                    <h3 id="dashboard-queue-title" className="dh-queue-title" tabIndex={-1}>
+                      {responsibilities.queueTitle}
+                    </h3>
+                    {!showSkeleton && operationsReady ? (
+                      <span className="dh-queue-count" aria-hidden="true">
+                        {acoesAbertas}
+                      </span>
+                    ) : null}
+                  </span>
+                  <p className="dh-queue-sub">{responsibilities.queueHint}</p>
                 </div>
-              ))}
-            </div>
-          ) : !operationsReady ? (
-            <DsEmptyState
-              title="A fila não pôde ser carregada."
-              hint="Use Tentar novamente para buscar as ações autorizadas."
-            />
-          ) : isPartialFilterEmpty ? (
-            <DsEmptyState
-              title={
-                tab === "meus"
-                  ? "Conferindo suas ações."
-                  : "A fila está disponível parcialmente."
-              }
-              hint={
-                queueHydrating
-                  ? "Aguarde a carga das páginas restantes."
-                  : "Use Tentar novamente para confirmar todas as ações."
-              }
-            />
-          ) : isEmpty ? (
-            <DsEmptyState
-              title="Fila zerada."
-              hint={responsibilities.emptyQueueText}
-            />
-          ) : (
-            <>
-              <div className="dh-queue" id="dashboard-work-queue" role="list">
-                {displayedItems.map((item, index) => (
-                  <WorkQueueItem
-                  key={item.id}
-                  item={item}
-                  priority={index === 0}
-                  now={now}
-                  responsibleName={
-                    item.responsavelId
-                      ? memberById.get(item.responsavelId)?.nome ?? null
-                      : null
-                  }
-                  canLinkCell={canUseCellLink}
-                  canAssignQueue={canUseAssignment}
-                  busy={busyItemId !== null}
-                  resolving={resolvingIds.has(item.id)}
-                  conflict={conflicts[item.id] ?? null}
-                  onAssume={handleAssume}
-                  onAssign={(it) => {
-                    if (canUseAssignment) setModal({ kind: "assign", item: it });
-                  }}
-                  onMessage={(it) => {
-                    if (it.canMessage) setModal({ kind: "message", item: it });
-                  }}
-                  onLinkCell={(it) => {
-                    if (canUseCellLink) setModal({ kind: "linkCell", item: it });
-                  }}
-                  onFonovisita={handleFonovisita}
-                  />
-                ))}
               </div>
-              {showQueueToggle ? (
+              <div className="dh-filter" role="group" aria-label="Filtrar fila">
                 <button
                   type="button"
-                  className="dh-queue-more"
-                  aria-expanded={queueExpanded}
-                  aria-controls="dashboard-work-queue"
-                  onClick={() => setQueueExpanded((current) => !current)}
+                  className={`dh-filter-btn${tab === "todos" ? " active" : ""}`}
+                  aria-pressed={tab === "todos"}
+                  onClick={() => setTab("todos")}
                 >
-                  {queueToggleLabel}
+                  Todos
                 </button>
-              ) : null}
-            </>
-          )}
+                <button
+                  type="button"
+                  className={`dh-filter-btn${tab === "meus" ? " active" : ""}`}
+                  aria-pressed={tab === "meus"}
+                  onClick={() => setTab("meus")}
+                >
+                  Meus
+                </button>
+              </div>
+            </div>
 
-          {/* Totais do escopo atual ficam depois da fila e recolhidos por padrão. */}
-          {!showSkeleton && operationsReady && supplementsReady && showOverview ? (
-            <details className="dh-summary">
-              <summary className="dh-summary-toggle">Visão geral do seu cuidado</summary>
-              <div className="dh-summary-body">
-                {summaryRows.map((row) => (
-                  <SummaryLine
-                    key={row.key}
-                    row={row}
-                    canNavigate={
-                      row.target != null && user
-                        ? canSee(row.target, user.roles, matrix)
-                        : false
-                    }
-                    onNavigate={navigate}
-                  />
+            {operationsReady && queueHydrating ? (
+              <p className="dh-queue-progress">
+                {tab === "meus"
+                  ? "Conferindo todas as páginas para completar suas ações."
+                  : `${openItems.length} de ${queueTotal} ações carregadas. Completando a fila.`}
+              </p>
+            ) : null}
+
+            {showSkeleton ? (
+              <div className="dh-queue" aria-hidden="true">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div className="dh-item skeleton" key={i}>
+                    <span className="dh-avatar sk-icon" />
+                    <div className="dh-item-body">
+                      <div className="sk-line sk-md" />
+                      <div className="sk-line sk-sm" />
+                    </div>
+                  </div>
                 ))}
               </div>
-            </details>
-          ) : null}
+            ) : !operationsReady ? (
+              <DsEmptyState
+                title="A fila não pôde ser carregada."
+                hint="Use Tentar novamente para buscar as ações autorizadas."
+              />
+            ) : isPartialFilterEmpty ? (
+              <DsEmptyState
+                title={
+                  tab === "meus" ? "Conferindo suas ações." : "A fila está disponível parcialmente."
+                }
+                hint={
+                  queueHydrating
+                    ? "Aguarde a carga das páginas restantes."
+                    : "Use Tentar novamente para confirmar todas as ações."
+                }
+              />
+            ) : isEmpty ? (
+              <DsEmptyState title="Fila zerada." hint={responsibilities.emptyQueueText} />
+            ) : (
+              <>
+                <div className="dh-queue" id="dashboard-work-queue" role="list">
+                  {displayedItems.map((item, index) => (
+                    <WorkQueueItem
+                      key={item.id}
+                      item={item}
+                      priority={index === 0}
+                      now={now}
+                      responsibleName={
+                        item.responsavelId
+                          ? (memberById.get(item.responsavelId)?.nome ?? null)
+                          : null
+                      }
+                      canLinkCell={canUseCellLink}
+                      canAssignQueue={canUseAssignment}
+                      busy={busyItemId !== null}
+                      resolving={resolvingIds.has(item.id)}
+                      conflict={conflicts[item.id] ?? null}
+                      onAssume={handleAssume}
+                      onAssign={(it) => {
+                        if (canUseAssignment) setModal({ kind: "assign", item: it });
+                      }}
+                      onMessage={(it) => {
+                        if (it.canMessage) setModal({ kind: "message", item: it });
+                      }}
+                      onLinkCell={(it) => {
+                        if (canUseCellLink) setModal({ kind: "linkCell", item: it });
+                      }}
+                      onFonovisita={handleFonovisita}
+                    />
+                  ))}
+                </div>
+                {showQueueToggle ? (
+                  <button
+                    type="button"
+                    className="dh-queue-more"
+                    aria-expanded={queueExpanded}
+                    aria-controls="dashboard-work-queue"
+                    onClick={() => setQueueExpanded((current) => !current)}
+                  >
+                    {queueToggleLabel}
+                  </button>
+                ) : null}
+              </>
+            )}
+
+            {/* Totais do escopo atual ficam depois da fila e recolhidos por padrão. */}
+            {!showSkeleton && operationsReady && supplementsReady && showOverview ? (
+              <details className="dh-summary">
+                <summary className="dh-summary-toggle">Visão geral do seu cuidado</summary>
+                <div className="dh-summary-body">
+                  {summaryRows.map((row) => (
+                    <SummaryLine
+                      key={row.key}
+                      row={row}
+                      canNavigate={
+                        row.target != null && user ? canSee(row.target, user.roles, matrix) : false
+                      }
+                      onNavigate={navigate}
+                    />
+                  ))}
+                </div>
+              </details>
+            ) : null}
           </section>
         ) : (
           <section className="dh-main dh-home-main" aria-label={responsibilities.homeTitle}>
@@ -1249,67 +1199,68 @@ export function DashboardScreen() {
 
         {hasWorkQueue ? (
           <div className="dh-support" aria-label="Contexto das suas responsabilidades">
-          {normalizedRoles.includes("admin") && token ? (
-            <PrivateMemoryIndicator
-              key={`${token}:${user?.churchId}:${user?.appUserId}:${rolesKey}`}
-              token={token}
-              churchName={user?.igrejaNome ?? null}
-              onSessionError={handleSessionError}
-            />
-          ) : null}
-          {canSeeCentral && token ? (
-            <CentralPendingContext
-              key={`${token}:${rolesKey}`}
-              token={token}
-              onNavigate={navigate}
-              onSessionError={handleSessionError}
-            />
-          ) : null}
-          {showSkeleton ? (
-            <div className="dh-panel" aria-hidden="true">
-              <div className="sk-line sk-md" />
-              <div className="sk-line sk-sm" />
-            </div>
-          ) : (
-            <>
-              <TodayContext
-                title="Hoje no seu contexto"
-                loading={showContextSkeleton}
-                events={events}
-                meeting={meeting}
-                notices={notices}
-                showEvents={canSeeCalendar}
-                showMeeting={showCellMeeting}
-                shortcuts={shortcutTargets}
-                prioritizeShortcuts={false}
-                eventsUnavailable={contextUnavailable.events}
-                meetingUnavailable={contextUnavailable.meeting}
-                noticesUnavailable={contextUnavailable.notices}
-                onNavigate={navigate}
+            {normalizedRoles.includes("admin") && token ? (
+              <PrivateMemoryIndicator
+                key={`${token}:${user?.churchId}:${user?.appUserId}:${rolesKey}`}
+                token={token}
+                churchName={user?.igrejaNome ?? null}
+                onSessionError={handleSessionError}
               />
-              {operationsReady && supplementsReady &&
-              ((showOverview && !overviewUnavailable) || showTeamWorkload) ? (
-                <details className="dh-support-more">
-                  <summary>Jornada e responsáveis</summary>
-                  <div className="dh-support-secondary">
-                    {showOverview && !overviewUnavailable ? (
-                      <JourneyCard
-                        overview={overview}
-                        canSeeAgente={user ? canSee("agente", user.roles, matrix) : false}
-                        canNavigate={(target) =>
-                          user ? canSee(target, user.roles, matrix) : false
-                        }
-                        onNavigate={navigate}
-                      />
-                    ) : null}
-                    {showTeamWorkload ? (
-                      <NextActions items={openItems} members={members} />
-                    ) : null}
-                  </div>
-                </details>
-              ) : null}
-            </>
-          )}
+            ) : null}
+            {canSeeCentral && token ? (
+              <CentralPendingContext
+                key={`${token}:${rolesKey}`}
+                token={token}
+                onNavigate={navigate}
+                onSessionError={handleSessionError}
+              />
+            ) : null}
+            {showSkeleton ? (
+              <div className="dh-panel" aria-hidden="true">
+                <div className="sk-line sk-md" />
+                <div className="sk-line sk-sm" />
+              </div>
+            ) : (
+              <>
+                <TodayContext
+                  title="Hoje no seu contexto"
+                  loading={showContextSkeleton}
+                  events={events}
+                  meeting={meeting}
+                  notices={notices}
+                  showEvents={canSeeCalendar}
+                  showMeeting={showCellMeeting}
+                  shortcuts={shortcutTargets}
+                  prioritizeShortcuts={false}
+                  eventsUnavailable={contextUnavailable.events}
+                  meetingUnavailable={contextUnavailable.meeting}
+                  noticesUnavailable={contextUnavailable.notices}
+                  onNavigate={navigate}
+                />
+                {operationsReady &&
+                supplementsReady &&
+                ((showOverview && !overviewUnavailable) || showTeamWorkload) ? (
+                  <details className="dh-support-more">
+                    <summary>Jornada e responsáveis</summary>
+                    <div className="dh-support-secondary">
+                      {showOverview && !overviewUnavailable ? (
+                        <JourneyCard
+                          overview={overview}
+                          canSeeAgente={user ? canSee("agente", user.roles, matrix) : false}
+                          canNavigate={(target) =>
+                            user ? canSee(target, user.roles, matrix) : false
+                          }
+                          onNavigate={navigate}
+                        />
+                      ) : null}
+                      {showTeamWorkload ? (
+                        <NextActions items={openItems} members={members} />
+                      ) : null}
+                    </div>
+                  </details>
+                ) : null}
+              </>
+            )}
           </div>
         ) : null}
       </div>
@@ -1333,12 +1284,7 @@ export function DashboardScreen() {
       <DsToastRegion>
         {toast ? (
           toast.kind === "ok" ? (
-            <DsToast
-              kind="ok"
-              text={toast.text}
-              duration={3200}
-              onDismiss={() => setToast(null)}
-            />
+            <DsToast kind="ok" text={toast.text} duration={3200} onDismiss={() => setToast(null)} />
           ) : (
             <DsToast kind="err" text={toast.text} onDismiss={() => setToast(null)} />
           )
@@ -1375,9 +1321,7 @@ function ActionModal({
   const { kind, item } = modal;
   const [text, setText] = useState("");
   const activeCells = cells.filter((c) => c.ativo && c.liderId);
-  const eligibleMembers = members.filter((member) =>
-    member.tiposFila.includes(item.tipo),
-  );
+  const eligibleMembers = members.filter((member) => member.tiposFila.includes(item.tipo));
 
   const title =
     kind === "assign"
@@ -1387,7 +1331,13 @@ function ActionModal({
         : "Conectar à célula";
 
   return (
-    <DsDialog open className="dh-action-dialog" onClose={onClose} title={title} description={item.titulo}>
+    <DsDialog
+      open
+      className="dh-action-dialog"
+      onClose={onClose}
+      title={title}
+      description={item.titulo}
+    >
       {kind === "assign" ? (
         <div className="dh-picker">
           {eligibleMembers.length === 0 ? (
@@ -1536,11 +1486,7 @@ function JourneyCard({
   canNavigate: (target: string) => boolean;
   onNavigate: (target: string) => void;
 }) {
-  const scopeLabel = overview
-    ? overview.scope === "celula"
-      ? "sua célula"
-      : "sua igreja"
-    : null;
+  const scopeLabel = overview ? (overview.scope === "celula" ? "sua célula" : "sua igreja") : null;
   return (
     <section className="dh-panel dh-journey" aria-label="Jornada no seu escopo">
       <header className="dh-panel-head">
@@ -1579,9 +1525,7 @@ function JourneyCard({
                 <a
                   href={`#${stage.route}`}
                   className="dh-journey-row is-link"
-                  onClick={(event) =>
-                    activateDashboardLink(event, stage.route, onNavigate)
-                  }
+                  onClick={(event) => activateDashboardLink(event, stage.route, onNavigate)}
                 >
                   {content}
                 </a>

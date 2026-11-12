@@ -28,12 +28,7 @@ export interface DashboardResponsibilities {
   shortcutCandidates: DashboardShortcutTarget[];
 }
 
-const FULL_QUEUE_ROLES = new Set<Role>([
-  "admin",
-  "pastor",
-  "lider_g12",
-  "lider_consol",
-]);
+const FULL_QUEUE_ROLES = new Set<Role>(["admin", "pastor", "lider_g12", "lider_consol"]);
 
 const SHORTCUTS_BY_ROLE: Record<Role, readonly DashboardShortcutTarget[]> = {
   admin: ["central-celula", "inbox", "calendario"],
@@ -149,11 +144,7 @@ export function resolveDashboardResponsibilities(
   const roles = new Set(inputRoles);
   const fullQueue = hasAny(roles, FULL_QUEUE_ROLES);
   const cellQueue = roles.has("lider_celula");
-  const queueScope: DashboardQueueScope = fullQueue
-    ? "igreja"
-    : cellQueue
-      ? "celula"
-      : null;
+  const queueScope: DashboardQueueScope = fullQueue ? "igreja" : cellQueue ? "celula" : null;
   const copy = queueCopy(roles, queueScope);
 
   const allowedShortcuts = new Set<DashboardShortcutTarget>();

@@ -28,10 +28,7 @@ afterEach(() => {
 
 type TodayContextProps = Parameters<typeof TodayContext>[0];
 
-function renderContext(
-  onNavigate = vi.fn(),
-  overrides: Partial<TodayContextProps> = {},
-) {
+function renderContext(onNavigate = vi.fn(), overrides: Partial<TodayContextProps> = {}) {
   act(() => {
     root.render(
       createElement(TodayContext, {

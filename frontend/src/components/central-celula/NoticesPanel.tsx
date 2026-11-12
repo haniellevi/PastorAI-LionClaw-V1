@@ -137,7 +137,15 @@ export function NoticesPanel({
                   </span>
                 </div>
                 <p className="notice-body">{n.conteudo}</p>
-                <div className="notice-foot" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--s3)" }}>
+                <div
+                  className="notice-foot"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "var(--s3)",
+                  }}
+                >
                   <span className="notice-time">{formatPublishedAt(n.publicado_em)}</span>
                   <DsButton
                     variant="tertiary"

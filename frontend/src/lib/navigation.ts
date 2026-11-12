@@ -143,9 +143,7 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
     label: "Finanças",
     // 'assinatura' segue owner-only (o Sidebar remove p/ não-dono); o grupo
     // some inteiro para admin que não é o dono.
-    items: [
-      { target: "assinatura", label: "Minha Assinatura", icon: "card" },
-    ],
+    items: [{ target: "assinatura", label: "Minha Assinatura", icon: "card" }],
   },
 ];
 
@@ -188,12 +186,17 @@ export function groupLabelForScreen(target: string): string | null {
 }
 
 /** Metadados de tela (título/crumb + info da topbar) para as rotas conhecidas. */
-export const SCREEN_META: Record<
-  string,
-  { title: string; crumb: string; info?: string }
-> = {
-  responsabilidades: { title: "Responsabilidades", crumb: "Responsáveis por setor", info: "Gestão de vigência e histórico por setor." },
-  conhecimento: { title: "Conhecimento oficial", crumb: "Documentos da igreja", info: "Documentos oficiais versionados, com público autorizado e publicação pelo administrador." },
+export const SCREEN_META: Record<string, { title: string; crumb: string; info?: string }> = {
+  responsabilidades: {
+    title: "Responsabilidades",
+    crumb: "Responsáveis por setor",
+    info: "Gestão de vigência e histórico por setor.",
+  },
+  conhecimento: {
+    title: "Conhecimento oficial",
+    crumb: "Documentos da igreja",
+    info: "Documentos oficiais versionados, com público autorizado e publicação pelo administrador.",
+  },
   setup: {
     title: "Configuração Inicial",
     crumb: "Primeiros passos",

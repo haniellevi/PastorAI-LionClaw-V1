@@ -379,7 +379,7 @@ autorização. Leitura por amostragem: sem testes, typecheck nem lint na anális
 | 7 | Arquivar E4B | retirar do app o código de consentimento E4B sem uso | feita (#651) |
 | 8 | Tipos gerados | tipos do painel gerados do OpenAPI do backend | feita (#652) |
 | 9 | Tipagem Python | checagem de tipos começando por poucas pastas | feita (#653) |
-| 10 | Formatador | formatador no painel, por último | PR #654 aberta |
+| 10 | Formatador | formatador no painel, por último | feita (#654) |
 
 Ordem de integração: #648 antes da #649 (as duas mudam `backend-tests.yml`;
 a #649 se ajusta depois); #654 por último, com a formatação refeita sobre a

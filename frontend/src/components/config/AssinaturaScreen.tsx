@@ -178,9 +178,7 @@ export function AssinaturaScreen() {
   }, [load]);
 
   const uiState = useMemo(() => subscriptionUiState(sub), [sub]);
-  const hasOutstandingRecovery = Boolean(
-    sub?.recoveryInvoiceUrl || sub?.recoveryRequired,
-  );
+  const hasOutstandingRecovery = Boolean(sub?.recoveryInvoiceUrl || sub?.recoveryRequired);
 
   const contract = useCallback(
     async (plano: PlanCode) => {
@@ -339,26 +337,27 @@ export function AssinaturaScreen() {
   const nextPlan = complimentary
     ? null
     : currentIndex >= 0
-      ? catalog[currentIndex + 1] ?? null
+      ? (catalog[currentIndex + 1] ?? null)
       : null;
-  const frozenCheckoutRecovery = planoSalvoForaDoCatalogo && sub ? (
-    <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
-      <p className="sub" style={{ color: "var(--muted)", marginTop: 0 }}>
-        A contratação do plano <strong>{sub.plano}</strong> ficou incompleta e esse
-        plano não está mais no catálogo. Você pode retomá-la
-        {catalog.length > 0 ? " ou escolher um dos planos abaixo" : ""}.
-      </p>
-      <button
-        type="button"
-        className="btn btn-sm"
-        onClick={() => void contract(sub.plano)}
-        disabled={checkoutPlan != null}
-        aria-busy={checkoutPlan === sub.plano || undefined}
-      >
-        {checkoutPlan === sub.plano ? "Abrindo…" : "Retomar contratação"}
-      </button>
-    </div>
-  ) : null;
+  const frozenCheckoutRecovery =
+    planoSalvoForaDoCatalogo && sub ? (
+      <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
+        <p className="sub" style={{ color: "var(--muted)", marginTop: 0 }}>
+          A contratação do plano <strong>{sub.plano}</strong> ficou incompleta e esse plano não está
+          mais no catálogo. Você pode retomá-la
+          {catalog.length > 0 ? " ou escolher um dos planos abaixo" : ""}.
+        </p>
+        <button
+          type="button"
+          className="btn btn-sm"
+          onClick={() => void contract(sub.plano)}
+          disabled={checkoutPlan != null}
+          aria-busy={checkoutPlan === sub.plano || undefined}
+        >
+          {checkoutPlan === sub.plano ? "Abrindo…" : "Retomar contratação"}
+        </button>
+      </div>
+    ) : null;
 
   return (
     <div className="screen admin-screen subscription-screen administration-ux" key="assinatura">
@@ -388,8 +387,8 @@ export function AssinaturaScreen() {
         <div className="error-banner" role="status" style={{ marginBottom: "var(--s4)" }}>
           <Icon name="clock" />
           <span>
-            <strong>Aguardando confirmação do pagamento.</strong> O acesso completo
-            é liberado assim que o Asaas confirmar a cobrança.
+            <strong>Aguardando confirmação do pagamento.</strong> O acesso completo é liberado assim
+            que o Asaas confirmar a cobrança.
           </span>
         </div>
       ) : null}
@@ -401,8 +400,8 @@ export function AssinaturaScreen() {
         <div className="error-banner" role="alert" style={{ marginBottom: "var(--s4)" }}>
           <Icon name="alert" />
           <span>
-            <strong>Regularização anterior pendente.</strong> Conclua essa cobrança
-            para liberar o acesso da igreja.
+            <strong>Regularização anterior pendente.</strong> Conclua essa cobrança para liberar o
+            acesso da igreja.
           </span>
           {sub.recoveryInvoiceUrl ? (
             <a
@@ -434,8 +433,7 @@ export function AssinaturaScreen() {
         <div className="error-banner" role="alert" style={{ marginBottom: "var(--s4)" }}>
           <Icon name="alert" />
           <span>
-            <strong>Pagamento em atraso.</strong> Regularize para manter o acesso da
-            igreja ativo.
+            <strong>Pagamento em atraso.</strong> Regularize para manter o acesso da igreja ativo.
           </span>
           {sub.invoiceUrl ? (
             <a
@@ -520,7 +518,13 @@ export function AssinaturaScreen() {
               value={cpfCnpj}
               onChange={(event) => setCpfCnpj(event.target.value)}
               aria-describedby="subscription-cpf-cnpj-help"
-              aria-invalid={cpfCnpj.length > 0 && cpfCnpj.replace(/\D/g, "").length !== 11 && cpfCnpj.replace(/\D/g, "").length !== 14 ? true : undefined}
+              aria-invalid={
+                cpfCnpj.length > 0 &&
+                cpfCnpj.replace(/\D/g, "").length !== 11 &&
+                cpfCnpj.replace(/\D/g, "").length !== 14
+                  ? true
+                  : undefined
+              }
             />
             <p id="subscription-cpf-cnpj-help" className="helper">
               Usado somente para criar a cobrança no Asaas; não fica salvo no painel.
@@ -569,7 +573,9 @@ export function AssinaturaScreen() {
         assinante && sub ? (
           <div className="grid-2" style={{ alignItems: "start" }}>
             <div className="card card-pad">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+              >
                 <div>
                   <h4>Plano {current?.label ?? sub.plano}</h4>
                   <div className="sub" style={{ color: "var(--muted)", marginTop: 3 }}>
@@ -587,7 +593,9 @@ export function AssinaturaScreen() {
                 </div>
                 <SubscriptionPill state={uiState} />
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: "var(--s4)" }}>
+              <div
+                style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: "var(--s4)" }}
+              >
                 <span className="val num" style={{ fontSize: 30, fontWeight: 640 }}>
                   {complimentary ? BRL.format(0) : current ? BRL.format(current.preco) : "—"}
                 </span>
@@ -645,16 +653,12 @@ export function AssinaturaScreen() {
                 {sub.setupPago ? (
                   <StatusPill tone="ok">{complimentary ? "Isento" : "Pago"}</StatusPill>
                 ) : (
-                  <span className="mono num">
-                    {BRL.format(sub.setupFeeContracted ?? setupFee)}
-                  </span>
+                  <span className="mono num">{BRL.format(sub.setupFeeContracted ?? setupFee)}</span>
                 )}
               </div>
               {!complimentary && sub.setupRecoveryRequired ? (
                 <div className="config-row">
-                  <span style={{ color: "var(--muted)" }}>
-                    Setup em aberto sem cobrança ativa
-                  </span>
+                  <span style={{ color: "var(--muted)" }}>Setup em aberto sem cobrança ativa</span>
                   <button
                     type="button"
                     className="btn btn-sm"
@@ -676,8 +680,8 @@ export function AssinaturaScreen() {
           <div className="empty-state" style={{ padding: "var(--s6)" }}>
             <Icon name="card" />
             <p>
-              <strong>Nenhum plano contratado.</strong> Escolha um plano em
-              “Planos por porte” para ativar a igreja.
+              <strong>Nenhum plano contratado.</strong> Escolha um plano em “Planos por porte” para
+              ativar a igreja.
             </p>
           </div>
         )
@@ -757,10 +761,18 @@ export function AssinaturaScreen() {
                 const retomar = placeholder && sub?.plano === plan.code;
                 return (
                   <tr key={plan.code}>
-                    <td className="nm" data-label="Plano">{plan.label}</td>
-                    <td className="num" data-label="Até">{formatLimit(plan.limite)}</td>
-                    <td className="num" data-label="Mensalidade">{BRL.format(plan.preco)}</td>
-                    <td className="num" data-label="Setup">{BRL.format(setupFee)}</td>
+                    <td className="nm" data-label="Plano">
+                      {plan.label}
+                    </td>
+                    <td className="num" data-label="Até">
+                      {formatLimit(plan.limite)}
+                    </td>
+                    <td className="num" data-label="Mensalidade">
+                      {BRL.format(plan.preco)}
+                    </td>
+                    <td className="num" data-label="Setup">
+                      {BRL.format(setupFee)}
+                    </td>
                     <td data-label="Ações">
                       {isCurrent ? (
                         <StatusPill tone="accent">Plano atual</StatusPill>

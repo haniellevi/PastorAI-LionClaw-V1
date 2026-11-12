@@ -50,13 +50,16 @@ function payloadName(p: MultiplicacaoPendente): string {
 
 export function EnviarScreen() {
   const { token, user, expireSession } = useAuth();
-  const canEvaluate = user?.roles.some(role => role === "admin" || role === "pastor") ?? false;
+  const canEvaluate = user?.roles.some((role) => role === "admin" || role === "pastor") ?? false;
   const [requestsReload, setRequestsReload] = useState(0);
   const [requestNotice, setRequestNotice] = useState("");
   const canRequest = canEvaluate || (user?.roles.includes("lider_celula") ?? false);
   const [candidate, setCandidate] = useState<ContactLookup | null>(null);
-  const loadCandidates = useCallback((q: string, page: number, signal: AbortSignal) =>
-    fetchContactLookupPage(token!, { q, page, pageSize: 25, signal }), [token]);
+  const loadCandidates = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      fetchContactLookupPage(token!, { q, page, pageSize: 25, signal }),
+    [token],
+  );
 
   const [data, setData] = useState<MultiplicacoesListOut | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,9 +82,7 @@ export function EnviarScreen() {
         setRestricted(true);
       } else {
         setError(
-          err instanceof ApiError
-            ? err.message
-            : "Não foi possível carregar as multiplicações.",
+          err instanceof ApiError ? err.message : "Não foi possível carregar as multiplicações.",
         );
       }
     } finally {
@@ -103,34 +104,77 @@ export function EnviarScreen() {
           <h2>Enviar</h2>
           <p>Acompanhe pedidos e registros que fortalecem a próxima geração.</p>
         </div>
-        <div className="actions"><button type="button" className="btn" disabled={loading} onClick={() => { setRequestsReload(n => n + 1); void load(); }}><Icon name="refresh" /> Atualizar</button></div>
+        <div className="actions">
+          <button
+            type="button"
+            className="btn"
+            disabled={loading}
+            onClick={() => {
+              setRequestsReload((n) => n + 1);
+              void load();
+            }}
+          >
+            <Icon name="refresh" /> Atualizar
+          </button>
+        </div>
       </div>
       <div className="info-banner" role="note">
         <Icon name="info" />
         <span>
-          A multiplicação é <strong>solicitada</strong> pelo líder em{" "}
-          <em>Minha Célula</em> e <strong>decidida</strong> pela Central em{" "}
-          <em>Central de Célula</em>. Aqui você acompanha o panorama.
+          A multiplicação é <strong>solicitada</strong> pelo líder em <em>Minha Célula</em> e{" "}
+          <strong>decidida</strong> pela Central em <em>Central de Célula</em>. Aqui você acompanha
+          o panorama.
         </span>
       </div>
 
-      {canRequest && token ? <EnviarPanorama token={token} onExpired={expireSession} canDecide={canEvaluate} reloadToken={requestsReload} /> : null}
+      {canRequest && token ? (
+        <EnviarPanorama
+          token={token}
+          onExpired={expireSession}
+          canDecide={canEvaluate}
+          reloadToken={requestsReload}
+        />
+      ) : null}
 
-      {canEvaluate && token ? <section className="card card-pad" aria-label="Avaliar aptidão">
-        <h3>Aptidão à liderança</h3>
-        <p>Selecione uma pessoa para consultar pendências e registrar a decisão da coordenação.</p>
-        <PaginatedLookup label="Pessoa para avaliação" inputId="enviar-pessoa" loadPage={loadCandidates}
-          selected={candidate} onSelect={setCandidate} getLabel={person => person.nome}
-          onSessionExpired={expireSession} />
-        {candidate ? <AvaliacaoPanel key={candidate.id} pessoaId={candidate.id} token={token} onExpired={expireSession} onSaved={() => setRequestsReload(n => n + 1)} /> : null}
-      </section> : null}
+      {canEvaluate && token ? (
+        <section className="card card-pad" aria-label="Avaliar aptidão">
+          <h3>Aptidão à liderança</h3>
+          <p>
+            Selecione uma pessoa para consultar pendências e registrar a decisão da coordenação.
+          </p>
+          <PaginatedLookup
+            label="Pessoa para avaliação"
+            inputId="enviar-pessoa"
+            loadPage={loadCandidates}
+            selected={candidate}
+            onSelect={setCandidate}
+            getLabel={(person) => person.nome}
+            onSessionExpired={expireSession}
+          />
+          {candidate ? (
+            <AvaliacaoPanel
+              key={candidate.id}
+              pessoaId={candidate.id}
+              token={token}
+              onExpired={expireSession}
+              onSaved={() => setRequestsReload((n) => n + 1)}
+            />
+          ) : null}
+        </section>
+      ) : null}
 
-      {canRequest && token ? <section id="enviar-pedidos" tabIndex={-1} className="card card-pad" aria-label="Nomeações">
-        <AberturaForm token={token} onCreated={() => setRequestsReload(n => n + 1)} />
-        <NomeacaoForm token={token} onCreated={() => setRequestsReload(n => n + 1)} />
-        {requestNotice ? <p role="status">{requestNotice}</p> : null}
-        <MyRequestsList token={token} reloadToken={requestsReload} onToast={notice => setRequestNotice(notice.text)} />
-      </section> : null}
+      {canRequest && token ? (
+        <section id="enviar-pedidos" tabIndex={-1} className="card card-pad" aria-label="Nomeações">
+          <AberturaForm token={token} onCreated={() => setRequestsReload((n) => n + 1)} />
+          <NomeacaoForm token={token} onCreated={() => setRequestsReload((n) => n + 1)} />
+          {requestNotice ? <p role="status">{requestNotice}</p> : null}
+          <MyRequestsList
+            token={token}
+            reloadToken={requestsReload}
+            onToast={(notice) => setRequestNotice(notice.text)}
+          />
+        </section>
+      ) : null}
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -151,8 +195,8 @@ export function EnviarScreen() {
           <div className="empty-state" style={{ padding: "var(--s6)" }}>
             <Icon name="lock" />
             <p>
-              <strong>Panorama restrito à Central de Célula.</strong> A
-              multiplicação da sua célula é solicitada em <em>Minha Célula</em>.
+              <strong>Panorama restrito à Central de Célula.</strong> A multiplicação da sua célula
+              é solicitada em <em>Minha Célula</em>.
             </p>
           </div>
         </div>
@@ -175,9 +219,7 @@ export function EnviarScreen() {
           <div className="card">
             <div className="panel-title">
               Pendentes
-              {pendentes.length ? (
-                <span className="count">· {pendentes.length}</span>
-              ) : null}
+              {pendentes.length ? <span className="count">· {pendentes.length}</span> : null}
             </div>
             {pendentes.length === 0 ? (
               <div className="empty-state" style={{ padding: "var(--s6)" }}>
@@ -195,9 +237,7 @@ export function EnviarScreen() {
                     </span>
                     <div className="qbody">
                       <strong>{payloadName(p)}</strong>
-                      <div className="meta">
-                        Solicitada em {formatDate(p.created_at)}
-                      </div>
+                      <div className="meta">Solicitada em {formatDate(p.created_at)}</div>
                     </div>
                     <StatusPill tone="warn">Aguardando</StatusPill>
                   </div>
@@ -209,9 +249,7 @@ export function EnviarScreen() {
           <div className="card">
             <div className="panel-title">
               Registradas
-              {registradas.length ? (
-                <span className="count">· {registradas.length}</span>
-              ) : null}
+              {registradas.length ? <span className="count">· {registradas.length}</span> : null}
             </div>
             {registradas.length === 0 ? (
               <div className="empty-state" style={{ padding: "var(--s6)" }}>

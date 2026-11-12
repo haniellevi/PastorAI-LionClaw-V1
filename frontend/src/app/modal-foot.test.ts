@@ -36,25 +36,28 @@ const RODAPES = [
   { nome: ".dh-modal-foot", css: globals, sel: String.raw`\.dh-modal-foot` },
 ] as const;
 
-describe.each(RODAPES)("$nome — botões quebram de linha em vez de vazar do diálogo", ({ css, sel }) => {
-  it("declara flex-wrap: wrap (sem isso o botão vaza à esquerda em telas estreitas)", () => {
-    expect(rule(css, sel)).toMatch(/flex-wrap:\s*wrap/);
-  });
+describe.each(RODAPES)(
+  "$nome — botões quebram de linha em vez de vazar do diálogo",
+  ({ css, sel }) => {
+    it("declara flex-wrap: wrap (sem isso o botão vaza à esquerda em telas estreitas)", () => {
+      expect(rule(css, sel)).toMatch(/flex-wrap:\s*wrap/);
+    });
 
-  it("continua flex alinhado à direita — a correção não muda o alinhamento", () => {
-    const body = rule(css, sel);
-    expect(body).toMatch(/display:\s*flex/);
-    expect(body).toMatch(/justify-content:\s*flex-end/);
-  });
+    it("continua flex alinhado à direita — a correção não muda o alinhamento", () => {
+      const body = rule(css, sel);
+      expect(body).toMatch(/display:\s*flex/);
+      expect(body).toMatch(/justify-content:\s*flex-end/);
+    });
 
-  it("não usa nowrap nem wrap-reverse no contêiner (inverteria a ordem visual)", () => {
-    expect(rule(css, sel)).not.toMatch(/flex-wrap:\s*(nowrap|wrap-reverse)/);
-  });
+    it("não usa nowrap nem wrap-reverse no contêiner (inverteria a ordem visual)", () => {
+      expect(rule(css, sel)).not.toMatch(/flex-wrap:\s*(nowrap|wrap-reverse)/);
+    });
 
-  it("preserva o espaçamento entre os botões (vale também entre linhas, após o wrap)", () => {
-    expect(rule(css, sel)).toMatch(/gap:\s*(8px|var\(--s2\))/);
-  });
-});
+    it("preserva o espaçamento entre os botões (vale também entre linhas, após o wrap)", () => {
+      expect(rule(css, sel)).toMatch(/gap:\s*(8px|var\(--s2\))/);
+    });
+  },
+);
 
 describe("nowrap escopado — a base quebra dentro do botão; os grupos com wrap não", () => {
   it(".btn base NÃO tem white-space: nowrap (rótulo pode quebrar em linhas sem wrap)", () => {
@@ -97,7 +100,10 @@ describe("nowrap escopado — a base quebra dentro do botão; os grupos com wrap
         selectors.every((selector) => header!.includes(selector)) &&
         /white-space:\s*nowrap/.test(body!),
     );
-    expect(scopedRule, "regra de nowrap escopada da Agenda/Minha Célula não encontrada").toBeTruthy();
+    expect(
+      scopedRule,
+      "regra de nowrap escopada da Agenda/Minha Célula não encontrada",
+    ).toBeTruthy();
   });
 
   it("o alvo de toque de 44px do .modal-foot no mobile segue declarado", () => {

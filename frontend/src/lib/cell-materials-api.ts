@@ -43,10 +43,7 @@ export interface CreateMaterialInput {
 }
 
 /** Publica um material (somente Central). */
-export async function createMaterial(
-  token: string,
-  input: CreateMaterialInput,
-): Promise<Material> {
+export async function createMaterial(token: string, input: CreateMaterialInput): Promise<Material> {
   const res = await authedFetch(token, `/cell-materials`, {
     method: "POST",
     body: JSON.stringify({
@@ -64,11 +61,7 @@ export async function createMaterial(
 }
 
 /** Lista os materiais ativos da igreja (leitura de líder e discípulo). */
-export async function listMaterials(
-  token: string,
-  page = 1,
-  pageSize = 50,
-): Promise<MaterialPage> {
+export async function listMaterials(token: string, page = 1, pageSize = 50): Promise<MaterialPage> {
   const query = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -82,10 +75,7 @@ export async function listMaterials(
 }
 
 /** Inativa (ativo=false) um material (somente Central). */
-export async function deleteMaterial(
-  token: string,
-  materialId: string,
-): Promise<Material> {
+export async function deleteMaterial(token: string, materialId: string): Promise<Material> {
   const res = await authedFetch(token, `/cell-materials/${materialId}`, {
     method: "DELETE",
   });

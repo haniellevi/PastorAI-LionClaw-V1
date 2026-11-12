@@ -5,11 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SessionExpiredError } from "./api";
-import {
-  canSee,
-  DEFAULT_PERMISSIONS,
-  type PermissionMatrix,
-} from "./permissions";
+import { canSee, DEFAULT_PERMISSIONS, type PermissionMatrix } from "./permissions";
 
 const authMock = vi.hoisted(() => ({
   value: {
@@ -367,10 +363,11 @@ describe("PermissionsProvider — matriz efetiva da sessão", () => {
   });
 });
 
-
 it("adota matriz do bootstrap somente para o mesmo token, sem GET duplicado", async () => {
   authMock.value = { status: "authenticated", token: "token-a", expireSession: vi.fn() };
-  Object.assign(authMock.value, { permissionSnapshot: { token: "token-a", matrix: { membro: ["dashboard"] } } });
+  Object.assign(authMock.value, {
+    permissionSnapshot: { token: "token-a", matrix: { membro: ["dashboard"] } },
+  });
   render();
   await flush();
   expect(rolesApiMock.fetchPermissions).not.toHaveBeenCalled();

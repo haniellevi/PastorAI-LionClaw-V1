@@ -15,7 +15,10 @@ export function AuthLayout({ children, purpose }: { children: ReactNode; purpose
           <BrandSignature size={32} tone="var(--text-on-action)" />
           <div className="auth-story-copy">
             <p className="auth-story-kicker">Presença que aproxima</p>
-            <h2>Mais presença.{" "}<br />Cuidado próximo.</h2>
+            <h2>
+              Mais presença. <br />
+              Cuidado próximo.
+            </h2>
             <p>O WhatsApp é o ponto de encontro. O painel ajuda você a acompanhar e agir.</p>
           </div>
           <span className="auth-story-caption">Pessoas · Células · Cuidado</span>
@@ -23,15 +26,15 @@ export function AuthLayout({ children, purpose }: { children: ReactNode; purpose
       </section>
       <div className="auth-form-side">
         <div className="auth-content">
-        {children}
-        <SupportReveal>
-          <nav className="login-legal-links" aria-label="Informações legais">
-          <Link href="/termos">Termos de Uso</Link>
-          <span aria-hidden="true">·</span>
-          <Link href="/privacidade">Privacidade</Link>
-          </nav>
-        {purpose ? <p className="auth-purpose">{purpose}</p> : null}
-        </SupportReveal>
+          {children}
+          <SupportReveal>
+            <nav className="login-legal-links" aria-label="Informações legais">
+              <Link href="/termos">Termos de Uso</Link>
+              <span aria-hidden="true">·</span>
+              <Link href="/privacidade">Privacidade</Link>
+            </nav>
+            {purpose ? <p className="auth-purpose">{purpose}</p> : null}
+          </SupportReveal>
         </div>
       </div>
     </main>

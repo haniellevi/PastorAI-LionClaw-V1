@@ -31,14 +31,12 @@ vi.mock("@/lib/auth-context", () => ({
 }));
 
 vi.mock("@/lib/lookup-api", async () => ({
-  ...await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api"),
+  ...(await vi.importActual<typeof import("@/lib/lookup-api")>("@/lib/lookup-api")),
   fetchContactLookupPage: mocks.fetchContacts,
 }));
 
 vi.mock("@/lib/dashboard-api", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>(
-    "@/lib/dashboard-api",
-  );
+  const actual = await vi.importActual<typeof import("@/lib/dashboard-api")>("@/lib/dashboard-api");
   return { ...actual, fetchTeam: mocks.fetchTeam };
 });
 
@@ -92,10 +90,7 @@ async function flushEffects() {
 }
 
 function changeInput(input: HTMLInputElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )?.set;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
   act(() => {
     setter?.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -184,15 +179,17 @@ describe("EquipeScreen: acesso separado da célula", () => {
   it("não exibe estados do vínculo para quem não é admin", async () => {
     mocks.auth.user = { appUserId: "u-pastor", roles: ["pastor"] };
     mocks.fetchTeam.mockResolvedValue({
-      items: [{
-        usuarioId: "u-sem-pessoa",
-        nome: "Conta sintética",
-        email: "conta@example.test",
-        status: "ativo",
-        papeis: ["pastor"],
-        pessoaId: null,
-        pessoaVinculo: "sem_vinculo",
-      }],
+      items: [
+        {
+          usuarioId: "u-sem-pessoa",
+          nome: "Conta sintética",
+          email: "conta@example.test",
+          status: "ativo",
+          papeis: ["pastor"],
+          pessoaId: null,
+          pessoaVinculo: "sem_vinculo",
+        },
+      ],
       page: 1,
       pageSize: 100,
       total: 1,
@@ -208,17 +205,40 @@ describe("EquipeScreen: acesso separado da célula", () => {
   });
 
   it("mantém o alvo e o e-mail escolhidos ao paginar além da base inicial", async () => {
-    mocks.fetchContacts.mockReset().mockResolvedValueOnce({ items: [linkedLeader], page: 1, pageSize: 25, total: 301 })
-      .mockResolvedValueOnce({ items: [{ ...linkedLeader, id: "p-250", nome: "Outra Pessoa" }], page: 2, pageSize: 25, total: 301 });
+    mocks.fetchContacts
+      .mockReset()
+      .mockResolvedValueOnce({ items: [linkedLeader], page: 1, pageSize: 25, total: 301 })
+      .mockResolvedValueOnce({
+        items: [{ ...linkedLeader, id: "p-250", nome: "Outra Pessoa" }],
+        page: 2,
+        pageSize: 25,
+        total: 301,
+      });
     await act(async () => root.render(h(EquipeScreen)));
-    act(() => [...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Dar acesso ao painel")!.click());
+    act(() =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent?.trim() === "Dar acesso ao painel")!
+        .click(),
+    );
     await flushEffects();
-    act(() => [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("Ana Vinculada"))!.click());
-    await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "Próxima página")!.click());
+    act(() =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent?.includes("Ana Vinculada"))!
+        .click(),
+    );
+    await act(async () =>
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Próxima página")!
+        .click(),
+    );
     expect(mocks.fetchContacts.mock.calls[1]![1]).toMatchObject({ page: 2, q: "" });
     expect(container.textContent).toContain("Pessoa selecionada: Ana Vinculada");
     expect(container.textContent).toContain("Página 2 de 13");
-    expect([...container.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Enviar convite")!.disabled).toBe(false);
+    expect(
+      [...container.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Enviar convite",
+      )!.disabled,
+    ).toBe(false);
   });
   it("permite selecionar Pessoa já vinculada/líder e omite celulaId do convite", async () => {
     act(() => root.render(h(EquipeScreen)));
@@ -273,16 +293,11 @@ describe("EquipeScreen: acesso separado da célula", () => {
     ) as HTMLButtonElement;
     expect(submit.disabled).toBe(false);
 
-    changeInput(
-      container.querySelector("#invPessoaQuery") as HTMLInputElement,
-      "Outra pessoa",
-    );
+    changeInput(container.querySelector("#invPessoaQuery") as HTMLInputElement, "Outra pessoa");
 
     expect(submit.disabled).toBe(true);
     const form = container.querySelector("form") as HTMLFormElement;
-    act(() =>
-      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-    );
+    act(() => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(mocks.inviteMember).not.toHaveBeenCalled();
   });
 
@@ -381,12 +396,30 @@ describe("EquipeScreen: acesso separado da célula", () => {
 
 it.each([true, false])("ação de vínculo é exclusiva de admin (%s)", async (admin) => {
   mocks.auth.user = { appUserId: "u-admin", roles: admin ? ["admin"] : ["pastor"] };
-  mocks.fetchTeam.mockResolvedValue({ items: [{ usuarioId: "u-synthetic", nome: "Conta sintética", email: "synthetic@example.test", status: "ativo", pessoaId: null, papeis: ["membro"] }], page: 1, pageSize: 100, total: 1 });
-  act(() => root.render(h(EquipeScreen))); await flushEffects();
+  mocks.fetchTeam.mockResolvedValue({
+    items: [
+      {
+        usuarioId: "u-synthetic",
+        nome: "Conta sintética",
+        email: "synthetic@example.test",
+        status: "ativo",
+        pessoaId: null,
+        papeis: ["membro"],
+      },
+    ],
+    page: 1,
+    pageSize: 100,
+    total: 1,
+  });
+  act(() => root.render(h(EquipeScreen)));
+  await flushEffects();
   const action = container.querySelector('[aria-label="Vincular Pessoa a Conta sintética"]');
   expect(!!action).toBe(admin);
   if (admin) {
-    act(() => (action as HTMLButtonElement).click()); await flushEffects();
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain("Vincular Pessoa · Conta sintética");
+    act(() => (action as HTMLButtonElement).click());
+    await flushEffects();
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain(
+      "Vincular Pessoa · Conta sintética",
+    );
   }
 });

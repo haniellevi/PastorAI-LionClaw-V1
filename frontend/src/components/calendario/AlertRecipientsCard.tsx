@@ -126,7 +126,11 @@ export function AlertRecipientsCard() {
       </p>
 
       {error ? (
-        <p className="sub" role="alert" style={{ color: "var(--danger)", marginBottom: "var(--s2)" }}>
+        <p
+          className="sub"
+          role="alert"
+          style={{ color: "var(--danger)", marginBottom: "var(--s2)" }}
+        >
           {error}
         </p>
       ) : null}
@@ -141,7 +145,11 @@ export function AlertRecipientsCard() {
             >
               <span style={{ flex: 1, opacity: r.ativo ? 1 : 0.55 }}>
                 {r.nome} · {r.telefone}
-                {r.ativo ? null : <span className="pill" style={{ marginLeft: 8 }}>inativo</span>}
+                {r.ativo ? null : (
+                  <span className="pill" style={{ marginLeft: 8 }}>
+                    inativo
+                  </span>
+                )}
               </span>
               <button
                 type="button"
@@ -170,7 +178,9 @@ export function AlertRecipientsCard() {
       )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <label className="sr-only" htmlFor="alert-recipient-nome">Nome</label>
+        <label className="sr-only" htmlFor="alert-recipient-nome">
+          Nome
+        </label>
         <input
           id="alert-recipient-nome"
           className="input"
@@ -179,7 +189,9 @@ export function AlertRecipientsCard() {
           onChange={(e) => setNome(e.target.value)}
           style={{ flex: "1 1 140px" }}
         />
-        <label className="sr-only" htmlFor="alert-recipient-telefone">Telefone (WhatsApp)</label>
+        <label className="sr-only" htmlFor="alert-recipient-telefone">
+          Telefone (WhatsApp)
+        </label>
         <input
           id="alert-recipient-telefone"
           className="input"

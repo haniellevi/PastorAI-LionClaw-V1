@@ -34,10 +34,7 @@ export async function fetchDescendencias(
 
 /** Conta recursivamente os liderados (descendentes) de um nó. */
 export function countDescendants(node: TreeNode): number {
-  return node.children.reduce(
-    (sum, child) => sum + 1 + countDescendants(child),
-    0,
-  );
+  return node.children.reduce((sum, child) => sum + 1 + countDescendants(child), 0);
 }
 
 /** Iniciais para o avatar (até 2 letras das primeiras palavras do nome). */

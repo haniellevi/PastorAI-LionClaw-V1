@@ -17,16 +17,23 @@ import type { CellMember } from "@/lib/cells-api";
 import type { ReportPresenca } from "@/lib/cell-meetings-api";
 import type { FlashToast } from "./types";
 
-function personLabel(name: string): { primary: string; secondary: string | null; initials: string } {
+function personLabel(name: string): {
+  primary: string;
+  secondary: string | null;
+  initials: string;
+} {
   const trimmed = name.trim();
   if (/^\+?[\d\s().-]{8,}$/.test(trimmed)) {
     return { primary: "Contato sem nome", secondary: trimmed, initials: "?" };
   }
   const parts = trimmed.split(/\s+/).filter(Boolean);
-  const initials = parts.length > 1
-    ? `${parts[0]![0] ?? ""}${parts.at(-1)?.[0] ?? ""}`
-    : trimmed.slice(0, 2);
-  return { primary: trimmed || "Pessoa sem nome", secondary: null, initials: initials.toUpperCase() || "?" };
+  const initials =
+    parts.length > 1 ? `${parts[0]![0] ?? ""}${parts.at(-1)?.[0] ?? ""}` : trimmed.slice(0, 2);
+  return {
+    primary: trimmed || "Pessoa sem nome",
+    secondary: null,
+    initials: initials.toUpperCase() || "?",
+  };
 }
 
 export function AttendanceSection({
@@ -121,11 +128,7 @@ export function AttendanceSection({
           </div>
           {!locked ? (
             <div className="section-actions">
-              <DsButton
-                variant="primary"
-                onClick={() => void save()}
-                loading={busy}
-              >
+              <DsButton variant="primary" onClick={() => void save()} loading={busy}>
                 <Icon name="check" />
                 <span>{busy ? "Salvando presença…" : "Salvar presença"}</span>
               </DsButton>

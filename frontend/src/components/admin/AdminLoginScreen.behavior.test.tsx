@@ -24,14 +24,19 @@ function input(label: string): HTMLInputElement {
 
 async function fill(label: string, value: string) {
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input(label), value);
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+      input(label),
+      value,
+    );
     input(label).dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
 
 async function submit() {
   await act(async () => {
-    container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    container
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   });
 }
 
@@ -42,10 +47,15 @@ beforeEach(async () => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => { root.render(h(AdminLoginScreen)); });
+  await act(async () => {
+    root.render(h(AdminLoginScreen));
+  });
 });
 
-afterEach(() => { act(() => root.unmount()); container.remove(); });
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
 
 describe("AdminLoginScreen: formulário restrito", () => {
   it("validação incompleta não tenta autenticar", async () => {
@@ -72,28 +82,41 @@ describe("AdminLoginScreen: formulário restrito", () => {
   it("mostrar senha não submete e conserva valor e autocomplete", async () => {
     await fill("Senha", "senha-sintetica");
     const reveal = container.querySelector<HTMLButtonElement>('[aria-label="Mostrar senha"]')!;
-    act(() => { reveal.focus(); reveal.click(); });
+    act(() => {
+      reveal.focus();
+      reveal.click();
+    });
     expect(input("Senha").type).toBe("text");
     expect(input("Senha").value).toBe("senha-sintetica");
     expect(input("Senha").getAttribute("autocomplete")).toBe("current-password");
     expect(reveal.getAttribute("aria-pressed")).toBe("true");
     expect(document.activeElement).toBe(reveal);
     expect(auth.login).not.toHaveBeenCalled();
-    act(() => { reveal.click(); });
+    act(() => {
+      reveal.click();
+    });
     expect(input("Senha").type).toBe("password");
   });
 
   it("autenticação pendente bloqueia dupla submissão e preserva valores na falha", async () => {
     let reject!: (error: Error) => void;
-    auth.login.mockReturnValueOnce(new Promise<void>((_, rej) => { reject = rej; }));
+    auth.login.mockReturnValueOnce(
+      new Promise<void>((_, rej) => {
+        reject = rej;
+      }),
+    );
     await fill("E-mail", "admin@example.test");
     await fill("Senha", "senha-sintetica");
     await submit();
     await submit();
     expect(auth.login).toHaveBeenCalledTimes(1);
     expect(input("Senha").disabled).toBe(true);
-    expect(container.querySelector<HTMLButtonElement>('[aria-label="Mostrar senha"]')!.disabled).toBe(true);
-    await act(async () => { reject(new AdminAuthError("network", "Falha de conexão.")); });
+    expect(
+      container.querySelector<HTMLButtonElement>('[aria-label="Mostrar senha"]')!.disabled,
+    ).toBe(true);
+    await act(async () => {
+      reject(new AdminAuthError("network", "Falha de conexão."));
+    });
     expect(input("Senha").disabled).toBe(false);
     expect(input("Senha").value).toBe("senha-sintetica");
     expect(container.querySelector('[role="alert"]')).not.toBeNull();

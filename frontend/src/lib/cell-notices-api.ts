@@ -73,10 +73,7 @@ export async function getMyNotices(token: string): Promise<DiscipleNotice[]> {
 }
 
 /** Publica um aviso (líder: escopo `celula`; Central: `celula` ou `igreja`). */
-export async function createNotice(
-  token: string,
-  input: CreateNoticeInput,
-): Promise<Notice> {
+export async function createNotice(token: string, input: CreateNoticeInput): Promise<Notice> {
   const res = await authedFetch(token, `/cell-notices`, {
     method: "POST",
     body: JSON.stringify({
@@ -94,11 +91,7 @@ export async function createNotice(
 }
 
 /** Lista paginada de avisos visíveis ao usuário autenticado. */
-export async function listNotices(
-  token: string,
-  page = 1,
-  pageSize = 50,
-): Promise<NoticePage> {
+export async function listNotices(token: string, page = 1, pageSize = 50): Promise<NoticePage> {
   const query = new URLSearchParams({
     page: String(page),
     page_size: String(pageSize),
@@ -112,10 +105,7 @@ export async function listNotices(
 }
 
 /** Inativa (ativo=false) um aviso do próprio autor compatível. */
-export async function deleteNotice(
-  token: string,
-  noticeId: string,
-): Promise<Notice> {
+export async function deleteNotice(token: string, noticeId: string): Promise<Notice> {
   const res = await authedFetch(token, `/cell-notices/${noticeId}`, {
     method: "DELETE",
   });

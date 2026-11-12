@@ -140,20 +140,18 @@ function dialogButton(label: string): HTMLButtonElement | undefined {
 
 async function renderScreen(items: Contact[] = [arquivada, ativa]) {
   serverItems = items.map((contact) => ({ ...contact }));
-  apiMock.fetchContactsPage.mockImplementation(
-    (_token: string, params: { view?: string }) => {
-      const visible =
-        params.view === "arquivadas"
-          ? serverItems.filter((contact) => contact.arquivada)
-          : serverItems.filter((contact) => !contact.arquivada);
-      return Promise.resolve({
-        items: visible,
-        page: 1,
-        pageSize: 50,
-        total: visible.length,
-      });
-    },
-  );
+  apiMock.fetchContactsPage.mockImplementation((_token: string, params: { view?: string }) => {
+    const visible =
+      params.view === "arquivadas"
+        ? serverItems.filter((contact) => contact.arquivada)
+        : serverItems.filter((contact) => !contact.arquivada);
+    return Promise.resolve({
+      items: visible,
+      page: 1,
+      pageSize: 50,
+      total: visible.length,
+    });
+  });
   act(() => {
     root.render(h(ContatosScreen, {}));
   });
@@ -264,9 +262,7 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
     const side = container.querySelector(".dash-side")!;
     expect(side.textContent).toContain("Arquivada");
     expect(
-      [...side.querySelectorAll("button")].find((b) =>
-        b.textContent!.includes("Arquivar pessoa"),
-      ),
+      [...side.querySelectorAll("button")].find((b) => b.textContent!.includes("Arquivar pessoa")),
     ).toBeUndefined();
   });
 
@@ -304,9 +300,7 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
       findButton("Reativar")!.click();
     });
 
-    apiMock.unarchiveContact.mockRejectedValue(
-      new ApiError(409, "Pessoa não está arquivada"),
-    );
+    apiMock.unarchiveContact.mockRejectedValue(new ApiError(409, "Pessoa não está arquivada"));
     act(() => {
       dialogButton("Reativar")!.click();
     });

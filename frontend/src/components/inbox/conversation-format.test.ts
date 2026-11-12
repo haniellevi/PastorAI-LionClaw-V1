@@ -105,13 +105,10 @@ describe("conversation-format — IA pausada por sem interesse (CONV-AI-1)", () 
 
   it("controle humano e fila de espera continuam prioritários ao estado global", () => {
     expect(
-      conversationPill(
-        conv({ estado: "humano", assumidoPor: "u1" }),
-        "paused_by_church",
-      ).label,
+      conversationPill(conv({ estado: "humano", assumidoPor: "u1" }), "paused_by_church").label,
     ).toBe("Em atendimento");
-    expect(
-      conversationPill(conv({ estado: "aguardando" }), "paused_by_church").label,
-    ).toBe("Em espera");
+    expect(conversationPill(conv({ estado: "aguardando" }), "paused_by_church").label).toBe(
+      "Em espera",
+    );
   });
 });

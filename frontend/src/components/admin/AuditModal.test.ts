@@ -90,7 +90,9 @@ describe("AuditModal — responsividade e espera", () => {
     render();
     await flush();
 
-    expect(container.querySelector(".ds-dialog")?.classList.contains("admin-audit-dialog")).toBe(true);
+    expect(container.querySelector(".ds-dialog")?.classList.contains("admin-audit-dialog")).toBe(
+      true,
+    );
     expect(container.querySelector(".ds-dialog-desc")?.textContent).toContain("Últimas 100 ações");
     expect(
       [...container.querySelectorAll("tbody td")].map((cell) => cell.getAttribute("data-label")),

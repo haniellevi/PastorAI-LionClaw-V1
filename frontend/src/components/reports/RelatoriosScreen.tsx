@@ -189,7 +189,7 @@ export function RelatoriosScreen() {
   // O item do modal é DERIVADO do array atual: quando o poll traz a mesma
   // reunião já enviada (ou atrasada), o modal aberto acompanha na hora.
   const detail = useMemo(
-    () => (detailId ? reports.find((r) => r.id === detailId) ?? null : null),
+    () => (detailId ? (reports.find((r) => r.id === detailId) ?? null) : null),
     [detailId, reports],
   );
 
@@ -263,13 +263,23 @@ export function RelatoriosScreen() {
         </div>
       </div>
 
-      <p className="ops-period-note" role="status">{tab === "atual" ? "Reuniões da semana atual." : "Histórico das reuniões da semana anterior."} Datas no horário de São Paulo.</p>
+      <p className="ops-period-note" role="status">
+        {tab === "atual"
+          ? "Reuniões da semana atual."
+          : "Histórico das reuniões da semana anterior."}{" "}
+        Datas no horário de São Paulo.
+      </p>
 
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => void load("retry")}
+            disabled={loading}
+          >
             Tentar novamente
           </button>
         </div>
@@ -295,9 +305,12 @@ export function RelatoriosScreen() {
           <div className="empty-state" style={{ padding: "var(--s6)" }}>
             <Icon name="document" />
             <p>
-              <strong>{tab === "atual" ? "Nenhuma reunião de célula nesta semana." : "Nenhuma reunião de célula na semana anterior."}</strong> Os
-              relatórios aparecem aqui depois que as reuniões forem agendadas
-              pelos líderes.
+              <strong>
+                {tab === "atual"
+                  ? "Nenhuma reunião de célula nesta semana."
+                  : "Nenhuma reunião de célula na semana anterior."}
+              </strong>{" "}
+              Os relatórios aparecem aqui depois que as reuniões forem agendadas pelos líderes.
             </p>
           </div>
         </div>
@@ -312,8 +325,8 @@ export function RelatoriosScreen() {
               <div className="empty-state" style={{ padding: "var(--s5)" }}>
                 <Icon name="check" />
                 <p>
-                  <strong>Tudo em dia!</strong> Todas as reuniões desta semana já
-                  tiveram o relatório enviado.
+                  <strong>Tudo em dia!</strong> Todas as reuniões desta semana já tiveram o
+                  relatório enviado.
                 </p>
               </div>
             ) : (
@@ -327,7 +340,12 @@ export function RelatoriosScreen() {
                         <div className="sub">Reunião de {formatMeetingDate(r.dataReuniao)}</div>
                       </div>
                       <StatusPill tone={sla.tone}>{sla.label}</StatusPill>
-                      <button type="button" className="btn btn-sm" aria-label={`Ver relatório de ${r.celulaNome ?? "Célula"}, reunião de ${formatMeetingDate(r.dataReuniao)}`} onClick={() => setDetailId(r.id)}>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        aria-label={`Ver relatório de ${r.celulaNome ?? "Célula"}, reunião de ${formatMeetingDate(r.dataReuniao)}`}
+                        onClick={() => setDetailId(r.id)}
+                      >
                         Ver relatório
                       </button>
                     </div>
@@ -340,7 +358,9 @@ export function RelatoriosScreen() {
           <div className="card reports-received">
             <div className="panel-title">
               <Icon name="check" /> Recebidos
-              <span className="count">· {recebidos.length} de {reunioesTotal} reuniões</span>
+              <span className="count">
+                · {recebidos.length} de {reunioesTotal} reuniões
+              </span>
             </div>
             <DataTable
               columns={recebidosColumns}
@@ -354,7 +374,6 @@ export function RelatoriosScreen() {
               onRowClick={(r) => setDetailId(r.id)}
             />
           </div>
-
         </div>
       )}
 

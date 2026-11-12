@@ -33,9 +33,7 @@ const row = {
   responsavel_id: null,
 };
 it("lists authorized requests and assumes through the authenticated API", async () => {
-  mocks.fetch.mockResolvedValueOnce(
-    new Response(JSON.stringify([row]), { status: 200 }),
-  );
+  mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify([row]), { status: 200 }));
   await act(async () => root.render(<PrayerRequestsScreen />));
   expect(container.textContent).toContain("Pedido sintético de paz");
   expect(container.textContent).toContain("Contato sintético");
@@ -54,9 +52,7 @@ it("lists authorized requests and assumes through the authenticated API", async 
       .find((b) => b.textContent === "Assumir")!
       .click(),
   );
-  expect(mocks.fetch.mock.calls[1]![0]).toContain(
-    "/prayer-requests/request-id/assume",
-  );
+  expect(mocks.fetch.mock.calls[1]![0]).toContain("/prayer-requests/request-id/assume");
   expect(container.textContent).toContain("Em acompanhamento");
 });
 it("does not display requests when access is refused", async () => {
@@ -70,9 +66,7 @@ it("does not display requests when access is refused", async () => {
   expect(container.querySelector('[role="alert"]')).not.toBeNull();
 });
 it("clears previously loaded private text when an action loses authorization", async () => {
-  mocks.fetch.mockResolvedValueOnce(
-    new Response(JSON.stringify([row]), { status: 200 }),
-  );
+  mocks.fetch.mockResolvedValueOnce(new Response(JSON.stringify([row]), { status: 200 }));
   await act(async () => root.render(<PrayerRequestsScreen />));
   mocks.fetch.mockResolvedValueOnce(
     new Response(JSON.stringify({ detail: "Acesso não autorizado" }), {

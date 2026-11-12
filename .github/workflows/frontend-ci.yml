@@ -54,6 +54,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Corrigir localmente: cd frontend && npm run format
+      - name: Formatação (Prettier)
+        run: npm run format:check
+
       - name: Typecheck
         run: npm run typecheck
 

@@ -13,7 +13,11 @@ let root: Root;
 
 function Fixture() {
   const [active, setActive] = useState<CentralTab>("dashboard");
-  return <CentralTabs active={active} onChange={setActive}><p>Conteúdo de {active}</p></CentralTabs>;
+  return (
+    <CentralTabs active={active} onChange={setActive}>
+      <p>Conteúdo de {active}</p>
+    </CentralTabs>
+  );
 }
 
 beforeEach(() => {

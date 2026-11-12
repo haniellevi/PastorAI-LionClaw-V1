@@ -73,11 +73,7 @@ export interface Page<T> {
 
 /** Tipos de item da fila pastoral (work_queue_items.tipo). */
 export type WorkItemType =
-  | "visitante"
-  | "atendimento"
-  | "relatorio"
-  | "conectar_celula"
-  | "fonovisita";
+  "visitante" | "atendimento" | "relatorio" | "conectar_celula" | "fonovisita";
 
 export interface WorkItem {
   id: string;
@@ -166,13 +162,13 @@ export async function authedFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  if (init?.signal?.aborted) throw init.signal.reason ?? new DOMException("Requisição cancelada.", "AbortError");
+  if (init?.signal?.aborted)
+    throw init.signal.reason ?? new DOMException("Requisição cancelada.", "AbortError");
   const method = (init?.method ?? "GET").toUpperCase();
   const cacheMode = init?.cache;
   const cacheEnabled = process.env.NODE_ENV !== "test";
   const ttlMs = cacheTtl(path);
-  const cacheable =
-    cacheEnabled && ttlMs > 0 && method === "GET" && !init?.body && !init?.headers;
+  const cacheable = cacheEnabled && ttlMs > 0 && method === "GET" && !init?.body && !init?.headers;
 
   if (cacheEnabled && method !== "GET") {
     // Uma mutação pode alterar qualquer leitura da tela atual. O cache é curto,
@@ -209,7 +205,9 @@ export async function authedFetch(
             if (response.ok) {
               const body = await response.arrayBuffer();
               response = new Response([204, 205, 304].includes(response.status) ? null : body, {
-                status: response.status, statusText: response.statusText, headers: response.headers,
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers,
               });
             }
             // Uma invalidação pode remover esta promessa e iniciar outra para
@@ -313,21 +311,40 @@ export async function fetchWorkQueuePage(
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (options?.revision) query.set("revision", options.revision);
   if (options?.hoje) query.set("hoje", "true");
-  const preferSnapshot = Boolean(options?.revision) || (legacyQueueUntil.get(token) ?? 0) <= Date.now();
-  let res = await authedFetch(token, `${preferSnapshot ? "/work-queue/snapshot" : "/work-queue"}?${query}`, options?.revalidate || options?.hoje ? { cache: "reload" } : undefined);
+  const preferSnapshot =
+    Boolean(options?.revision) || (legacyQueueUntil.get(token) ?? 0) <= Date.now();
+  let res = await authedFetch(
+    token,
+    `${preferSnapshot ? "/work-queue/snapshot" : "/work-queue"}?${query}`,
+    options?.revalidate || options?.hoje ? { cache: "reload" } : undefined,
+  );
   if (preferSnapshot && res.status === 404 && !options?.revision) {
     if (legacyQueueUntil.size >= 64) legacyQueueUntil.delete(legacyQueueUntil.keys().next().value!);
     legacyQueueUntil.set(token, Date.now() + 60_000);
-    res = await authedFetch(token, `/work-queue?${query}`, options?.revalidate || options?.hoje ? { cache: "reload" } : undefined);
+    res = await authedFetch(
+      token,
+      `/work-queue?${query}`,
+      options?.revalidate || options?.hoje ? { cache: "reload" } : undefined,
+    );
   } else if (preferSnapshot && res.ok) {
-    const result = await res.json() as Page<WorkItem>;
-    if (typeof result.revision !== "string" || !/^[a-f0-9]{32}$/.test(result.revision) || (options?.revision && result.revision !== options.revision)) {
+    const result = (await res.json()) as Page<WorkItem>;
+    if (
+      typeof result.revision !== "string" ||
+      !/^[a-f0-9]{32}$/.test(result.revision) ||
+      (options?.revision && result.revision !== options.revision)
+    ) {
       throw new ApiError(502, "A fila não confirmou sua versão. Tente novamente.");
     }
     return result;
   }
-  if (!res.ok) throw new ApiError(res.status, res.status === 409 ? "A fila mudou enquanto era carregada. Tente novamente." : "Não foi possível carregar a fila de trabalho.");
-  return await res.json() as Page<WorkItem>;
+  if (!res.ok)
+    throw new ApiError(
+      res.status,
+      res.status === 409
+        ? "A fila mudou enquanto era carregada. Tente novamente."
+        : "Não foi possível carregar a fila de trabalho.",
+    );
+  return (await res.json()) as Page<WorkItem>;
 }
 
 export interface WorkQueueRemainder {
@@ -366,7 +383,8 @@ async function collectWorkQueueSnapshot(
   const firstPage =
     initialFirstPage ??
     (await fetchWorkQueuePage(token, 1, pageSize, {
-      revalidate: true, hoje,
+      revalidate: true,
+      hoje,
     }));
   const seenIds = new Set<string>();
   const items: WorkItem[] = [];
@@ -391,7 +409,8 @@ async function collectWorkQueueSnapshot(
   while (seenIds.size < firstPage.total && pageRequests < maxPageRequests) {
     const chunk = await fetchWorkQueuePage(token, page, firstPage.pageSize, {
       revalidate: true,
-      revision: firstPage.revision, hoje,
+      revision: firstPage.revision,
+      hoje,
     });
     pageRequests += 1;
     if (chunk.total !== firstPage.total) totalsStayedStable = false;
@@ -412,10 +431,7 @@ async function collectWorkQueueSnapshot(
   };
 }
 
-function sameWorkQueueSnapshot(
-  left: WorkQueueSnapshot,
-  right: WorkQueueSnapshot,
-): boolean {
+function sameWorkQueueSnapshot(left: WorkQueueSnapshot, right: WorkQueueSnapshot): boolean {
   if (
     !left.complete ||
     !right.complete ||
@@ -442,31 +458,39 @@ export async function fetchRemainingWorkQueuePages(
     for (let attempt = 0; attempt < WORK_QUEUE_SNAPSHOT_ATTEMPTS; attempt += 1) {
       try {
         const snapshot = await collectWorkQueueSnapshot(token, current.pageSize, current, hoje);
-        const verification = await fetchWorkQueuePage(token, 1, current.pageSize, { revalidate: true, hoje });
-        if (!snapshot.complete || verification.revision !== current.revision) throw new ApiError(409, "A fila mudou.");
+        const verification = await fetchWorkQueuePage(token, 1, current.pageSize, {
+          revalidate: true,
+          hoje,
+        });
+        if (!snapshot.complete || verification.revision !== current.revision)
+          throw new ApiError(409, "A fila mudou.");
         const firstIds = new Set(current.items.map((item) => item.id));
-        return { firstPage: current, items: snapshot.items.filter((item) => !firstIds.has(item.id)), total: current.total };
+        return {
+          firstPage: current,
+          items: snapshot.items.filter((item) => !firstIds.has(item.id)),
+          total: current.total,
+        };
       } catch (error) {
         if (!(error instanceof ApiError) || error.status !== 409) throw error;
-        if (attempt + 1 < WORK_QUEUE_SNAPSHOT_ATTEMPTS) current = await fetchWorkQueuePage(token, 1, current.pageSize, { revalidate: true, hoje });
+        if (attempt + 1 < WORK_QUEUE_SNAPSHOT_ATTEMPTS)
+          current = await fetchWorkQueuePage(token, 1, current.pageSize, {
+            revalidate: true,
+            hoje,
+          });
       }
     }
-    throw new ApiError(409, "A fila mudou enquanto era carregada. A primeira página permanece disponível; tente novamente para confirmar todas as ações.");
+    throw new ApiError(
+      409,
+      "A fila mudou enquanto era carregada. A primeira página permanece disponível; tente novamente para confirmar todas as ações.",
+    );
   }
 
-  let snapshot = await collectWorkQueueSnapshot(
-    token,
-    firstPage.pageSize,
-    firstPage,
-    hoje,
-  );
+  let snapshot = await collectWorkQueueSnapshot(token, firstPage.pageSize, firstPage, hoje);
 
   for (let attempt = 0; attempt < WORK_QUEUE_SNAPSHOT_ATTEMPTS; attempt += 1) {
     const verification = await collectWorkQueueSnapshot(token, firstPage.pageSize, undefined, hoje);
     if (sameWorkQueueSnapshot(snapshot, verification)) {
-      const firstPageIds = new Set(
-        verification.firstPage.items.map((item) => item.id),
-      );
+      const firstPageIds = new Set(verification.firstPage.items.map((item) => item.id));
       return {
         firstPage: verification.firstPage,
         items: verification.items.filter((item) => !firstPageIds.has(item.id)),
@@ -519,7 +543,8 @@ export async function fetchTeam(token: string, pageSize = 100): Promise<TeamPage
       semPessoaAtivaCoordenacao = chunk.sem_pessoa_ativa_coordenacao;
     }
     items.push(...chunk.items);
-    if (chunk.items.length === 0 && items.length < total) throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
+    if (chunk.items.length === 0 && items.length < total)
+      throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 
@@ -549,17 +574,15 @@ export async function fetchTeamLookup(
   let total = 0;
 
   do {
-    const res = await authedFetch(
-      token,
-      `/team/lookup?page=${page}&pageSize=${pageSize}`,
-    );
+    const res = await authedFetch(token, `/team/lookup?page=${page}&pageSize=${pageSize}`);
     if (!res.ok) {
       throw new ApiError(res.status, "Não foi possível carregar a equipe.");
     }
     const chunk = (await res.json()) as Page<TeamLookupMember>;
     total = chunk.total;
     items.push(...chunk.items);
-    if (chunk.items.length === 0 && items.length < total) throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
+    if (chunk.items.length === 0 && items.length < total)
+      throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 
@@ -587,7 +610,8 @@ export async function fetchCells(token: string, pageSize = 100): Promise<Page<Ce
     const chunk = (await res.json()) as Page<Cell>;
     total = chunk.total;
     items.push(...chunk.items);
-    if (chunk.items.length === 0 && items.length < total) throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
+    if (chunk.items.length === 0 && items.length < total)
+      throw new ApiError(502, "A lista da equipe está incompleta. Tente novamente.");
     page += 1;
   } while (items.length < total);
 
@@ -649,11 +673,7 @@ export async function sendInternalMessage(
   return (await res.json()) as { status: string; messageId: string };
 }
 
-export async function linkCell(
-  token: string,
-  contactId: string,
-  celulaId: string,
-): Promise<void> {
+export async function linkCell(token: string, contactId: string, celulaId: string): Promise<void> {
   const res = await authedFetch(token, `/contacts/${contactId}/cell`, {
     method: "POST",
     body: JSON.stringify({ celulaId }),

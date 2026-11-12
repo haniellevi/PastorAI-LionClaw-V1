@@ -140,9 +140,20 @@ export function Dialog({
               </p>
             ) : null}
           </div>
-          <button type="button" className="ds-iconbtn ds-dialog-close" aria-label="Fechar" onClick={onClose}>
+          <button
+            type="button"
+            className="ds-iconbtn ds-dialog-close"
+            aria-label="Fechar"
+            onClick={onClose}
+          >
             <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-              <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
+              <path
+                d="M5 5l10 10M15 5L5 15"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                fill="none"
+              />
             </svg>
           </button>
         </header>

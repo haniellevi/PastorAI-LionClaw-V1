@@ -1,8 +1,4 @@
-import type {
-  CellHealth,
-  CentralDashboard,
-  PendingReportItem,
-} from "@/lib/cell-central-api";
+import type { CellHealth, CentralDashboard, PendingReportItem } from "@/lib/cell-central-api";
 import type { CellRequest } from "@/lib/cell-requests-api";
 import type { MultiplicacaoPendente } from "@/lib/multiplicacoes-api";
 
@@ -52,7 +48,9 @@ export function countActionableItems(dashboard: CentralDashboard | null): number
 }
 
 export function healthNeedsAttention(cell: CellHealth): boolean {
-  return cell.status === "critico" || cell.status === "atencao" || cell.vermelhos > 0 || cell.alertas > 0;
+  return (
+    cell.status === "critico" || cell.status === "atencao" || cell.vermelhos > 0 || cell.alertas > 0
+  );
 }
 
 export function healthStatusLabel(cell: CellHealth): string {

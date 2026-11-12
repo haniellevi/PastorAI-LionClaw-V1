@@ -102,7 +102,11 @@ const CONTRAST_PAIRS: Array<{ label: string; fg: string; bg: string }> = [
   { label: "state-warn / warn-soft", fg: "--state-warn", bg: "--state-warn-soft" },
   { label: "state-danger / danger-soft", fg: "--state-danger", bg: "--state-danger-soft" },
   { label: "state-info / info-soft", fg: "--state-info", bg: "--state-info-soft" },
-  { label: "text-on-action / danger-strong (hover destrutivo)", fg: "--text-on-action", bg: "--state-danger-strong" },
+  {
+    label: "text-on-action / danger-strong (hover destrutivo)",
+    fg: "--text-on-action",
+    bg: "--state-danger-strong",
+  },
 ];
 
 const TYPE_ROLES = ["display", "h1", "h2", "h3", "body", "label", "meta"] as const;
@@ -146,11 +150,19 @@ const BTN_VARIANTS = ["primary", "secondary", "tertiary", "danger"] as const;
 
 // Mesma geometria canônica do DiamondMark; fills nos tokens da família diamond.
 const MOTION_PLANES: Array<{ points: string; fill: string; offset: string }> = [
-  { points: "14,18 38,18 26,42 4,42", fill: "var(--diamond-700)", offset: "translate(-16px, -10px)" },
+  {
+    points: "14,18 38,18 26,42 4,42",
+    fill: "var(--diamond-700)",
+    offset: "translate(-16px, -10px)",
+  },
   { points: "38,18 26,42 50,42", fill: "var(--diamond-600)", offset: "translate(-7px, -13px)" },
   { points: "38,18 62,18 50,42", fill: "var(--diamond-600)", offset: "translate(0, -16px)" },
   { points: "62,18 74,42 50,42", fill: "var(--diamond-600)", offset: "translate(7px, -13px)" },
-  { points: "62,18 86,18 96,42 74,42", fill: "var(--diamond-700)", offset: "translate(16px, -10px)" },
+  {
+    points: "62,18 86,18 96,42 74,42",
+    fill: "var(--diamond-700)",
+    offset: "translate(16px, -10px)",
+  },
   { points: "4,42 26,42 50,90", fill: "var(--diamond-900)", offset: "translate(-13px, 11px)" },
   { points: "26,42 74,42 50,90", fill: "var(--diamond-700)", offset: "translate(0, 16px)" },
   { points: "74,42 96,42 50,90", fill: "var(--diamond-900)", offset: "translate(13px, 11px)" },
@@ -167,7 +179,13 @@ function MotionDiamond() {
 
   return (
     <div className="hx-row">
-      <svg viewBox="0 0 100 100" width="160" height="160" role="img" aria-label="Encaixe dos planos do diamante">
+      <svg
+        viewBox="0 0 100 100"
+        width="160"
+        height="160"
+        role="img"
+        aria-label="Encaixe dos planos do diamante"
+      >
         <g stroke="var(--ice-50)" strokeWidth={2.5} strokeLinejoin="round">
           {MOTION_PLANES.map((p, i) => (
             <polygon
@@ -306,7 +324,8 @@ export function HarnessClient() {
       if (!alive) return;
       const faces = Array.from(document.fonts);
       const loaded = (family: string) =>
-        faces.filter((f) => f.family.replace(/['"]/g, "") === family && f.status === "loaded").length;
+        faces.filter((f) => f.family.replace(/['"]/g, "") === family && f.status === "loaded")
+          .length;
       setFontChecks({
         sora: loaded("Sora") > 0,
         jakarta: loaded("Plus Jakarta Sans") > 0,
@@ -347,7 +366,9 @@ export function HarnessClient() {
         {/* 1. Marca */}
         <section id="marca" className="hx-section">
           <h2>Marca</h2>
-          <p className="hx-note">Escala de produto (16–48px) — abaixo de 24px a silhueta é automática.</p>
+          <p className="hx-note">
+            Escala de produto (16–48px) — abaixo de 24px a silhueta é automática.
+          </p>
           <div className="hx-row hx-row--end">
             {[16, 24, 32, 48].map((s) => (
               <figure key={s} className="hx-fig">
@@ -358,7 +379,10 @@ export function HarnessClient() {
               </figure>
             ))}
           </div>
-          <p className="hx-note">Espécimes grandes (180 e 512px) — separados da escala de produto; a faixa rola no próprio contêiner.</p>
+          <p className="hx-note">
+            Espécimes grandes (180 e 512px) — separados da escala de produto; a faixa rola no
+            próprio contêiner.
+          </p>
           <div className="hx-row hx-row--scroll hx-row--end">
             {[180, 512].map((s) => (
               <figure key={s} className="hx-fig">
@@ -386,7 +410,11 @@ export function HarnessClient() {
             {BRAND_SVGS.map((n) => (
               <figure key={n} className="hx-fig">
                 {/* eslint-disable-next-line @next/next/no-img-element -- espelho estático do SVG, sem otimização */}
-                <img src={`/brand/${n}.svg`} alt={`${n}.svg`} style={{ height: 48, width: "auto" }} />
+                <img
+                  src={`/brand/${n}.svg`}
+                  alt={`${n}.svg`}
+                  style={{ height: 48, width: "auto" }}
+                />
                 <figcaption>{n}.svg</figcaption>
               </figure>
             ))}
@@ -410,7 +438,10 @@ export function HarnessClient() {
                 <tr key={s.name}>
                   <td className="hx-mono">{s.name}</td>
                   <td>
-                    <span className="hx-swatch" style={{ display: "inline-block", background: `var(${s.name})` }} />
+                    <span
+                      className="hx-swatch"
+                      style={{ display: "inline-block", background: `var(${s.name})` }}
+                    />
                   </td>
                   <td className="hx-mono">{s.raw}</td>
                   <td className="hx-mono">{s.rgb}</td>
@@ -439,8 +470,8 @@ export function HarnessClient() {
             </tbody>
           </table>
           <p className="hx-note">
-            {pairs.length} pares medidos · {pairs.length * 2} avaliações (AA texto 4.5:1 e AA grande 3:1 por par) ·{" "}
-            {pairs.filter((p) => p.ratio >= 4.5).length} pares ≥4.5 · aprovados:{" "}
+            {pairs.length} pares medidos · {pairs.length * 2} avaliações (AA texto 4.5:1 e AA grande
+            3:1 por par) · {pairs.filter((p) => p.ratio >= 4.5).length} pares ≥4.5 · aprovados:{" "}
             {pairs.filter((p) => p.ratio >= 3).length}/{pairs.length} em ≥3.
           </p>
         </section>
@@ -459,11 +490,15 @@ export function HarnessClient() {
           <div className="hx-card">
             {TYPE_ROLES.map((role) => (
               <div key={role}>
-                <div data-typerole={role} style={{ font: `var(--type-${role})`, color: "var(--text-primary)" }}>
+                <div
+                  data-typerole={role}
+                  style={{ font: `var(--type-${role})`, color: "var(--text-primary)" }}
+                >
                   A jornada G12: ganhar, consolidar, discipular, enviar
                 </div>
                 <p className="hx-note">
-                  --type-{role} · família computada: <span className="hx-mono">{typeFamilies[role] ?? "…"}</span>
+                  --type-{role} · família computada:{" "}
+                  <span className="hx-mono">{typeFamilies[role] ?? "…"}</span>
                 </p>
               </div>
             ))}
@@ -475,7 +510,9 @@ export function HarnessClient() {
           <h2>Botões</h2>
           {(["md", "lg"] as const).map((size) => (
             <div key={size} className="hx-card">
-              <p className="hx-note">size=&quot;{size}&quot; — foco visível: navegue com Tab (outline 2px --focus-ring)</p>
+              <p className="hx-note">
+                size=&quot;{size}&quot; — foco visível: navegue com Tab (outline 2px --focus-ring)
+              </p>
               <table className="hx-table">
                 <thead>
                   <tr>
@@ -546,7 +583,9 @@ export function HarnessClient() {
                 </svg>
               </DsIconButton>
             </span>
-            <p className="hx-note">Alvo medido em runtime: {iconDims || "…"} (mínimo exigido: 44×44px)</p>
+            <p className="hx-note">
+              Alvo medido em runtime: {iconDims || "…"} (mínimo exigido: 44×44px)
+            </p>
           </div>
         </section>
 
@@ -564,14 +603,21 @@ export function HarnessClient() {
               <option value="discipular">Discipular</option>
               <option value="enviar">Enviar</option>
             </DsField>
-            <DsField label="Observações" as="textarea" helper="Visível só para a liderança." rows={3} />
+            <DsField
+              label="Observações"
+              as="textarea"
+              helper="Visível só para a liderança."
+              rows={3}
+            />
           </div>
         </section>
 
         {/* 7. Dialog */}
         <section id="dialog" className="hx-section">
           <h2>Dialog</h2>
-          <p className="hx-note">Esc fecha; Tab fica preso dentro; ao fechar, o foco volta ao botão que abriu.</p>
+          <p className="hx-note">
+            Esc fecha; Tab fica preso dentro; ao fechar, o foco volta ao botão que abriu.
+          </p>
           <DsButton onClick={() => setDialogOpen(true)}>Abrir dialog</DsButton>
           <Dialog
             open={dialogOpen}
@@ -594,7 +640,9 @@ export function HarnessClient() {
         {/* 8. Sheet */}
         <section id="sheet" className="hx-section">
           <h2>Sheet</h2>
-          <p className="hx-note">Mesmo primitive com sheet; em ≤860px o Dialog inteiro ancora embaixo automaticamente.</p>
+          <p className="hx-note">
+            Mesmo primitive com sheet; em ≤860px o Dialog inteiro ancora embaixo automaticamente.
+          </p>
           <DsButton variant="secondary" onClick={() => setSheetOpen(true)}>
             Abrir sheet
           </DsButton>
@@ -624,14 +672,26 @@ export function HarnessClient() {
           </div>
           <div className="hx-card" data-demo="toast-contract">
             <p className="hx-note">
-              Contrato (mesma instância; kind/duration mudam por props): ok some na duração; ok→err limpa o
-              timer e persiste; err→ok cria novo timer; duration nova vale na hora.
+              Contrato (mesma instância; kind/duration mudam por props): ok some na duração; ok→err
+              limpa o timer e persiste; err→ok cria novo timer; duration nova vale na hora.
             </p>
             <div className="hx-row">
-              <DsButton variant="secondary" onClick={() => { setCDur(1500); setCKind("ok"); }}>
+              <DsButton
+                variant="secondary"
+                onClick={() => {
+                  setCDur(1500);
+                  setCKind("ok");
+                }}
+              >
                 Contrato: ok 1500ms
               </DsButton>
-              <DsButton variant="secondary" onClick={() => { setCDur(4000); setCKind("ok"); }}>
+              <DsButton
+                variant="secondary"
+                onClick={() => {
+                  setCDur(4000);
+                  setCKind("ok");
+                }}
+              >
                 Contrato: ok 4000ms
               </DsButton>
               <DsButton variant="secondary" onClick={() => setCKind("err")}>
@@ -640,9 +700,18 @@ export function HarnessClient() {
             </div>
             <div data-contract-slot>
               {cKind === "ok" ? (
-                <DsToast kind="ok" duration={cDur} text={`Contrato ok (${cDur}ms).`} onDismiss={() => setCKind(null)} />
+                <DsToast
+                  kind="ok"
+                  duration={cDur}
+                  text={`Contrato ok (${cDur}ms).`}
+                  onDismiss={() => setCKind(null)}
+                />
               ) : cKind === "err" ? (
-                <DsToast kind="err" text="Contrato err (persistente)." onDismiss={() => setCKind(null)} />
+                <DsToast
+                  kind="err"
+                  text="Contrato err (persistente)."
+                  onDismiss={() => setCKind(null)}
+                />
               ) : (
                 <p className="hx-note">— sem toast montado —</p>
               )}
@@ -673,11 +742,16 @@ export function HarnessClient() {
                 title="Nenhuma célula cadastrada"
                 hint="Crie a primeira célula para começar a acompanhar a jornada."
                 action={<DsButton>Criar célula</DsButton>}
-                illustration={<DiamondMark size={32} variant="silhouette" tone="currentColor" title="" />}
+                illustration={
+                  <DiamondMark size={32} variant="silhouette" tone="currentColor" title="" />
+                }
               />
             </div>
             <div className="hx-card" style={{ flex: 1, minWidth: 280 }}>
-              <DsEmptyState title="Sem avisos por aqui" hint="Quando a liderança publicar um aviso, ele aparece nesta lista." />
+              <DsEmptyState
+                title="Sem avisos por aqui"
+                hint="Quando a liderança publicar um aviso, ele aparece nesta lista."
+              />
             </div>
           </div>
         </section>
@@ -685,14 +759,22 @@ export function HarnessClient() {
         {/* 11. Tabs Central (mobile) */}
         <section id="tabs" className="hx-section">
           <h2>Tabs Central (mobile)</h2>
-          <p className="hx-note">Altura computada da tab em runtime: {tabHeight !== null ? `${tabHeight}px` : "…"} (mínimo 44px)</p>
+          <p className="hx-note">
+            Altura computada da tab em runtime: {tabHeight !== null ? `${tabHeight}px` : "…"}{" "}
+            (mínimo 44px)
+          </p>
           <div className="hx-phone" ref={phoneTabsRef}>
             <Tabs tabs={CENTRAL_TABS} active={tabA} onChange={setTabA} label="Central de Célula">
               Conteúdo da aba “{CENTRAL_TABS.find((t) => t.id === tabA)?.label}”.
             </Tabs>
           </div>
           <div>
-            <Tabs tabs={CENTRAL_TABS} active={tabB} onChange={setTabB} label="Central de Célula (largura cheia)">
+            <Tabs
+              tabs={CENTRAL_TABS}
+              active={tabB}
+              onChange={setTabB}
+              label="Central de Célula (largura cheia)"
+            >
               Conteúdo da aba “{CENTRAL_TABS.find((t) => t.id === tabB)?.label}”.
             </Tabs>
           </div>
@@ -729,7 +811,10 @@ export function HarnessClient() {
           <div className="hx-row hx-row--end">
             <div className="hx-card" style={{ flex: 1, minWidth: 260 }}>
               <p className="hx-note">Erro (conteúdo esmaecido + valor “—”)</p>
-              <DsBanner kind="error" action={<DsButton variant="tertiary">Tentar de novo</DsButton>}>
+              <DsBanner
+                kind="error"
+                action={<DsButton variant="tertiary">Tentar de novo</DsButton>}
+              >
                 Falha ao carregar os indicadores.
               </DsBanner>
               <div className="hx-dim">
@@ -744,7 +829,10 @@ export function HarnessClient() {
             </div>
             <div className="hx-card" style={{ flex: 1, minWidth: 260 }}>
               <p className="hx-note">Acesso negado</p>
-              <DsEmptyState title="Acesso restrito" hint="A Central de Célula é exclusiva de pastores e administradores." />
+              <DsEmptyState
+                title="Acesso restrito"
+                hint="A Central de Célula é exclusiva de pastores e administradores."
+              />
             </div>
           </div>
         </section>
@@ -759,19 +847,27 @@ export function HarnessClient() {
               ["semana", "Semana"],
               ["mes", "Mês"],
             ].map(([id, label]) => (
-              <button key={id} type="button" className="hx-chip" aria-pressed={chip === id} onClick={() => setChip(id ?? "hoje")}>
+              <button
+                key={id}
+                type="button"
+                className="hx-chip"
+                aria-pressed={chip === id}
+                onClick={() => setChip(id ?? "hoje")}
+              >
                 {label}
               </button>
             ))}
           </div>
           <p className="hx-note">
-            Encaixe expressivo roda UMA vez por acionamento (sem loop); seleção usa transição produtiva
-            (--motion-fast). prefers-reduced-motion: o bloco global zera todas as durações.
+            Encaixe expressivo roda UMA vez por acionamento (sem loop); seleção usa transição
+            produtiva (--motion-fast). prefers-reduced-motion: o bloco global zera todas as
+            durações.
           </p>
         </section>
 
         <footer className="hx-foot">
-          Harness interno de desenvolvimento — não é funcionalidade do produto. Indisponível em produção (notFound).
+          Harness interno de desenvolvimento — não é funcionalidade do produto. Indisponível em
+          produção (notFound).
         </footer>
       </main>
 
@@ -791,7 +887,13 @@ export function HarnessClient() {
             onDismiss={() => setOkToast(false)}
           />
         ) : null}
-        {errToast ? <DsToast kind="err" text="Não foi possível enviar. Tente de novo." onDismiss={() => setErrToast(false)} /> : null}
+        {errToast ? (
+          <DsToast
+            kind="err"
+            text="Não foi possível enviar. Tente de novo."
+            onDismiss={() => setErrToast(false)}
+          />
+        ) : null}
       </DsToastRegion>
     </div>
   );

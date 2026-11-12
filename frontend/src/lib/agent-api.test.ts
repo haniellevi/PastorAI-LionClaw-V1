@@ -87,9 +87,7 @@ describe("persistência da escolha por tenant", () => {
   });
 
   it("troca somente o modelo quando a chave já está cifrada no servidor", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({ modelo: "gpt-5.6-sol", validado: true }),
-    );
+    fetchMock.mockResolvedValue(jsonResponse({ modelo: "gpt-5.6-sol", validado: true }));
 
     const result = await updateLlmModel("tok", "gpt-5.6-sol");
 
@@ -106,9 +104,7 @@ describe("persistência da escolha por tenant", () => {
       jsonResponse({ detail: "A credencial não possui acesso ao modelo" }, 422),
     );
 
-    const error = await updateLlmModel("tok", "gpt-5.6-sol").catch(
-      (reason: unknown) => reason,
-    );
+    const error = await updateLlmModel("tok", "gpt-5.6-sol").catch((reason: unknown) => reason);
 
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(422);
@@ -137,9 +133,7 @@ describe("perfil público da igreja", () => {
       horariosCulto: "Domingo, 19h",
       celulas: [{ bairro: "Centro", nome: "Esperança", encontro: null }],
     };
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ configured: true, informacoesPublicas: facts }),
-    );
+    fetchMock.mockResolvedValueOnce(jsonResponse({ configured: true, informacoesPublicas: facts }));
     expect(await savePublicAgentProfile("tok", facts)).toEqual({
       configured: true,
       informacoesPublicas: facts,

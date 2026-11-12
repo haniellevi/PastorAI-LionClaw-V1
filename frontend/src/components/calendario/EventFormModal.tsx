@@ -58,7 +58,9 @@ export function EventFormModal({
   const [descricao, setDescricao] = useState(event?.descricao ?? "");
   // P0b-3: categoria. "" = sem categoria (envia tipo:null); edição carrega o atual.
   const [tipo, setTipo] = useState<EventTipo | "">(event?.tipo ?? "");
-  const [antecedenciaHoras, setAntecedenciaHoras] = useState<ReminderWindowHours | 0 | "custom" | "">(
+  const [antecedenciaHoras, setAntecedenciaHoras] = useState<
+    ReminderWindowHours | 0 | "custom" | ""
+  >(
     event?.antecedenciaHoras === 0
       ? 0
       : isReminderWindow(event?.antecedenciaHoras)
@@ -68,11 +70,12 @@ export function EventFormModal({
           : "",
   );
   const [publicos, setPublicos] = useState<Set<PublicoAlvo>>(
-    () => new Set(
-      (event?.publicoAlvo ?? []).filter(
-        (publico): publico is PublicoAlvo => PUBLICOS_ALVO.includes(publico as PublicoAlvo),
+    () =>
+      new Set(
+        (event?.publicoAlvo ?? []).filter((publico): publico is PublicoAlvo =>
+          PUBLICOS_ALVO.includes(publico as PublicoAlvo),
+        ),
       ),
-    ),
   );
   const [publicosTouched, setPublicosTouched] = useState(false);
   const [windowTouched, setWindowTouched] = useState(false);
@@ -80,8 +83,7 @@ export function EventFormModal({
 
   const tituloError = touched && !titulo.trim() ? "Informe o título." : undefined;
   const dataError = touched && !data ? "Escolha a data." : undefined;
-  const needsReminderPublic =
-    typeof antecedenciaHoras === "number" && antecedenciaHoras > 0;
+  const needsReminderPublic = typeof antecedenciaHoras === "number" && antecedenciaHoras > 0;
   const publicoError = touched && needsReminderPublic && publicos.size === 0;
 
   const togglePublico = (publico: PublicoAlvo) => {
@@ -117,7 +119,8 @@ export function EventFormModal({
   const title = isEdit ? "Editar evento" : "Novo evento";
 
   return (
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -196,16 +199,12 @@ export function EventFormModal({
                 setAntecedenciaHoras("custom");
               } else {
                 const hours = Number(value);
-                setAntecedenciaHoras(
-                  isReminderWindow(hours) ? hours : "",
-                );
+                setAntecedenciaHoras(isReminderWindow(hours) ? hours : "");
               }
             }}
           >
             <option value="">
-              {antecedenciaHoras === "custom"
-                ? "Remover horário específico"
-                : "Sem lembrete"}
+              {antecedenciaHoras === "custom" ? "Remover horário específico" : "Sem lembrete"}
             </option>
             {antecedenciaHoras === "custom" ? (
               <option value="custom" disabled>

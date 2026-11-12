@@ -8,10 +8,20 @@ import { ConversationThread } from "./ConversationThread";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const conversation = (id: string): Conversation => ({
-  id, telefone: "telefone-sintetico", pessoaId: null, nome: "Contato sintético",
-  estado: "humano", ultimaMensagem: null, naoLidas: 0,
-  assumidoPor: "operador-sintetico", assumidoPorNome: null, assumidoEm: null,
-  esperaDesde: null, atualizadoEm: null, tipo: null, semInteresse: false,
+  id,
+  telefone: "telefone-sintetico",
+  pessoaId: null,
+  nome: "Contato sintético",
+  estado: "humano",
+  ultimaMensagem: null,
+  naoLidas: 0,
+  assumidoPor: "operador-sintetico",
+  assumidoPorNome: null,
+  assumidoEm: null,
+  esperaDesde: null,
+  atualizadoEm: null,
+  tipo: null,
+  semInteresse: false,
 });
 const A = conversation("conversa-a");
 const B = conversation("conversa-b");
@@ -20,7 +30,10 @@ const contextB = {};
 type TestThreadProps = Omit<
   ComponentProps<typeof ConversationThread>,
   "draft" | "onDraftChange" | "sendingText"
-> & Partial<Pick<ComponentProps<typeof ConversationThread>, "draft" | "onDraftChange" | "sendingText">>;
+> &
+  Partial<
+    Pick<ComponentProps<typeof ConversationThread>, "draft" | "onDraftChange" | "sendingText">
+  >;
 
 function ControlledThread({
   draft: initialDraft,
@@ -43,7 +56,10 @@ function ControlledThread({
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 function stream() {
@@ -63,29 +79,57 @@ class Recorder {
     this.state = "recording";
   });
   // Browser events deliberately queued until the test delivers them.
-  stop = vi.fn(() => { this.state = "inactive"; });
+  stop = vi.fn(() => {
+    this.state = "inactive";
+  });
   constructor(readonly stream: MediaStream) {
     if (Recorder.fail === "constructor") throw new Error("falha sintética");
     Recorder.instances.push(this);
   }
-  data(value = "audio-sintetico") { this.ondataavailable?.({ data: new Blob([value]) }); }
-  stopped() { this.onstop?.(); }
+  data(value = "audio-sintetico") {
+    this.ondataavailable?.({ data: new Blob([value]) });
+  }
+  stopped() {
+    this.onstop?.();
+  }
 }
 let container: HTMLDivElement;
 let root: Root;
 let mounted: boolean;
 let getUserMedia: ReturnType<typeof vi.fn>;
-let onSendMedia: ReturnType<typeof vi.fn<(c: Conversation, file: File, caption?: string) => Promise<boolean>>>;
+let onSendMedia: ReturnType<
+  typeof vi.fn<(c: Conversation, file: File, caption?: string) => Promise<boolean>>
+>;
 let requests: ReturnType<typeof deferred<MediaStream>>[];
 
-function render(c = A, context = contextA, overrides: Partial<ComponentProps<typeof ConversationThread>> = {}) {
+function render(
+  c = A,
+  context = contextA,
+  overrides: Partial<ComponentProps<typeof ConversationThread>> = {},
+) {
   const props: TestThreadProps = {
-    conversation: c, selfId: "operador-sintetico", recordingContext: context,
-    holderName: null, degraded: false, agentAvailability: "active", busy: false,
-    conflict: null, messages: [], messagesLoading: false, messagesInitialized: true, panelOpen: false,
-    isAdmin: false, avatarUrl: null, onAssume: vi.fn(), onReturn: vi.fn(),
-    onSend: async () => true, onSendMedia, onTogglePanel: vi.fn(), onDelete: vi.fn(),
-    onTransfer: vi.fn(), ...overrides,
+    conversation: c,
+    selfId: "operador-sintetico",
+    recordingContext: context,
+    holderName: null,
+    degraded: false,
+    agentAvailability: "active",
+    busy: false,
+    conflict: null,
+    messages: [],
+    messagesLoading: false,
+    messagesInitialized: true,
+    panelOpen: false,
+    isAdmin: false,
+    avatarUrl: null,
+    onAssume: vi.fn(),
+    onReturn: vi.fn(),
+    onSend: async () => true,
+    onSendMedia,
+    onTogglePanel: vi.fn(),
+    onDelete: vi.fn(),
+    onTransfer: vi.fn(),
+    ...overrides,
   };
   act(() => root.render(h(ControlledThread, props)));
 }
@@ -96,7 +140,9 @@ function button(label: string) {
   expect(result, label).toBeDefined();
   return result!;
 }
-function click(label: string) { act(() => button(label).click()); }
+function click(label: string) {
+  act(() => button(label).click());
+}
 function enterDraft(value: string) {
   const input = container.querySelector<HTMLInputElement>('input[type="text"]')!;
   act(() => {
@@ -105,7 +151,9 @@ function enterDraft(value: string) {
   });
   return input;
 }
-function noAttachment() { expect(container.querySelector(".attach-chip")).toBeNull(); }
+function noAttachment() {
+  expect(container.querySelector(".attach-chip")).toBeNull();
+}
 function stopped(s: ReturnType<typeof stream>) {
   for (const track of s.tracks) expect(track.stop).toHaveBeenCalled();
 }
@@ -114,7 +162,8 @@ async function grant(index: number, s: ReturnType<typeof stream>) {
 }
 async function readyAudio() {
   click("Gravar áudio");
-  const current = stream(); await grant(requests.length - 1, current);
+  const current = stream();
+  await grant(requests.length - 1, current);
   const rec = Recorder.instances.at(-1)!;
   act(() => rec.data());
   click("Pronto");
@@ -149,57 +198,83 @@ afterEach(() => {
 });
 
 describe("AUD02 microphone ownership", () => {
-  it.each([false, true])("discards late A permission after A->B, return to A=%s", async (returnToA) => {
-    render(); click("Gravar áudio"); render(B);
-    if (returnToA) render(A);
-    const old = stream(); await grant(0, old);
-    stopped(old);
-    expect(Recorder.instances).toHaveLength(0);
-    expect(vi.getTimerCount()).toBe(0);
-    noAttachment();
-    expect(onSendMedia).not.toHaveBeenCalled();
-  });
+  it.each([false, true])(
+    "discards late A permission after A->B, return to A=%s",
+    async (returnToA) => {
+      render();
+      click("Gravar áudio");
+      render(B);
+      if (returnToA) render(A);
+      const old = stream();
+      await grant(0, old);
+      stopped(old);
+      expect(Recorder.instances).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+      noAttachment();
+      expect(onSendMedia).not.toHaveBeenCalled();
+    },
+  );
   it("closes every late track after unmount", async () => {
-    render(); click("Gravar áudio");
-    act(() => root.unmount()); mounted = false;
-    const old = stream(); await grant(0, old);
+    render();
+    click("Gravar áudio");
+    act(() => root.unmount());
+    mounted = false;
+    const old = stream();
+    await grant(0, old);
     stopped(old);
     expect(Recorder.instances).toHaveLength(0);
     expect(vi.getTimerCount()).toBe(0);
   });
   it("invalidates equal conversation IDs when the authorized context changes", async () => {
-    render(); click("Gravar áudio"); render(A, contextB);
-    const old = stream(); await grant(0, old);
+    render();
+    click("Gravar áudio");
+    render(A, contextB);
+    const old = stream();
+    await grant(0, old);
     stopped(old);
     expect(Recorder.instances).toHaveLength(0);
     noAttachment();
   });
   it.each([{ degraded: true }, { conversation: { ...A, assumidoPor: "outro-operador" } }])(
-    "discards permission after canCompose is lost: %j", async (override) => {
-      render(); click("Gravar áudio"); render(A, contextA, override);
-      const old = stream(); await grant(0, old);
+    "discards permission after canCompose is lost: %j",
+    async (override) => {
+      render();
+      click("Gravar áudio");
+      render(A, contextA, override);
+      const old = stream();
+      await grant(0, old);
       stopped(old);
       expect(Recorder.instances).toHaveLength(0);
       noAttachment();
     },
   );
   it("stops active audio on lost authorization and ignores queued events even after recovery", async () => {
-    render(); click("Gravar áudio");
-    const old = stream(); await grant(0, old);
+    render();
+    click("Gravar áudio");
+    const old = stream();
+    await grant(0, old);
     const rec = Recorder.instances[0]!;
-    render(A, contextA, { degraded: true }); render();
+    render(A, contextA, { degraded: true });
+    render();
     stopped(old);
     expect(rec.stop).toHaveBeenCalled();
-    act(() => { rec.data(); rec.stopped(); });
+    act(() => {
+      rec.data();
+      rec.stopped();
+    });
     noAttachment();
     expect(vi.getTimerCount()).toBe(0);
   });
   it("allows only one permission request for simultaneous clicks", async () => {
     render();
     const mic = button("Gravar áudio");
-    act(() => { mic.click(); mic.click(); });
+    act(() => {
+      mic.click();
+      mic.click();
+    });
     expect(getUserMedia).toHaveBeenCalledTimes(1);
-    const current = stream(); await grant(0, current);
+    const current = stream();
+    await grant(0, current);
     expect(Recorder.instances).toHaveLength(1);
     expect(vi.getTimerCount()).toBe(1);
   });
@@ -210,46 +285,70 @@ describe("AUD02 microphone ownership", () => {
     click("Gravar áudio");
     expect(getUserMedia).not.toHaveBeenCalled();
   });
-  it.each([false, true])("old callbacks cannot affect new recording, return to A=%s", async (returnToA) => {
-    render(); click("Gravar áudio");
-    const old = stream(); await grant(0, old);
-    const oldRec = Recorder.instances[0]!;
-    act(() => oldRec.data("antigo"));
-    render(B);
-    if (returnToA) render(A);
-    click("Gravar áudio");
-    const current = stream(); await grant(1, current);
-    const currentRec = Recorder.instances[1]!;
-    act(() => { oldRec.data("antigo"); oldRec.stopped(); oldRec.stopped(); });
-    noAttachment();
-    for (const track of current.tracks) expect(track.stop).not.toHaveBeenCalled();
-    expect(currentRec.stop).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("Gravando áudio");
-    expect(vi.getTimerCount()).toBe(1);
-    act(() => vi.advanceTimersByTime(1000));
-    expect(container.querySelector(".rec-time")?.textContent).toBe("0:01");
-    act(() => currentRec.data("novo"));
-    click("Pronto"); act(() => currentRec.stopped());
-    await act(async () => button("Enviar mensagem").click());
-    expect(onSendMedia.mock.calls[0]![0]).toBe(returnToA ? A : B);
-    expect(onSendMedia.mock.calls[0]![1].size).toBe(new Blob(["novo"]).size);
-  });
+  it.each([false, true])(
+    "old callbacks cannot affect new recording, return to A=%s",
+    async (returnToA) => {
+      render();
+      click("Gravar áudio");
+      const old = stream();
+      await grant(0, old);
+      const oldRec = Recorder.instances[0]!;
+      act(() => oldRec.data("antigo"));
+      render(B);
+      if (returnToA) render(A);
+      click("Gravar áudio");
+      const current = stream();
+      await grant(1, current);
+      const currentRec = Recorder.instances[1]!;
+      act(() => {
+        oldRec.data("antigo");
+        oldRec.stopped();
+        oldRec.stopped();
+      });
+      noAttachment();
+      for (const track of current.tracks) expect(track.stop).not.toHaveBeenCalled();
+      expect(currentRec.stop).not.toHaveBeenCalled();
+      expect(container.textContent).toContain("Gravando áudio");
+      expect(vi.getTimerCount()).toBe(1);
+      act(() => vi.advanceTimersByTime(1000));
+      expect(container.querySelector(".rec-time")?.textContent).toBe("0:01");
+      act(() => currentRec.data("novo"));
+      click("Pronto");
+      act(() => currentRec.stopped());
+      await act(async () => button("Enviar mensagem").click());
+      expect(onSendMedia.mock.calls[0]![0]).toBe(returnToA ? A : B);
+      expect(onSendMedia.mock.calls[0]![1].size).toBe(new Blob(["novo"]).size);
+    },
+  );
   it("cancel immediately discards callbacks and permits a new recording in A", async () => {
-    render(); click("Gravar áudio");
-    const old = stream(); await grant(0, old);
-    const oldRec = Recorder.instances[0]!;
-    click("Cancelar"); stopped(old); noAttachment();
+    render();
     click("Gravar áudio");
-    const current = stream(); await grant(1, current);
-    act(() => { oldRec.data(); oldRec.stopped(); });
+    const old = stream();
+    await grant(0, old);
+    const oldRec = Recorder.instances[0]!;
+    click("Cancelar");
+    stopped(old);
+    noAttachment();
+    click("Gravar áudio");
+    const current = stream();
+    await grant(1, current);
+    act(() => {
+      oldRec.data();
+      oldRec.stopped();
+    });
     noAttachment();
     for (const track of current.tracks) expect(track.stop).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(1);
   });
   it("late old permission stops only old tracks while B records", async () => {
-    render(); click("Gravar áudio"); render(B); click("Gravar áudio");
-    const current = stream(); await grant(1, current);
-    const old = stream(); await grant(0, old);
+    render();
+    click("Gravar áudio");
+    render(B);
+    click("Gravar áudio");
+    const current = stream();
+    await grant(1, current);
+    const old = stream();
+    await grant(0, old);
     stopped(old);
     for (const track of current.tracks) expect(track.stop).not.toHaveBeenCalled();
     expect(Recorder.instances).toHaveLength(1);
@@ -258,99 +357,162 @@ describe("AUD02 microphone ownership", () => {
     noAttachment();
   });
   it("old rejection cannot stop a newer recording", async () => {
-    render(); click("Gravar áudio"); render(B); click("Gravar áudio");
-    const current = stream(); await grant(1, current);
+    render();
+    click("Gravar áudio");
+    render(B);
+    click("Gravar áudio");
+    const current = stream();
+    await grant(1, current);
     await act(async () => requests[0]!.reject(new Error("recusa sintética")));
     for (const track of current.tracks) expect(track.stop).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Gravando áudio");
     expect(vi.getTimerCount()).toBe(1);
   });
   it("refused permission creates no attachment or timer", async () => {
-    render(); click("Gravar áudio");
+    render();
+    click("Gravar áudio");
     await act(async () => requests[0]!.reject(new Error("recusa sintética")));
     expect(Recorder.instances).toHaveLength(0);
     expect(vi.getTimerCount()).toBe(0);
     noAttachment();
   });
-  it.each(["context", "ownership", "degraded"])("ready audio is invalidated by %s", async (change) => {
-    render(); await readyAudio();
-    expect(container.querySelector(".attach-chip")).not.toBeNull();
-    if (change === "context") render(A, contextB);
-    if (change === "ownership") render(A, contextA, { conversation: { ...A, assumidoPor: null } });
-    if (change === "degraded") render(A, contextA, { degraded: true });
-    noAttachment();
-    expect(button("Enviar mensagem").disabled).toBe(true);
-    expect(onSendMedia).not.toHaveBeenCalled();
-  });
+  it.each(["context", "ownership", "degraded"])(
+    "ready audio is invalidated by %s",
+    async (change) => {
+      render();
+      await readyAudio();
+      expect(container.querySelector(".attach-chip")).not.toBeNull();
+      if (change === "context") render(A, contextB);
+      if (change === "ownership")
+        render(A, contextA, { conversation: { ...A, assumidoPor: null } });
+      if (change === "degraded") render(A, contextA, { degraded: true });
+      noAttachment();
+      expect(button("Enviar mensagem").disabled).toBe(true);
+      expect(onSendMedia).not.toHaveBeenCalled();
+    },
+  );
   it("unmount stops active resources and ignores queued events", async () => {
-    render(); click("Gravar áudio");
-    const old = stream(); await grant(0, old);
+    render();
+    click("Gravar áudio");
+    const old = stream();
+    await grant(0, old);
     const rec = Recorder.instances[0]!;
-    act(() => root.unmount()); mounted = false;
+    act(() => root.unmount());
+    mounted = false;
     stopped(old);
     expect(rec.stop).toHaveBeenCalled();
-    act(() => { rec.data(); rec.stopped(); });
+    act(() => {
+      rec.data();
+      rec.stopped();
+    });
     expect(vi.getTimerCount()).toBe(0);
     expect(onSendMedia).not.toHaveBeenCalled();
   });
-  it.each(["constructor", "start"] as const)("cleans stream after recorder %s failure", async (failure) => {
-    render(); Recorder.fail = failure; click("Gravar áudio");
-    const failed = stream(); await grant(0, failed);
-    stopped(failed); noAttachment();
-    expect(vi.getTimerCount()).toBe(0);
-    Recorder.fail = null;
-    await readyAudio();
-    expect(container.querySelector(".attach-chip")).not.toBeNull();
-  });
-  it.each(["recorder", "mediaDevices"])("missing %s API leaves no resources and permits recovery", async (api) => {
-    render();
-    if (api === "recorder") vi.stubGlobal("MediaRecorder", undefined);
-    else vi.stubGlobal("navigator", {});
-    click("Gravar áudio");
-    expect(getUserMedia).not.toHaveBeenCalled();
-    expect(vi.getTimerCount()).toBe(0);
-    noAttachment();
-    vi.stubGlobal("MediaRecorder", Recorder);
-    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
-    await readyAudio();
-    expect(container.querySelector(".attach-chip")).not.toBeNull();
-  });
+  it.each(["constructor", "start"] as const)(
+    "cleans stream after recorder %s failure",
+    async (failure) => {
+      render();
+      Recorder.fail = failure;
+      click("Gravar áudio");
+      const failed = stream();
+      await grant(0, failed);
+      stopped(failed);
+      noAttachment();
+      expect(vi.getTimerCount()).toBe(0);
+      Recorder.fail = null;
+      await readyAudio();
+      expect(container.querySelector(".attach-chip")).not.toBeNull();
+    },
+  );
+  it.each(["recorder", "mediaDevices"])(
+    "missing %s API leaves no resources and permits recovery",
+    async (api) => {
+      render();
+      if (api === "recorder") vi.stubGlobal("MediaRecorder", undefined);
+      else vi.stubGlobal("navigator", {});
+      click("Gravar áudio");
+      expect(getUserMedia).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+      noAttachment();
+      vi.stubGlobal("MediaRecorder", Recorder);
+      vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
+      await readyAudio();
+      expect(container.querySelector(".attach-chip")).not.toBeNull();
+    },
+  );
   it("StrictMode cleanup discards a pending cycle without stopping the new mount", async () => {
     render();
-    act(() => root.render(h(StrictMode, {}, h(ConversationThread, {
-      conversation: A, selfId: "operador-sintetico", recordingContext: contextA,
-      holderName: null, degraded: false, agentAvailability: "active", busy: false,
-      conflict: null, messages: [], messagesLoading: false, messagesInitialized: true, panelOpen: false,
-      isAdmin: false, avatarUrl: null, onAssume: vi.fn(), onReturn: vi.fn(),
-      onSend: async () => true, onSendMedia, onTogglePanel: vi.fn(), onDelete: vi.fn(),
-      onTransfer: vi.fn(), draft: "", onDraftChange: vi.fn(), sendingText: false,
-    }))));
+    act(() =>
+      root.render(
+        h(
+          StrictMode,
+          {},
+          h(ConversationThread, {
+            conversation: A,
+            selfId: "operador-sintetico",
+            recordingContext: contextA,
+            holderName: null,
+            degraded: false,
+            agentAvailability: "active",
+            busy: false,
+            conflict: null,
+            messages: [],
+            messagesLoading: false,
+            messagesInitialized: true,
+            panelOpen: false,
+            isAdmin: false,
+            avatarUrl: null,
+            onAssume: vi.fn(),
+            onReturn: vi.fn(),
+            onSend: async () => true,
+            onSendMedia,
+            onTogglePanel: vi.fn(),
+            onDelete: vi.fn(),
+            onTransfer: vi.fn(),
+            draft: "",
+            onDraftChange: vi.fn(),
+            sendingText: false,
+          }),
+        ),
+      ),
+    );
     click("Gravar áudio");
-    render(); click("Gravar áudio");
-    const current = stream(); await grant(1, current);
-    const old = stream(); await grant(0, old);
+    render();
+    click("Gravar áudio");
+    const current = stream();
+    await grant(1, current);
+    const old = stream();
+    await grant(0, old);
     stopped(old);
     for (const track of current.tracks) expect(track.stop).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(1);
   });
   it("empty recording creates no attachment", async () => {
-    render(); click("Gravar áudio");
-    const current = stream(); await grant(0, current);
-    click("Pronto"); act(() => Recorder.instances[0]!.stopped());
-    noAttachment(); stopped(current);
+    render();
+    click("Gravar áudio");
+    const current = stream();
+    await grant(0, current);
+    click("Pronto");
+    act(() => Recorder.instances[0]!.stopped());
+    noAttachment();
+    stopped(current);
     expect(vi.getTimerCount()).toBe(0);
   });
-  it.each(["ownership", "degraded", "selfId"])("preserves text draft on temporary %s loss", (change) => {
-    render();
-    const input = enterDraft("rascunho sintético");
-    expect(input.value).toBe("rascunho sintético");
-    if (change === "ownership") render(A, contextA, { conversation: { ...A, assumidoPor: null } });
-    if (change === "degraded") render(A, contextA, { degraded: true });
-    if (change === "selfId") render(A, contextA, { selfId: "outro-operador" });
-    expect(input.value).toBe("rascunho sintético");
-    render();
-    expect(input.value).toBe("rascunho sintético");
-  });
+  it.each(["ownership", "degraded", "selfId"])(
+    "preserves text draft on temporary %s loss",
+    (change) => {
+      render();
+      const input = enterDraft("rascunho sintético");
+      expect(input.value).toBe("rascunho sintético");
+      if (change === "ownership")
+        render(A, contextA, { conversation: { ...A, assumidoPor: null } });
+      if (change === "degraded") render(A, contextA, { degraded: true });
+      if (change === "selfId") render(A, contextA, { selfId: "outro-operador" });
+      expect(input.value).toBe("rascunho sintético");
+      render();
+      expect(input.value).toBe("rascunho sintético");
+    },
+  );
   it("normal A recording creates audio and sends exactly to A", async () => {
     render();
     const current = await readyAudio();

@@ -15,12 +15,7 @@
  * Reaproveita o transporte autenticado e o tratamento de 401 do dashboard-api.
  */
 
-import {
-  ApiError,
-  authedFetch,
-  isRecord,
-  readDetail,
-} from "./dashboard-api";
+import { ApiError, authedFetch, isRecord, readDetail } from "./dashboard-api";
 import type { Contact } from "./contacts-api";
 import type { Role } from "./roles";
 
@@ -185,11 +180,7 @@ export async function advanceStage(
 // Derivações de UI (trilha individual)
 // ---------------------------------------------------------------------------
 /** Etapas obrigatórias da trilha individual (gate de conclusão). */
-export const MANDATORY_ETAPAS = [
-  "aceitou_jesus",
-  "conectou_celula",
-  "fonovisita",
-] as const;
+export const MANDATORY_ETAPAS = ["aceitou_jesus", "conectou_celula", "fonovisita"] as const;
 
 export type MandatoryEtapa = (typeof MANDATORY_ETAPAS)[number];
 
@@ -312,14 +303,31 @@ export interface AssignmentPage {
 export async function fetchAssignments(token: string, after?: string): Promise<AssignmentPage> {
   const query = after ? `?after=${encodeURIComponent(after)}` : "";
   const res = await authedFetch(token, `/consolidacao/atribuicoes${query}`, { cache: "no-store" });
-  if (!res.ok) throw new ApiError(res.status, await readDetail(res) ?? "Não foi possível carregar os convites.");
-  return await res.json() as AssignmentPage;
+  if (!res.ok)
+    throw new ApiError(
+      res.status,
+      (await readDetail(res)) ?? "Não foi possível carregar os convites.",
+    );
+  return (await res.json()) as AssignmentPage;
 }
 
-export async function answerInvitation(token: string, invitation: ConsolidationInvitation, aceitar: boolean): Promise<ConsolidationInvitation> {
-  const res = await authedFetch(token, `/consolidacao/${invitation.consolidacaoId}/atribuicoes/${invitation.id}/resposta`, {
-    method: "POST", body: JSON.stringify({ aceitar }),
-  });
-  if (!res.ok) throw new ApiError(res.status, await readDetail(res) ?? "Não foi possível responder ao convite.");
-  return await res.json() as ConsolidationInvitation;
+export async function answerInvitation(
+  token: string,
+  invitation: ConsolidationInvitation,
+  aceitar: boolean,
+): Promise<ConsolidationInvitation> {
+  const res = await authedFetch(
+    token,
+    `/consolidacao/${invitation.consolidacaoId}/atribuicoes/${invitation.id}/resposta`,
+    {
+      method: "POST",
+      body: JSON.stringify({ aceitar }),
+    },
+  );
+  if (!res.ok)
+    throw new ApiError(
+      res.status,
+      (await readDetail(res)) ?? "Não foi possível responder ao convite.",
+    );
+  return (await res.json()) as ConsolidationInvitation;
 }

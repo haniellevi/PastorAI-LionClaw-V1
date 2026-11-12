@@ -7,7 +7,10 @@ import { removeCellMember, transferCellMember } from "./cells-api";
 
 vi.mock("./dashboard-api", () => ({
   ApiError: class extends Error {
-    constructor(public status: number, message: string) {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
       super(message);
     }
   },
@@ -35,25 +38,15 @@ describe("transferCellMember", () => {
       ok: true,
       json: async () => ({ id: "m1", pessoaId: "p1", papel: "membro", ativo: true }),
     });
-    const result = await transferCellMember(
-      "tok",
-      "cell-1",
-      "p1",
-      "cell-2",
-      "Mudou de bairro",
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      "tok",
-      "/cells/cell-1/membros/transferir",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          pessoaId: "p1",
-          celula_destino_id: "cell-2",
-          motivo: "Mudou de bairro",
-        }),
-      },
-    );
+    const result = await transferCellMember("tok", "cell-1", "p1", "cell-2", "Mudou de bairro");
+    expect(fetchMock).toHaveBeenCalledWith("tok", "/cells/cell-1/membros/transferir", {
+      method: "POST",
+      body: JSON.stringify({
+        pessoaId: "p1",
+        celula_destino_id: "cell-2",
+        motivo: "Mudou de bairro",
+      }),
+    });
     expect(result.pessoaId).toBe("p1");
     expect(result.ativo).toBe(true);
   });
@@ -76,9 +69,9 @@ describe("transferCellMember", () => {
       status: 409,
       json: async () => ({ detail: "A célula de destino está inativa" }),
     });
-    await expect(
-      transferCellMember("tok", "cell-1", "p1", "cell-2"),
-    ).rejects.toThrow("A célula de destino está inativa");
+    await expect(transferCellMember("tok", "cell-1", "p1", "cell-2")).rejects.toThrow(
+      "A célula de destino está inativa",
+    );
   });
 });
 
@@ -89,17 +82,13 @@ describe("removeCellMember", () => {
       json: async () => ({ id: "m1", pessoaId: "p1", papel: "membro", ativo: false }),
     });
     const result = await removeCellMember("tok", "cell-1", "p1", "Pediu para sair");
-    expect(fetchMock).toHaveBeenCalledWith(
-      "tok",
-      "/cells/cell-1/membros/remover",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          pessoaId: "p1",
-          motivo: "Pediu para sair",
-        }),
-      },
-    );
+    expect(fetchMock).toHaveBeenCalledWith("tok", "/cells/cell-1/membros/remover", {
+      method: "POST",
+      body: JSON.stringify({
+        pessoaId: "p1",
+        motivo: "Pediu para sair",
+      }),
+    });
     expect(result.ativo).toBe(false);
   });
 

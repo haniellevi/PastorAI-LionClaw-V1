@@ -47,10 +47,7 @@ export function upsertConsolidation(entry: SessionConsolidation): void {
 }
 
 /** Aplica um patch parcial à consolidação de uma pessoa, se existir. */
-export function patchConsolidation(
-  pessoaId: string,
-  patch: Partial<SessionConsolidation>,
-): void {
+export function patchConsolidation(pessoaId: string, patch: Partial<SessionConsolidation>): void {
   const current = store.get(pessoaId);
   if (!current) return;
   store.set(pessoaId, { ...current, ...patch });

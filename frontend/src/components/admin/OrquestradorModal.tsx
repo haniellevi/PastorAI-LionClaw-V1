@@ -18,11 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
-import {
-  AdminSessionExpiredError,
-  fetchOrquestrador,
-  saveOrquestrador,
-} from "@/lib/admin-api";
+import { AdminSessionExpiredError, fetchOrquestrador, saveOrquestrador } from "@/lib/admin-api";
 
 export interface OrquestradorModalProps {
   token: string;
@@ -143,9 +139,8 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
         }}
       >
         <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s2)" }}>
-          Este é o modelo base do agente. Toda igreja aprovada começa com ele;
-          depois você pode ajustar por igreja na aba <strong>Agente</strong> da
-          página dela.
+          Este é o modelo base do agente. Toda igreja aprovada começa com ele; depois você pode
+          ajustar por igreja na aba <strong>Agente</strong> da página dela.
         </p>
 
         {error ? (

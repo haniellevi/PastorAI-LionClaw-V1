@@ -50,7 +50,9 @@ function AuthCardHeading({
 
   return (
     <header className="login-card-head">
-      <h1 ref={heading} tabIndex={-1}>{title}</h1>
+      <h1 ref={heading} tabIndex={-1}>
+        {title}
+      </h1>
       {children ? <p className="sub">{children}</p> : null}
     </header>
   );
@@ -59,8 +61,7 @@ function AuthCardHeading({
 function AuthSecurityNote() {
   return (
     <p className="login-security-note">
-      <Icon name="lock" />
-      A Igreja 12 nunca pede sua senha por e-mail ou WhatsApp.
+      <Icon name="lock" />A Igreja 12 nunca pede sua senha por e-mail ou WhatsApp.
     </p>
   );
 }
@@ -77,16 +78,16 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
   const active = useRef(true);
   useEffect(() => {
     active.current = true;
-    return () => { active.current = false; };
+    return () => {
+      active.current = false;
+    };
   }, []);
 
   // Modo derivado da hash. Tokens vêm como #redefinir-senha/<token> e #ativar/<token>.
   const resetToken = route.startsWith("redefinir-senha/")
     ? route.slice("redefinir-senha/".length)
     : "";
-  const inviteToken = route.startsWith("ativar/")
-    ? route.slice("ativar/".length)
-    : "";
+  const inviteToken = route.startsWith("ativar/") ? route.slice("ativar/".length) : "";
   const mode: "login" | "forgot" | "reset" | "activate" =
     route === "ativar" || route.startsWith("ativar/")
       ? "activate"
@@ -142,11 +143,10 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
       navigate(returnTo ?? "dashboard");
     } catch (err) {
       if (!active.current) return;
-      const block = err instanceof LoginError && (err.kind === "billing_blocked" || err.kind === "no_church");
+      const block =
+        err instanceof LoginError && (err.kind === "billing_blocked" || err.kind === "no_church");
       const text =
-        err instanceof LoginError
-          ? err.message
-          : "Não foi possível autenticar. Tente novamente.";
+        err instanceof LoginError ? err.message : "Não foi possível autenticar. Tente novamente.";
       setAuthMessage({ text, block });
       setStatus("error");
     }
@@ -188,7 +188,9 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
     }
     if (rPass !== rPass2) {
       setRError("As senhas não conferem.");
-      (event.currentTarget.elements.namedItem("confirm-password") as HTMLInputElement | null)?.focus();
+      (
+        event.currentTarget.elements.namedItem("confirm-password") as HTMLInputElement | null
+      )?.focus();
       return;
     }
     setRError(undefined);
@@ -235,9 +237,7 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
       })
       .catch((err) => {
         if (!active) return;
-        setAInfoError(
-          err instanceof LoginError ? err.message : "Convite inválido ou expirado.",
-        );
+        setAInfoError(err instanceof LoginError ? err.message : "Convite inválido ou expirado.");
       })
       .finally(() => {
         if (active) setALoading(false);
@@ -252,27 +252,29 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
     if (aStatus === "loading") return;
     if (aPass.length < 8) {
       setAError("A senha precisa ter ao menos 8 caracteres.");
-      (event.currentTarget.elements.namedItem("activate-password") as HTMLInputElement | null)?.focus();
+      (
+        event.currentTarget.elements.namedItem("activate-password") as HTMLInputElement | null
+      )?.focus();
       return;
     }
     if (aPass !== aPass2) {
       setAError("As senhas não conferem.");
-      (event.currentTarget.elements.namedItem("activate-confirm") as HTMLInputElement | null)?.focus();
+      (
+        event.currentTarget.elements.namedItem("activate-confirm") as HTMLInputElement | null
+      )?.focus();
       return;
     }
     if (aInfo?.precisaCadastro && aTel.trim().length < 8) {
       setAError("Informe seu telefone/WhatsApp para concluir o cadastro.");
-      (event.currentTarget.elements.namedItem("activate-phone") as HTMLInputElement | null)?.focus();
+      (
+        event.currentTarget.elements.namedItem("activate-phone") as HTMLInputElement | null
+      )?.focus();
       return;
     }
     setAError(undefined);
     setAStatus("loading");
     try {
-      await activateInvite(
-        inviteToken,
-        aPass,
-        aInfo?.precisaCadastro ? aTel.trim() : undefined,
-      );
+      await activateInvite(inviteToken, aPass, aInfo?.precisaCadastro ? aTel.trim() : undefined);
       if (!active.current) return;
       logout();
       setAStatus("done");
@@ -287,279 +289,297 @@ function LoginForm({ route, navigate }: { route: string; navigate: (route: strin
 
   return (
     <AuthLayout purpose="Cuide das pessoas e organize os próximos passos.">
-          {mode === "login" ? (
-            <form className="login-card" onSubmit={handleSubmit} noValidate>
-              <AuthCardHeading title="Entre na sua igreja">
-                Use o e-mail e a senha do seu acesso.
-              </AuthCardHeading>
+      {mode === "login" ? (
+        <form className="login-card" onSubmit={handleSubmit} noValidate>
+          <AuthCardHeading title="Entre na sua igreja">
+            Use o e-mail e a senha do seu acesso.
+          </AuthCardHeading>
 
-              {authMessage || accessMessage ? (
-                <div
-                  className={`auth-error${authMessage?.block || accessMessage ? " block" : ""}`}
-                  role="alert"
-                >
-                  <Icon name={authMessage?.block || accessMessage ? "lock" : "alert"} />
-                  <span>{authMessage?.text ?? accessMessage}</span>
-                </div>
-              ) : null}
+          {authMessage || accessMessage ? (
+            <div
+              className={`auth-error${authMessage?.block || accessMessage ? " block" : ""}`}
+              role="alert"
+            >
+              <Icon name={authMessage?.block || accessMessage ? "lock" : "alert"} />
+              <span>{authMessage?.text ?? accessMessage}</span>
+            </div>
+          ) : null}
 
+          <Field
+            label="E-mail"
+            type="email"
+            name="email"
+            placeholder="usuario@example.com"
+            autoComplete="username"
+            spellCheck={false}
+            autoCapitalize="none"
+            inputMode="email"
+            value={email}
+            disabled={loading}
+            error={emailError}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
+          <Field
+            label="Senha"
+            type="password"
+            name="password"
+            placeholder="••••••••"
+            autoComplete="current-password"
+            value={password}
+            disabled={loading}
+            error={passwordError}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+
+          <Button
+            type="submit"
+            variant="primary"
+            block
+            loading={loading}
+            loadingText="Autenticando…"
+          >
+            Entrar
+          </Button>
+
+          <a className="auth-link-button" href="#esqueci-senha">
+            Esqueci minha senha
+          </a>
+          <AuthSecurityNote />
+        </form>
+      ) : mode === "forgot" ? (
+        <form className="login-card" onSubmit={handleForgot} noValidate>
+          <AuthCardHeading
+            title={fStatus === "sent" ? "Confira seu e-mail" : "Recuperar acesso"}
+            focus
+          >
+            {fStatus === "sent"
+              ? "Confira também a pasta de spam."
+              : "Informe o e-mail que você usa para entrar."}
+          </AuthCardHeading>
+
+          {fStatus === "sent" ? (
+            <>
+              <div className="auth-error success" role="status">
+                <Icon name="check" />
+                <span>
+                  Se houver uma conta com esse e-mail, você receberá um link para criar uma nova
+                  senha.
+                </span>
+              </div>
+              <a className="auth-link-button" href="#login">
+                Voltar ao login
+              </a>
+            </>
+          ) : (
+            <>
               <Field
                 label="E-mail"
                 type="email"
-                name="email"
+                name="forgot-email"
                 placeholder="usuario@example.com"
                 autoComplete="username"
                 spellCheck={false}
                 autoCapitalize="none"
                 inputMode="email"
-                value={email}
-                disabled={loading}
-                error={emailError}
-                onChange={(e) => setEmail(e.target.value)}
+                value={fEmail}
+                disabled={fStatus === "loading"}
+                error={fEmailError}
+                onChange={(e) => setFEmail(e.target.value)}
               />
-
-              <Field
-                label="Senha"
-                type="password"
-                name="password"
-                placeholder="••••••••"
-                autoComplete="current-password"
-                value={password}
-                disabled={loading}
-                error={passwordError}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-
               <Button
                 type="submit"
                 variant="primary"
                 block
-                loading={loading}
-                loadingText="Autenticando…"
+                loading={fStatus === "loading"}
+                loadingText="Enviando…"
               >
-                Entrar
+                Pedir novo link
               </Button>
-
-              <a className="auth-link-button" href="#esqueci-senha">
-                Esqueci minha senha
+              <a className="auth-link-button" href="#login">
+                Voltar ao login
               </a>
-              <AuthSecurityNote />
-            </form>
-          ) : mode === "forgot" ? (
-            <form className="login-card" onSubmit={handleForgot} noValidate>
-              <AuthCardHeading title={fStatus === "sent" ? "Confira seu e-mail" : "Recuperar acesso"} focus>
-                {fStatus === "sent" ? "Confira também a pasta de spam." : "Informe o e-mail que você usa para entrar."}
-              </AuthCardHeading>
-
-              {fStatus === "sent" ? (
-                <>
-                  <div className="auth-error success" role="status">
-                    <Icon name="check" />
-                    <span>
-                      Se houver uma conta com esse e-mail, você receberá um link para criar uma nova senha.
-                    </span>
-                  </div>
-                  <a className="auth-link-button" href="#login">
-                    Voltar ao login
-                  </a>
-                </>
-              ) : (
-                <>
-                  <Field
-                    label="E-mail"
-                    type="email"
-                    name="forgot-email"
-                    placeholder="usuario@example.com"
-                    autoComplete="username"
-                    spellCheck={false}
-                    autoCapitalize="none"
-                    inputMode="email"
-                    value={fEmail}
-                    disabled={fStatus === "loading"}
-                    error={fEmailError}
-                    onChange={(e) => setFEmail(e.target.value)}
-                  />
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    block
-                    loading={fStatus === "loading"}
-                    loadingText="Enviando…"
-                  >
-                    Pedir novo link
-                  </Button>
-                  <a className="auth-link-button" href="#login">
-                    Voltar ao login
-                  </a>
-                </>
-              )}
-              <AuthSecurityNote />
-            </form>
-          ) : mode === "activate" ? (
-            <form className="login-card" onSubmit={handleActivate} noValidate>
-              <AuthCardHeading title={aStatus === "done" ? "Acesso ativado" : "Ativar acesso"} focus />
-
-              {aLoading ? (
-                <p className="sub" role="status">Validando convite…</p>
-              ) : aInfoError ? (
-                <>
-                  <div className="auth-error" role="alert">
-                    <Icon name="alert" />
-                    <span>{aInfoError}</span>
-                  </div>
-                  <a className="auth-link-button" href="#login">
-                    Ir para o login
-                  </a>
-                </>
-              ) : aStatus === "done" ? (
-                <>
-                  <div
-                    className="auth-error success"
-                    role="status"
-                  >
-                    <Icon name="check" />
-                    <span>Acesso ativado! Agora é só entrar com sua nova senha.</span>
-                  </div>
-                  <Button type="button" variant="primary" block onClick={() => navigate("login")}>
-                    Ir para o login
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <p className="sub">
-                    {aInfo ? (
-                      <>
-                        Olá, <strong>{aInfo.nome}</strong>.{" "}
-                        {aInfo.precisaCadastro
-                          ? "complete seu cadastro e defina sua senha para acessar "
-                          : "defina sua senha para acessar "}
-                        <strong>{aInfo.igreja}</strong>.
-                      </>
-                    ) : (
-                      "Defina sua senha de acesso."
-                    )}
-                  </p>
-                  {aInfo ? <div className="helper">Conta: {aInfo.email}</div> : null}
-                  {aError ? (
-                    <div className="auth-error" role="alert">
-                      <Icon name="alert" />
-                      <span>{aError}</span>
-                    </div>
-                  ) : null}
-                  {aInfo?.precisaCadastro ? (
-                    <Field
-                      label="Telefone / WhatsApp"
-                      type="tel"
-                      name="activate-phone"
-                      placeholder="5500000000000"
-                      autoComplete="tel"
-                      value={aTel}
-                      disabled={aStatus === "loading"}
-                      onChange={(e) => setATel(e.target.value)}
-                    />
-                  ) : null}
-                  <Field
-                    label="Senha"
-                    type="password"
-                    name="activate-password"
-                    placeholder="••••••••"
-                    autoComplete="new-password"
-                    helper="Ao menos 8 caracteres."
-                    value={aPass}
-                    disabled={aStatus === "loading"}
-                    onChange={(e) => setAPass(e.target.value)}
-                  />
-                  <Field
-                    label="Confirmar senha"
-                    type="password"
-                    name="activate-confirm"
-                    placeholder="••••••••"
-                    autoComplete="new-password"
-                    value={aPass2}
-                    disabled={aStatus === "loading"}
-                    onChange={(e) => setAPass2(e.target.value)}
-                  />
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    block
-                    loading={aStatus === "loading"}
-                    loadingText="Ativando…"
-                  >
-                    Ativar e criar senha
-                  </Button>
-                </>
-              )}
-              {!aInfoError && aStatus !== "done" ? <a className="auth-link-button" href="#login">Voltar ao login</a> : null}
-              <AuthSecurityNote />
-            </form>
-          ) : (
-            <form className="login-card" onSubmit={handleReset} noValidate>
-              <AuthCardHeading title={rStatus === "done" ? "Senha atualizada" : "Criar nova senha"} focus />
-
-              {!resetToken ? (
-                <>
-                  <div className="auth-error" role="alert">
-                    <Icon name="alert" />
-                    <span>Link inválido ou incompleto. Peça um novo para criar sua senha.</span>
-                  </div>
-                  <a className="auth-link-button" href="#esqueci-senha">Pedir novo link</a>
-                </>
-              ) : rStatus === "done" ? (
-                <>
-                  <div className="auth-error success" role="status">
-                    <Icon name="check" />
-                    <span>Senha redefinida! Agora é só entrar com a nova senha.</span>
-                  </div>
-                  <Button type="button" variant="primary" block onClick={() => navigate("login")}>
-                    Ir para o login
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <p className="sub">Escolha e confirme sua nova senha.</p>
-                  {rError ? (
-                    <div className="auth-error" role="alert">
-                      <Icon name="alert" />
-                      <span>{rError}</span>
-                    </div>
-                  ) : null}
-                  <Field
-                    label="Nova senha"
-                    type="password"
-                    name="new-password"
-                    placeholder="••••••••"
-                    autoComplete="new-password"
-                    helper="Ao menos 8 caracteres."
-                    value={rPass}
-                    disabled={rStatus === "loading"}
-                    onChange={(e) => setRPass(e.target.value)}
-                  />
-                  <Field
-                    label="Confirmar nova senha"
-                    type="password"
-                    name="confirm-password"
-                    placeholder="••••••••"
-                    autoComplete="new-password"
-                    value={rPass2}
-                    disabled={rStatus === "loading"}
-                    onChange={(e) => setRPass2(e.target.value)}
-                  />
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    block
-                    loading={rStatus === "loading"}
-                    loadingText="Redefinindo…"
-                  >
-                    Redefinir senha
-                  </Button>
-                </>
-              )}
-              {rStatus !== "done" ? <a className="auth-link-button" href="#login">Voltar ao login</a> : null}
-              <AuthSecurityNote />
-            </form>
+            </>
           )}
+          <AuthSecurityNote />
+        </form>
+      ) : mode === "activate" ? (
+        <form className="login-card" onSubmit={handleActivate} noValidate>
+          <AuthCardHeading title={aStatus === "done" ? "Acesso ativado" : "Ativar acesso"} focus />
+
+          {aLoading ? (
+            <p className="sub" role="status">
+              Validando convite…
+            </p>
+          ) : aInfoError ? (
+            <>
+              <div className="auth-error" role="alert">
+                <Icon name="alert" />
+                <span>{aInfoError}</span>
+              </div>
+              <a className="auth-link-button" href="#login">
+                Ir para o login
+              </a>
+            </>
+          ) : aStatus === "done" ? (
+            <>
+              <div className="auth-error success" role="status">
+                <Icon name="check" />
+                <span>Acesso ativado! Agora é só entrar com sua nova senha.</span>
+              </div>
+              <Button type="button" variant="primary" block onClick={() => navigate("login")}>
+                Ir para o login
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="sub">
+                {aInfo ? (
+                  <>
+                    Olá, <strong>{aInfo.nome}</strong>.{" "}
+                    {aInfo.precisaCadastro
+                      ? "complete seu cadastro e defina sua senha para acessar "
+                      : "defina sua senha para acessar "}
+                    <strong>{aInfo.igreja}</strong>.
+                  </>
+                ) : (
+                  "Defina sua senha de acesso."
+                )}
+              </p>
+              {aInfo ? <div className="helper">Conta: {aInfo.email}</div> : null}
+              {aError ? (
+                <div className="auth-error" role="alert">
+                  <Icon name="alert" />
+                  <span>{aError}</span>
+                </div>
+              ) : null}
+              {aInfo?.precisaCadastro ? (
+                <Field
+                  label="Telefone / WhatsApp"
+                  type="tel"
+                  name="activate-phone"
+                  placeholder="5500000000000"
+                  autoComplete="tel"
+                  value={aTel}
+                  disabled={aStatus === "loading"}
+                  onChange={(e) => setATel(e.target.value)}
+                />
+              ) : null}
+              <Field
+                label="Senha"
+                type="password"
+                name="activate-password"
+                placeholder="••••••••"
+                autoComplete="new-password"
+                helper="Ao menos 8 caracteres."
+                value={aPass}
+                disabled={aStatus === "loading"}
+                onChange={(e) => setAPass(e.target.value)}
+              />
+              <Field
+                label="Confirmar senha"
+                type="password"
+                name="activate-confirm"
+                placeholder="••••••••"
+                autoComplete="new-password"
+                value={aPass2}
+                disabled={aStatus === "loading"}
+                onChange={(e) => setAPass2(e.target.value)}
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                block
+                loading={aStatus === "loading"}
+                loadingText="Ativando…"
+              >
+                Ativar e criar senha
+              </Button>
+            </>
+          )}
+          {!aInfoError && aStatus !== "done" ? (
+            <a className="auth-link-button" href="#login">
+              Voltar ao login
+            </a>
+          ) : null}
+          <AuthSecurityNote />
+        </form>
+      ) : (
+        <form className="login-card" onSubmit={handleReset} noValidate>
+          <AuthCardHeading
+            title={rStatus === "done" ? "Senha atualizada" : "Criar nova senha"}
+            focus
+          />
+
+          {!resetToken ? (
+            <>
+              <div className="auth-error" role="alert">
+                <Icon name="alert" />
+                <span>Link inválido ou incompleto. Peça um novo para criar sua senha.</span>
+              </div>
+              <a className="auth-link-button" href="#esqueci-senha">
+                Pedir novo link
+              </a>
+            </>
+          ) : rStatus === "done" ? (
+            <>
+              <div className="auth-error success" role="status">
+                <Icon name="check" />
+                <span>Senha redefinida! Agora é só entrar com a nova senha.</span>
+              </div>
+              <Button type="button" variant="primary" block onClick={() => navigate("login")}>
+                Ir para o login
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="sub">Escolha e confirme sua nova senha.</p>
+              {rError ? (
+                <div className="auth-error" role="alert">
+                  <Icon name="alert" />
+                  <span>{rError}</span>
+                </div>
+              ) : null}
+              <Field
+                label="Nova senha"
+                type="password"
+                name="new-password"
+                placeholder="••••••••"
+                autoComplete="new-password"
+                helper="Ao menos 8 caracteres."
+                value={rPass}
+                disabled={rStatus === "loading"}
+                onChange={(e) => setRPass(e.target.value)}
+              />
+              <Field
+                label="Confirmar nova senha"
+                type="password"
+                name="confirm-password"
+                placeholder="••••••••"
+                autoComplete="new-password"
+                value={rPass2}
+                disabled={rStatus === "loading"}
+                onChange={(e) => setRPass2(e.target.value)}
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                block
+                loading={rStatus === "loading"}
+                loadingText="Redefinindo…"
+              >
+                Redefinir senha
+              </Button>
+            </>
+          )}
+          {rStatus !== "done" ? (
+            <a className="auth-link-button" href="#login">
+              Voltar ao login
+            </a>
+          ) : null}
+          <AuthSecurityNote />
+        </form>
+      )}
     </AuthLayout>
   );
 }

@@ -44,7 +44,9 @@ export function DataTable<T>({
     return (
       <div className="empty-state" role="status" style={{ padding: "var(--s6)" }}>
         <Icon name={empty.icon ?? "user"} />
-        <p><strong>{empty.title}</strong></p>
+        <p>
+          <strong>{empty.title}</strong>
+        </p>
         {empty.hint ? <p>{empty.hint}</p> : null}
       </div>
     );
@@ -73,11 +75,15 @@ export function DataTable<T>({
             <tr
               key={rowKey(row)}
               className={clickable ? "row-link" : undefined}
-              onClick={clickable ? (e) => {
-                const target = e.target as HTMLElement;
-                if (target.closest("button, a, input, select, textarea, summary")) return;
-                onRowClick?.(row);
-              } : undefined}
+              onClick={
+                clickable
+                  ? (e) => {
+                      const target = e.target as HTMLElement;
+                      if (target.closest("button, a, input, select, textarea, summary")) return;
+                      onRowClick?.(row);
+                    }
+                  : undefined
+              }
               tabIndex={clickable ? 0 : undefined}
               onKeyDown={
                 clickable

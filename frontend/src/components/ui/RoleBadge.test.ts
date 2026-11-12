@@ -74,7 +74,9 @@ describe("RoleBadgeList — papéis acumulados ordenados (Topbar + RoleTags/#equ
   it("papéis de liderança (admin, lider_celula) ganham 'lead'; membro não", () => {
     render(h(RoleBadgeList, { roles: ["membro", "admin", "lider_celula"] as Role[] }));
     const chips = Array.from(container.querySelectorAll(".role-chip"));
-    const byLabel = Object.fromEntries(chips.map((c) => [c.textContent, c.classList.contains("lead")]));
+    const byLabel = Object.fromEntries(
+      chips.map((c) => [c.textContent, c.classList.contains("lead")]),
+    );
     expect(byLabel["Administrador"]).toBe(true);
     expect(byLabel["Líder de Célula"]).toBe(true);
     expect(byLabel["Membro"]).toBe(false);

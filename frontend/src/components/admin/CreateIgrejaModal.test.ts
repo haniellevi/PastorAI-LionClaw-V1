@@ -50,9 +50,9 @@ function findButton(label: string): HTMLButtonElement | undefined {
 
 function focusables(): HTMLElement[] {
   const panel = document.querySelector<HTMLElement>('[role="dialog"]')!;
-  return [...panel.querySelectorAll<HTMLElement>("button, input, select, textarea, [tabindex]")].filter(
-    (el) => !(el as HTMLButtonElement).disabled,
-  );
+  return [
+    ...panel.querySelectorAll<HTMLElement>("button, input, select, textarea, [tabindex]"),
+  ].filter((el) => !(el as HTMLButtonElement).disabled);
 }
 
 function setValue(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, value: string) {
@@ -200,8 +200,9 @@ describe("CreateIgrejaModal — W4B (DsDialog)", () => {
   it("a revisão acompanha a taxa personalizada, a isenção e o uso da taxa padrão", () => {
     const onSubmit = vi.fn();
     render({ onSubmit });
-    const feeReview = () => [...container.querySelectorAll("dt")]
-      .find((term) => term.textContent === "Taxa de setup")?.nextElementSibling?.textContent;
+    const feeReview = () =>
+      [...container.querySelectorAll("dt")].find((term) => term.textContent === "Taxa de setup")
+        ?.nextElementSibling?.textContent;
     expect(feeReview()).toBe("Taxa padrão da plataforma");
     setValue(fieldByLabel("Taxa de setup personalizada"), "39.9");
     expect(feeReview()).toMatch(/R\$\s*39,90/);

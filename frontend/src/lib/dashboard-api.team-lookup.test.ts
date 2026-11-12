@@ -29,16 +29,14 @@ describe("fetchTeamLookup — paginação completa do seletor", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ items: firstPage, page: 1, pageSize: 200, total: 201 }),
-          { status: 200 },
-        ),
+        new Response(JSON.stringify({ items: firstPage, page: 1, pageSize: 200, total: 201 }), {
+          status: 200,
+        }),
       )
       .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ items: [eligible], page: 2, pageSize: 200, total: 201 }),
-          { status: 200 },
-        ),
+        new Response(JSON.stringify({ items: [eligible], page: 2, pageSize: 200, total: 201 }), {
+          status: 200,
+        }),
       );
     vi.stubGlobal("fetch", fetchMock);
 

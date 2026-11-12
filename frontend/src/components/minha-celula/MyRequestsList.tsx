@@ -116,7 +116,10 @@ export function MyRequestsList({
   }
 
   async function resubmit(req: CellRequest) {
-    if (req.tipo === "nomear_lider" || req.tipo === "abrir_celula") { setEditing(req); return; }
+    if (req.tipo === "nomear_lider" || req.tipo === "abrir_celula") {
+      setEditing(req);
+      return;
+    }
     if (pendingId) return;
     setPendingId(req.id);
     setPendingAction("resubmit");
@@ -145,7 +148,27 @@ export function MyRequestsList({
         {items.length ? <span className="count">· {items.length}</span> : null}
       </div>
 
-      {editing?.tipo === "abrir_celula" ? <AberturaForm key={editing.id} token={token} request={editing} onCreated={() => { setEditing(null); void load("reload"); }} /> : editing ? <NomeacaoForm key={editing.id} token={token} request={editing} onCreated={() => { setEditing(null); void load("reload"); }} /> : null}
+      {editing?.tipo === "abrir_celula" ? (
+        <AberturaForm
+          key={editing.id}
+          token={token}
+          request={editing}
+          onCreated={() => {
+            setEditing(null);
+            void load("reload");
+          }}
+        />
+      ) : editing ? (
+        <NomeacaoForm
+          key={editing.id}
+          token={token}
+          request={editing}
+          onCreated={() => {
+            setEditing(null);
+            void load("reload");
+          }}
+        />
+      ) : null}
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />

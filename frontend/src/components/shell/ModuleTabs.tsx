@@ -55,17 +55,11 @@ export function ModuleTabs({ group }: { group: ModuleGroup }) {
   if (!tabs || !user) return null;
 
   // Locked sempre aparece (cadeado); sem permissão some.
-  const visible = tabs.filter(
-    (t) => t.locked || canSee(t.target, user.roles, matrix),
-  );
+  const visible = tabs.filter((t) => t.locked || canSee(t.target, user.roles, matrix));
   if (visible.length <= 1) return null;
 
   return (
-    <nav
-      ref={wrapRef}
-      className="ds-tabs-wrap module-tabs"
-      aria-label={GROUP_LABEL[group]}
-    >
+    <nav ref={wrapRef} className="ds-tabs-wrap module-tabs" aria-label={GROUP_LABEL[group]}>
       <div className="ds-tabs-scroll">
         <div ref={listRef} className="ds-tabs">
           {visible.map((t) => {

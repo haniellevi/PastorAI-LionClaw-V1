@@ -13,9 +13,7 @@ function directives(policy) {
 
 describe("buildContentSecurityPolicy", () => {
   it("só libera dados para o próprio painel e para a origem da API", () => {
-    const csp = directives(
-      buildContentSecurityPolicy({ apiUrl: "https://api.example.test/v1/" }),
-    );
+    const csp = directives(buildContentSecurityPolicy({ apiUrl: "https://api.example.test/v1/" }));
 
     expect(csp["connect-src"]).toEqual(["'self'", "https://api.example.test"]);
     expect(csp["default-src"]).toEqual(["'self'"]);

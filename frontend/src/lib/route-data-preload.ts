@@ -6,10 +6,7 @@
  */
 import { fetchPipeline } from "./contacts-api";
 import { fetchConversations } from "./conversations-api";
-import {
-  fetchOverview,
-  fetchWorkQueuePage,
-} from "./dashboard-api";
+import { fetchOverview, fetchWorkQueuePage } from "./dashboard-api";
 import { resolveDashboardResponsibilities } from "./dashboard-responsibilities";
 import { fetchEventWindowPage, eventWindow, fetchUpcomingEvents } from "./events-api";
 import { canSee, DEFAULT_PERMISSIONS, type PermissionMatrix } from "./permissions";
@@ -27,7 +24,9 @@ export async function preloadRouteData(
   switch (route) {
     case "dashboard":
       jobs = [
-        ...(responsibilities.hasWorkQueue ? [fetchWorkQueuePage(token, 1, 25, { hoje: true })] : []),
+        ...(responsibilities.hasWorkQueue
+          ? [fetchWorkQueuePage(token, 1, 25, { hoje: true })]
+          : []),
         ...(responsibilities.showOverview ? [fetchOverview(token)] : []),
         ...(canSee("calendario", roles, matrix) ? [fetchUpcomingEvents(token)] : []),
       ];
@@ -38,9 +37,7 @@ export async function preloadRouteData(
       break;
     }
     case "ganhar":
-      jobs = [
-        fetchPipeline(token, "ganhar", 50, {group:"novos-contatos"}),
-      ];
+      jobs = [fetchPipeline(token, "ganhar", 50, { group: "novos-contatos" })];
       break;
     case "inbox":
       jobs = [fetchConversations(token)];

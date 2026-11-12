@@ -14,22 +14,13 @@ import {
   resourceTimeline,
 } from "./support/helpers";
 
-const DASHBOARD_PATHS = [
-  "/work-queue/snapshot",
-  "/team/lookup",
-  "/cells",
-  "/dashboard/overview",
-];
+const DASHBOARD_PATHS = ["/work-queue/snapshot", "/team/lookup", "/cells", "/dashboard/overview"];
 
-function dashboardRequests(
-  requests: Awaited<ReturnType<typeof harnessRequests>>,
-) {
+function dashboardRequests(requests: Awaited<ReturnType<typeof harnessRequests>>) {
   return requests.filter((entry) => DASHBOARD_PATHS.includes(entry.path));
 }
 
-function expectParallelDashboardReads(
-  requests: Awaited<ReturnType<typeof harnessRequests>>,
-): void {
+function expectParallelDashboardReads(requests: Awaited<ReturnType<typeof harnessRequests>>): void {
   const reads = dashboardRequests(requests);
   expect(reads).toHaveLength(4);
   const starts = reads.map((entry) => entry.startedAt);
@@ -45,18 +36,18 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     page,
     request,
   }, testInfo) => {
-    await resetHarness(request, {performance:true});
+    await resetHarness(request, { performance: true });
     const safety = await armBrowserSafety(page);
 
     const metrics = await loginThroughUi(page);
-    await expect(page.getByRole("region", { name: "Pendências da Central" }))
-      .toContainText("Nenhuma pendência da Central agora.");
-    const requests = await harnessRequests(request);
-    expect(requests.filter(entry => entry.path === "/cell-central/dashboard"))
-      .toMatchObject([{ method: "GET", status: 200 }]);
-    const auth = requests.find(
-      (entry) => entry.method === "POST" && entry.path === "/auth/login",
+    await expect(page.getByRole("region", { name: "Pendências da Central" })).toContainText(
+      "Nenhuma pendência da Central agora.",
     );
+    const requests = await harnessRequests(request);
+    expect(requests.filter((entry) => entry.path === "/cell-central/dashboard")).toMatchObject([
+      { method: "GET", status: 200 },
+    ]);
+    const auth = requests.find((entry) => entry.method === "POST" && entry.path === "/auth/login");
     expect(auth).toBeDefined();
     expect(requests.some((entry) => entry.path === "/auth/me")).toBe(false);
     expectParallelDashboardReads(requests);
@@ -81,7 +72,7 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     page,
     request,
   }, testInfo) => {
-    await resetHarness(request, {performance:true});
+    await resetHarness(request, { performance: true });
     const safety = await armBrowserSafety(page);
     await page.addInitScript((token) => {
       window.localStorage.setItem("pastorai:token", token);
@@ -97,8 +88,10 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
       (entry) => entry.method === "GET" && entry.path === "/auth/bootstrap",
     );
     expect(auth).toBeDefined();
-    expect(requests.filter(entry => entry.path === "/auth/bootstrap")).toHaveLength(1);
-    expect(requests.some(entry => entry.path === "/auth/me" || entry.path === "/roles/permissions")).toBe(false);
+    expect(requests.filter((entry) => entry.path === "/auth/bootstrap")).toHaveLength(1);
+    expect(
+      requests.some((entry) => entry.path === "/auth/me" || entry.path === "/roles/permissions"),
+    ).toBe(false);
     expect(requests.some((entry) => entry.path === "/auth/login")).toBe(false);
     expectParallelDashboardReads(requests);
     const firstDashboardStart = Math.min(
@@ -116,42 +109,64 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     });
   });
 
-  test("idle não baixa Agenda e fila de 1.005 itens confirma 42 páginas sem coleta duplicada", async ({page,request},testInfo) => {
-    await resetHarness(request,{performance:true,queueSize:1005});
+  test("idle não baixa Agenda e fila de 1.005 itens confirma 42 páginas sem coleta duplicada", async ({
+    page,
+    request,
+  }, testInfo) => {
+    await resetHarness(request, { performance: true, queueSize: 1005 });
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
     await expect(page.getByText("25 de 1005 ações carregadas. Completando a fila.")).toBeVisible();
-    await expect(page.getByText(/Completando a fila\./)).toHaveCount(0,{timeout:15_000});
+    await expect(page.getByText(/Completando a fila\./)).toHaveCount(0, { timeout: 15_000 });
     // Exceeds the former automatic Agenda preload delay, without pointer intent.
     await page.waitForTimeout(6500);
     const requests = await harnessRequests(request);
-    const queueReads = requests.filter(entry => entry.path === "/work-queue/snapshot");
+    const queueReads = requests.filter((entry) => entry.path === "/work-queue/snapshot");
     expect(queueReads).toHaveLength(42);
-    expect(queueReads.filter(entry => new URLSearchParams(entry.query).get("revision"))).toHaveLength(40);
-    expect(requests.some(entry => entry.path === "/work-queue")).toBe(false);
-    expect(requests.filter(entry => entry.path === "/events").every(entry => new URLSearchParams(entry.query).get("pageSize") === "6")).toBe(true);
+    expect(
+      queueReads.filter((entry) => new URLSearchParams(entry.query).get("revision")),
+    ).toHaveLength(40);
+    expect(requests.some((entry) => entry.path === "/work-queue")).toBe(false);
+    expect(
+      requests
+        .filter((entry) => entry.path === "/events")
+        .every((entry) => new URLSearchParams(entry.query).get("pageSize") === "6"),
+    ).toBe(true);
     expectCleanBrowser(safety);
-    await attachJson(testInfo,"snapshot-1005-budget",{queueReads,requests,limit:"synthetic loopback, no production measurement"});
+    await attachJson(testInfo, "snapshot-1005-budget", {
+      queueReads,
+      requests,
+      limit: "synthetic loopback, no production measurement",
+    });
   });
 
-  test("backend anterior mantém restauração e fallback de fila", async ({page,request}) => {
+  test("backend anterior mantém restauração e fallback de fila", async ({ page, request }) => {
     await resetHarness(request);
     await armBrowserSafety(page);
-    await page.addInitScript(token => window.localStorage.setItem("pastorai:token",token),LOCAL_TOKEN);
-    await page.goto("/#dashboard",{waitUntil:"domcontentloaded"});
+    await page.addInitScript(
+      (token) => window.localStorage.setItem("pastorai:token", token),
+      LOCAL_TOKEN,
+    );
+    await page.goto("/#dashboard", { waitUntil: "domcontentloaded" });
     await expectDashboardContextReady(page);
     const requests = await harnessRequests(request);
-    expect(requests.some(entry => entry.path === "/auth/bootstrap" && entry.status === 404)).toBe(true);
-    expect(requests.some(entry => entry.path === "/auth/me" && entry.status === 200)).toBe(true);
-    expect(requests.some(entry => entry.path === "/work-queue/snapshot" && entry.status === 404)).toBe(true);
-    expect(requests.some(entry => entry.path === "/work-queue" && entry.status === 200)).toBe(true);
+    expect(requests.some((entry) => entry.path === "/auth/bootstrap" && entry.status === 404)).toBe(
+      true,
+    );
+    expect(requests.some((entry) => entry.path === "/auth/me" && entry.status === 200)).toBe(true);
+    expect(
+      requests.some((entry) => entry.path === "/work-queue/snapshot" && entry.status === 404),
+    ).toBe(true);
+    expect(requests.some((entry) => entry.path === "/work-queue" && entry.status === 200)).toBe(
+      true,
+    );
   });
 
   test("navegação aquecida mantém feedback imediato e p75 completo abaixo de 1 s", async ({
     page,
     request,
   }, testInfo) => {
-    await resetHarness(request, {performance:true});
+    await resetHarness(request, { performance: true });
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
 
@@ -200,7 +215,7 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     page,
     request,
   }, testInfo) => {
-    await resetHarness(request, {performance:true});
+    await resetHarness(request, { performance: true });
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
     await page.goto("/gestao#agente", { waitUntil: "domcontentloaded" });
@@ -228,7 +243,7 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     page,
     request,
   }, testInfo) => {
-    await resetHarness(request, {performance:true});
+    await resetHarness(request, { performance: true });
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
     await page.goto("/#perfil", { waitUntil: "domcontentloaded" });
@@ -254,25 +269,41 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     expect(requests[0]?.query).toBe("");
     expect(requests[0]?.body).toEqual({ challenge: "[redacted]" });
     expect(page.url()).not.toContain("7c9e68c2");
-    expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain("7c9e68c2");
+    expect(
+      await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage })),
+    ).not.toContain("7c9e68c2");
 
     await page.reload();
     await expect(page.getByLabel("Código recebido no WhatsApp")).toHaveValue("");
     await expect(page.getByRole("button", { name: "Confirmar conversa" })).toBeDisabled();
     await page.setViewportSize({ width: 390, height: 844 });
-    const confirmation = page.getByRole("heading", { name: "Confirmar conversa do WhatsApp" }).locator("..");
-    await expect.poll(async () => page.locator(".sidebar").evaluate(
-      (sidebar) => sidebar.getBoundingClientRect().right,
-    )).toBeLessThanOrEqual(1);
+    const confirmation = page
+      .getByRole("heading", { name: "Confirmar conversa do WhatsApp" })
+      .locator("..");
+    await expect
+      .poll(async () =>
+        page.locator(".sidebar").evaluate((sidebar) => sidebar.getBoundingClientRect().right),
+      )
+      .toBeLessThanOrEqual(1);
     await confirmation.scrollIntoViewIfNeeded();
-    await expect.poll(async () => confirmation.evaluate((form) => {
-      const rect = form.getBoundingClientRect();
-      return rect.left >= 0 && rect.right <= window.innerWidth &&
-        rect.top >= 0 && rect.bottom <= window.innerHeight;
-    })).toBe(true);
-    await expect.poll(async () => page.evaluate(
-      () => document.scrollingElement!.scrollWidth <= window.innerWidth,
-    )).toBe(true);
+    await expect
+      .poll(async () =>
+        confirmation.evaluate((form) => {
+          const rect = form.getBoundingClientRect();
+          return (
+            rect.left >= 0 &&
+            rect.right <= window.innerWidth &&
+            rect.top >= 0 &&
+            rect.bottom <= window.innerHeight
+          );
+        }),
+      )
+      .toBe(true);
+    await expect
+      .poll(async () =>
+        page.evaluate(() => document.scrollingElement!.scrollWidth <= window.innerWidth),
+      )
+      .toBe(true);
     await page.getByLabel("Código recebido no WhatsApp").fill("codigo-sintetico");
     await page.getByLabel("Código recebido no WhatsApp").press("Tab");
     await expect(page.getByRole("button", { name: "Confirmar conversa" })).toBeFocused();
@@ -287,7 +318,7 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     page,
     request,
   }) => {
-    await resetHarness(request, {performance:true});
+    await resetHarness(request, { performance: true });
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
     await page.getByRole("link", { name: "Admin", exact: true }).click();
@@ -306,7 +337,9 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     await expect(page.getByText("Cadastro salvo.")).toBeVisible();
 
     const requests = await harnessRequests(request);
-    const saves = requests.filter((entry) => entry.method === "PUT" && entry.path === "/igreja/cadastro");
+    const saves = requests.filter(
+      (entry) => entry.method === "PUT" && entry.path === "/igreja/cadastro",
+    );
     expect(saves).toHaveLength(1);
     expect(saves[0]?.body).toEqual({
       enderecoInstitucional: "Rua Exemplo, 100",
@@ -346,7 +379,11 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     expect(safety.pageErrors).toEqual([]);
     expect(safety.consoleErrors).toHaveLength(1);
     expect(safety.consoleErrors[0]).toContain("404");
-    expect((await harnessRequests(request)).filter((entry) => entry.method === "PUT" && entry.path === "/igreja/cadastro")).toHaveLength(2);
+    expect(
+      (await harnessRequests(request)).filter(
+        (entry) => entry.method === "PUT" && entry.path === "/igreja/cadastro",
+      ),
+    ).toHaveLength(2);
     await page.unroute("**/igreja/cadastro/capabilities");
     await page.goto("/gestao#agente", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("Credencial ativa")).toBeVisible();
@@ -357,11 +394,8 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     expect(safety.consoleErrors[0]).toContain("404");
   });
 
-  test("conexão WhatsApp gera QR somente no mock local", async ({
-    page,
-    request,
-  }, testInfo) => {
-    await resetHarness(request, {performance:true});
+  test("conexão WhatsApp gera QR somente no mock local", async ({ page, request }, testInfo) => {
+    await resetHarness(request, { performance: true });
     const safety = await armBrowserSafety(page);
     await loginThroughUi(page);
     await page.goto("/gestao#whatsapp", { waitUntil: "domcontentloaded" });

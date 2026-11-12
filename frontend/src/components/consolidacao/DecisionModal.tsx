@@ -16,7 +16,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
-import { fetchCellLookupPage, fetchContactLookupPage, type CellLookup, type ContactLookup } from "@/lib/lookup-api";
+import {
+  fetchCellLookupPage,
+  fetchContactLookupPage,
+  type CellLookup,
+  type ContactLookup,
+} from "@/lib/lookup-api";
 import { fetchContactDetail } from "@/lib/contacts-api";
 import { SessionExpiredError } from "@/lib/api";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
@@ -62,38 +67,56 @@ export function DecisionModal({
   onClose,
   onSubmit,
 }: DecisionModalProps) {
-  const [lookupPessoa,setLookupPessoa] = useState<ContactLookup | null>(() => contacts.find(person => person.id === defaultPessoaId) ?? null);
-  const [lookupCell,setLookupCell] = useState<CellLookup | null>(null);
-  const [lookupError,setLookupError] = useState<string | null>(null);
+  const [lookupPessoa, setLookupPessoa] = useState<ContactLookup | null>(
+    () => contacts.find((person) => person.id === defaultPessoaId) ?? null,
+  );
+  const [lookupCell, setLookupCell] = useState<CellLookup | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
   const defaultRequest = useRef<string | null>(null);
   const selectionVersion = useRef(0);
-  const loadPeople = useCallback((q: string,page: number,signal: AbortSignal) => fetchContactLookupPage(token!,{q,page,signal}),[token]);
-  const loadCells = useCallback((q: string,page: number,signal: AbortSignal) => fetchCellLookupPage(token!,{q,page,signal}),[token]);
+  const loadPeople = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      fetchContactLookupPage(token!, { q, page, signal }),
+    [token],
+  );
+  const loadCells = useCallback(
+    (q: string, page: number, signal: AbortSignal) =>
+      fetchCellLookupPage(token!, { q, page, signal }),
+    [token],
+  );
   useEffect(() => {
     if (!token || !defaultPessoaId || defaultRequest.current === defaultPessoaId) return;
     defaultRequest.current = defaultPessoaId;
     if (lookupPessoa?.id === defaultPessoaId) return;
     const version = selectionVersion.current;
     let active = true;
-    void fetchContactDetail(token,defaultPessoaId).then(person => { if (active && version === selectionVersion.current) setLookupPessoa(person); }).catch(error => { if (!active) return; if(error instanceof SessionExpiredError) onSessionExpired?.(); else setLookupError("Não foi possível confirmar a pessoa selecionada."); });
-    return () => { active = false; };
-  },[token,defaultPessoaId,lookupPessoa?.id,onSessionExpired]);
+    void fetchContactDetail(token, defaultPessoaId)
+      .then((person) => {
+        if (active && version === selectionVersion.current) setLookupPessoa(person);
+      })
+      .catch((error) => {
+        if (!active) return;
+        if (error instanceof SessionExpiredError) onSessionExpired?.();
+        else setLookupError("Não foi possível confirmar a pessoa selecionada.");
+      });
+    return () => {
+      active = false;
+    };
+  }, [token, defaultPessoaId, lookupPessoa?.id, onSessionExpired]);
   const [pessoaId, setPessoaId] = useState(defaultPessoaId ?? "");
   const [origem, setOrigem] = useState<string>(ORIGENS[0]);
   const [vinculo, setVinculo] = useState<DecisionVinculo>("celula");
   const [celulaId, setCelulaId] = useState("");
   const [touched, setTouched] = useState(false);
 
-  const availableCells = useMemo(
-    () => cells.filter((c) => c.ativo && c.liderId),
-    [cells],
-  );
+  const availableCells = useMemo(() => cells.filter((c) => c.ativo && c.liderId), [cells]);
   const noCellAvailable = !token && availableCells.length === 0;
 
   // Fluxo A bloqueado quando não há célula disponível para vincular.
   const celulaFlowBlocked = vinculo === "celula" && noCellAvailable;
 
-  const pessoaError = touched && !(token ? lookupPessoa : pessoaId) ? "Selecione a pessoa." : undefined;
+  const pessoaError =
+    touched && !(token ? lookupPessoa : pessoaId) ? "Selecione a pessoa." : undefined;
   const celulaError =
     touched && vinculo === "celula" && !celulaFlowBlocked && !(token ? lookupCell : celulaId)
       ? "Selecione a célula que a pessoa participa."
@@ -102,7 +125,8 @@ export function DecisionModal({
   const canSubmit =
     Boolean(token ? lookupPessoa : pessoaId) &&
     !celulaFlowBlocked &&
-    (vinculo === "visitante" || Boolean(token ? lookupCell?.ativo && lookupCell.liderId : celulaId));
+    (vinculo === "visitante" ||
+      Boolean(token ? lookupCell?.ativo && lookupCell.liderId : celulaId));
 
   const submit = () => {
     setTouched(true);
@@ -127,25 +151,42 @@ export function DecisionModal({
       title="Lançar decisão por Jesus"
       description="Escolha a pessoa, a origem e o vínculo para registrar a decisão e iniciar o acompanhamento."
     >
-        <form
-          className="modal-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          {lookupError ? <p role="alert">{lookupError}</p> : null}
-          {error ? (
-            <div className="error-banner" role="alert">
-              <Icon name="alert" />
-              <span>{error}</span>
-            </div>
-          ) : null}
+      <form
+        className="modal-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        {lookupError ? <p role="alert">{lookupError}</p> : null}
+        {error ? (
+          <div className="error-banner" role="alert">
+            <Icon name="alert" />
+            <span>{error}</span>
+          </div>
+        ) : null}
 
-          <div className="row">
-            <div className={`field${pessoaError ? " invalid" : ""}`}>
-              <label htmlFor="dec-pessoa">Pessoa</label>
-              {token ? <PaginatedLookup<ContactLookup> loadPage={loadPeople} selected={lookupPessoa} onSelect={person => { selectionVersion.current += 1; setLookupPessoa(person); setLookupError(null); }} label="Buscar pessoa" inputId="dec-person-search" getLabel={person => person.nome} getDescription={person => person.telefone} disabled={busy} onSessionExpired={onSessionExpired} /> : <select
+        <div className="row">
+          <div className={`field${pessoaError ? " invalid" : ""}`}>
+            <label htmlFor="dec-pessoa">Pessoa</label>
+            {token ? (
+              <PaginatedLookup<ContactLookup>
+                loadPage={loadPeople}
+                selected={lookupPessoa}
+                onSelect={(person) => {
+                  selectionVersion.current += 1;
+                  setLookupPessoa(person);
+                  setLookupError(null);
+                }}
+                label="Buscar pessoa"
+                inputId="dec-person-search"
+                getLabel={(person) => person.nome}
+                getDescription={(person) => person.telefone}
+                disabled={busy}
+                onSessionExpired={onSessionExpired}
+              />
+            ) : (
+              <select
                 id="dec-pessoa"
                 disabled={busy}
                 aria-describedby={pessoaError ? "dec-pessoa-error" : undefined}
@@ -159,73 +200,92 @@ export function DecisionModal({
                     {c.nome}
                   </option>
                 ))}
-              </select>}
-              {pessoaError ? (
-                <div id="dec-pessoa-error" className="err" role="alert">
-                  {pessoaError}
-                </div>
-              ) : null}
-            </div>
-            <div className="field">
-              <label htmlFor="dec-origem">Origem da decisão</label>
-              <select
-                id="dec-origem"
-                disabled={busy}
-                value={origem}
-                onChange={(e) => setOrigem(e.target.value)}
-              >
-                {ORIGENS.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
               </select>
-            </div>
+            )}
+            {pessoaError ? (
+              <div id="dec-pessoa-error" className="err" role="alert">
+                {pessoaError}
+              </div>
+            ) : null}
           </div>
+          <div className="field">
+            <label htmlFor="dec-origem">Origem da decisão</label>
+            <select
+              id="dec-origem"
+              disabled={busy}
+              value={origem}
+              onChange={(e) => setOrigem(e.target.value)}
+            >
+              {ORIGENS.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-          <fieldset className="choice-field" disabled={busy}>
-            <legend>Vínculo da pessoa</legend>
-            <div className="choice">
-              <label className={vinculo === "celula" ? "on" : undefined}>
-                <input
-                  type="radio"
-                  name="dec-vinculo"
-                  value="celula"
-                  checked={vinculo === "celula"}
-                  onChange={() => setVinculo("celula")}
-                />
-                <span className="ct">
-                  <Icon name="consolidar" />
-                  Já participa de célula
-                </span>
-                <span className="cs">
-                  Você lança e assume a consolidação. O ministério de consolidação é
-                  avisado.
-                </span>
-              </label>
-              <label className={vinculo === "visitante" ? "on" : undefined}>
-                <input
-                  type="radio"
-                  name="dec-vinculo"
-                  value="visitante"
-                  checked={vinculo === "visitante"}
-                  onChange={() => setVinculo("visitante")}
-                />
-                <span className="ct">
-                  <Icon name="user" />
-                  Visitante sem vínculo
-                </span>
-                <span className="cs">
-                  Consolidação lança e abre prazo de 24h para conectar a uma célula.
-                </span>
-              </label>
-            </div>
-          </fieldset>
+        <fieldset className="choice-field" disabled={busy}>
+          <legend>Vínculo da pessoa</legend>
+          <div className="choice">
+            <label className={vinculo === "celula" ? "on" : undefined}>
+              <input
+                type="radio"
+                name="dec-vinculo"
+                value="celula"
+                checked={vinculo === "celula"}
+                onChange={() => setVinculo("celula")}
+              />
+              <span className="ct">
+                <Icon name="consolidar" />
+                Já participa de célula
+              </span>
+              <span className="cs">
+                Você lança e assume a consolidação. O ministério de consolidação é avisado.
+              </span>
+            </label>
+            <label className={vinculo === "visitante" ? "on" : undefined}>
+              <input
+                type="radio"
+                name="dec-vinculo"
+                value="visitante"
+                checked={vinculo === "visitante"}
+                onChange={() => setVinculo("visitante")}
+              />
+              <span className="ct">
+                <Icon name="user" />
+                Visitante sem vínculo
+              </span>
+              <span className="cs">
+                Consolidação lança e abre prazo de 24h para conectar a uma célula.
+              </span>
+            </label>
+          </div>
+        </fieldset>
 
-          {vinculo === "celula" && !celulaFlowBlocked ? (
-            <div className={`field${celulaError ? " invalid" : ""}`} style={{ margin: "var(--s4) 0 0" }}>
-              <label htmlFor="dec-celula">Célula que participa</label>
-              {token ? <PaginatedLookup<CellLookup> loadPage={loadCells} selected={lookupCell} onSelect={setLookupCell} label="Buscar célula" inputId="dec-cell-search" getLabel={cell => cell.nome} getDescription={cell => !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => !cell.ativo || !cell.liderId} disabled={busy} onSessionExpired={onSessionExpired} /> : <select
+        {vinculo === "celula" && !celulaFlowBlocked ? (
+          <div
+            className={`field${celulaError ? " invalid" : ""}`}
+            style={{ margin: "var(--s4) 0 0" }}
+          >
+            <label htmlFor="dec-celula">Célula que participa</label>
+            {token ? (
+              <PaginatedLookup<CellLookup>
+                loadPage={loadCells}
+                selected={lookupCell}
+                onSelect={setLookupCell}
+                label="Buscar célula"
+                inputId="dec-cell-search"
+                getLabel={(cell) => cell.nome}
+                getDescription={(cell) =>
+                  !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"
+                }
+                isDisabled={(cell) => !cell.ativo || !cell.liderId}
+                disabled={busy}
+                onSessionExpired={onSessionExpired}
+              />
+            ) : (
+              <select
                 id="dec-celula"
                 disabled={busy}
                 aria-describedby={celulaError ? "dec-celula-error" : undefined}
@@ -239,61 +299,58 @@ export function DecisionModal({
                     {c.nome}
                   </option>
                 ))}
-              </select>}
-              {celulaError ? (
-                <div id="dec-celula-error" className="err" role="alert">
-                  {celulaError}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="flow-note">
-            <Icon name={celulaFlowBlocked ? "alert" : "clock"} />
-            <span>
-              {celulaFlowBlocked ? (
-                <>
-                  Nenhuma célula ativa com líder disponível. O fluxo de célula fica
-                  bloqueado. Use <strong>Visitante sem vínculo</strong>: a consolidação
-                  abre prazo de 24h para conectar a pessoa assim que houver célula.
-                </>
-              ) : vinculo === "celula" ? (
-                <>
-                  Fluxo de célula: a consolidação é assumida por você, sem prazo de 24h.
-                  O ministério de consolidação é notificado.
-                </>
-              ) : (
-                <>
-                  Ao lançar esta decisão, a consolidação começa com prazo de 24h
-                  para conectar a pessoa a uma célula. Atrasos são escalados.
-                </>
-              )}
-            </span>
+              </select>
+            )}
+            {celulaError ? (
+              <div id="dec-celula-error" className="err" role="alert">
+                {celulaError}
+              </div>
+            ) : null}
           </div>
+        ) : null}
 
-          <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
-              Cancelar
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={busy}
-              loadingText="Lançando…"
-              disabled={!canSubmit}
-              aria-disabled={!canSubmit || undefined}
-              title={
-                celulaFlowBlocked
-                  ? "Sem célula disponível: use o fluxo visitante."
-                  : undefined
-              }
-            >
-              <Icon name="check" />
-              <span>Lançar decisão</span>
-            </Button>
-          </div>
-        </form>
+        <div className="flow-note">
+          <Icon name={celulaFlowBlocked ? "alert" : "clock"} />
+          <span>
+            {celulaFlowBlocked ? (
+              <>
+                Nenhuma célula ativa com líder disponível. O fluxo de célula fica bloqueado. Use{" "}
+                <strong>Visitante sem vínculo</strong>: a consolidação abre prazo de 24h para
+                conectar a pessoa assim que houver célula.
+              </>
+            ) : vinculo === "celula" ? (
+              <>
+                Fluxo de célula: a consolidação é assumida por você, sem prazo de 24h. O ministério
+                de consolidação é notificado.
+              </>
+            ) : (
+              <>
+                Ao lançar esta decisão, a consolidação começa com prazo de 24h para conectar a
+                pessoa a uma célula. Atrasos são escalados.
+              </>
+            )}
+          </span>
+        </div>
+
+        <div className="modal-foot">
+          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            loading={busy}
+            loadingText="Lançando…"
+            disabled={!canSubmit}
+            aria-disabled={!canSubmit || undefined}
+            title={celulaFlowBlocked ? "Sem célula disponível: use o fluxo visitante." : undefined}
+          >
+            <Icon name="check" />
+            <span>Lançar decisão</span>
+          </Button>
+        </div>
+      </form>
     </DsDialog>
   );
 }

@@ -56,21 +56,48 @@ export function ConsolIndividualScreen() {
 
   const columns: Array<Column<(typeof rows)[number]>> = [
     { header: "Pessoa", cell: ({ contact }) => <span className="nm">{contact.nome}</span> },
-    { header: "Consolidador", cell: ({ consolidador }) => consolidador ?? <StatusPill tone="warn">Não informado</StatusPill> },
-    { header: "Etapas registradas", cell: ({ done, next }) => (
-      <><div className="num">{done} de {total} obrigatórias</div><div className="people-meta">{next ? `Próxima: ${etapaLabel(next)}` : "Etapas obrigatórias registradas"}</div></>
-    ) },
-    { header: "Acompanhamento", cell: ({ contact }) => (
-      <button type="button" className="btn btn-sm" aria-label={`Abrir trilha de ${contact.nome}`}
-        onKeyDown={(e) => e.stopPropagation()}
-        onClick={(e) => { e.stopPropagation(); c.openTrack(contact); }}>
-        Abrir trilha
-      </button>
-    ) },
+    {
+      header: "Consolidador",
+      cell: ({ consolidador }) =>
+        consolidador ?? <StatusPill tone="warn">Não informado</StatusPill>,
+    },
+    {
+      header: "Etapas registradas",
+      cell: ({ done, next }) => (
+        <>
+          <div className="num">
+            {done} de {total} obrigatórias
+          </div>
+          <div className="people-meta">
+            {next ? `Próxima: ${etapaLabel(next)}` : "Etapas obrigatórias registradas"}
+          </div>
+        </>
+      ),
+    },
+    {
+      header: "Acompanhamento",
+      cell: ({ contact }) => (
+        <button
+          type="button"
+          className="btn btn-sm"
+          aria-label={`Abrir trilha de ${contact.nome}`}
+          onKeyDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            c.openTrack(contact);
+          }}
+        >
+          Abrir trilha
+        </button>
+      ),
+    },
   ];
 
   return (
-    <div className="screen journey-screen journey-screen--consolidar people-ux" key="consol-individual">
+    <div
+      className="screen journey-screen journey-screen--consolidar people-ux"
+      key="consol-individual"
+    >
       <div className="screen-head">
         <div className="titles">
           <h2>Consolidação individual</h2>
@@ -96,13 +123,37 @@ export function ConsolIndividualScreen() {
         </div>
       ) : null}
 
-      {c.supportError ? <p role="status" className="people-meta">{c.supportError}</p> : null}
-      {c.hasMore ? <div className="people-toolbar"><span role="status">{c.people.length} de {c.pipelineTotal} pessoas carregadas</span><button type="button" className="btn btn-sm" disabled={c.loadingMore || c.loading} onClick={() => void c.loadMore()}>{c.loadingMore ? "Carregando…" : "Carregar mais pessoas"}</button></div> : null}
+      {c.supportError ? (
+        <p role="status" className="people-meta">
+          {c.supportError}
+        </p>
+      ) : null}
+      {c.hasMore ? (
+        <div className="people-toolbar">
+          <span role="status">
+            {c.people.length} de {c.pipelineTotal} pessoas carregadas
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={c.loadingMore || c.loading}
+            onClick={() => void c.loadMore()}
+          >
+            {c.loadingMore ? "Carregando…" : "Carregar mais pessoas"}
+          </button>
+        </div>
+      ) : null}
       <div className="people-work-list">
         <div className="card">
           <div className="panel-title">
             <span>Em andamento</span>
-            <span className="count">{showSkeleton ? "Carregando…" : c.loaded ? `${rows.length} ${rows.length === 1 ? "pessoa" : "pessoas"} na lista` : "Lista indisponível"}</span>
+            <span className="count">
+              {showSkeleton
+                ? "Carregando…"
+                : c.loaded
+                  ? `${rows.length} ${rows.length === 1 ? "pessoa" : "pessoas"} na lista`
+                  : "Lista indisponível"}
+            </span>
           </div>
           {showSkeleton ? (
             <div className="queue">
@@ -120,8 +171,12 @@ export function ConsolIndividualScreen() {
             <div className="empty-state" style={{ padding: "var(--s6)" }}>
               <Icon name="consol-individual" />
               <p>
-                <strong>{c.hasMore ? "Nenhuma consolidação entre as pessoas carregadas." : "Nenhuma consolidação em andamento."}</strong> Lance uma decisão
-                por Jesus para iniciar o acompanhamento individual.
+                <strong>
+                  {c.hasMore
+                    ? "Nenhuma consolidação entre as pessoas carregadas."
+                    : "Nenhuma consolidação em andamento."}
+                </strong>{" "}
+                Lance uma decisão por Jesus para iniciar o acompanhamento individual.
               </p>
             </div>
           ) : (
@@ -144,9 +199,7 @@ export function ConsolIndividualScreen() {
               const cls = "stop";
               return (
                 <div className={cls} key={step.etapa}>
-                  <span className="dot">
-                    {i + 1}
-                  </span>
+                  <span className="dot">{i + 1}</span>
                   <div>
                     <div className="nm">
                       {step.label}
@@ -162,8 +215,8 @@ export function ConsolIndividualScreen() {
           </div>
           <p className="lock-note" style={{ marginTop: "var(--s3)" }}>
             <Icon name="lock" />
-            Concluídas todas as visitas, a pessoa é marcada como consolidada individual
-            no registro. A gestão de turmas da Universidade da Vida ainda está indisponível.
+            Concluídas todas as visitas, a pessoa é marcada como consolidada individual no registro.
+            A gestão de turmas da Universidade da Vida ainda está indisponível.
           </p>
         </details>
       </div>

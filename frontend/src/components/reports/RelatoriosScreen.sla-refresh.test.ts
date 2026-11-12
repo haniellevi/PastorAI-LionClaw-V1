@@ -165,7 +165,12 @@ describe("RelatoriosScreen — refetch na fronteira do SLA (P2 #221)", () => {
       if (tab === "Histórico") clickTab(tab);
       else await advance(60_000);
       const received = page("recebido");
-      received.items[0] = { ...received.items[0]!, presentes: 10, oferta: 30, observacoes: "Observação sintética reservada" };
+      received.items[0] = {
+        ...received.items[0]!,
+        presentes: 10,
+        oferta: 30,
+        observacoes: "Observação sintética reservada",
+      };
       await resolveRequest(0, received);
       clickTab("Ver relatório");
       expect(container.querySelector('[role="dialog"]')).not.toBeNull();
@@ -179,7 +184,9 @@ describe("RelatoriosScreen — refetch na fronteira do SLA (P2 #221)", () => {
       expect(text()).not.toContain("Observação sintética reservada");
       expect(text()).not.toContain("Nenhuma reunião");
       expect(text()).not.toContain("Tudo em dia!");
-      expect(container.querySelector('[role="alert"]')?.textContent).toContain("Você não tem permissão para consultar os relatórios.");
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        "Você não tem permissão para consultar os relatórios.",
+      );
       expect(auth.expireSession).not.toHaveBeenCalled();
 
       // Uma autorização posterior permite consultar novamente, sem reabrir o modal.
@@ -222,7 +229,9 @@ describe("RelatoriosScreen — refetch na fronteira do SLA (P2 #221)", () => {
     await rejectRequest(1, new ApiError(403, "Acesso negado."));
     await resolveRequest(0, page("recebido"));
     expect(text()).not.toContain("Célula Zoe");
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Você não tem permissão");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Você não tem permissão",
+    );
   });
 
   it("uma recusa antiga não apaga a consulta autorizada mais recente", async () => {

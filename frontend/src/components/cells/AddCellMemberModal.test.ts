@@ -54,10 +54,7 @@ const person: Contact = {
 };
 
 function changeInput(input: HTMLInputElement, value: string) {
-  const setter = Object.getOwnPropertyDescriptor(
-    HTMLInputElement.prototype,
-    "value",
-  )?.set;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
   act(() => {
     setter?.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -152,16 +149,11 @@ describe("AddCellMemberModal", () => {
     ) as HTMLButtonElement;
     expect(submit.disabled).toBe(false);
 
-    changeInput(
-      container.querySelector("#addCellMemberQuery") as HTMLInputElement,
-      "Outra pessoa",
-    );
+    changeInput(container.querySelector("#addCellMemberQuery") as HTMLInputElement, "Outra pessoa");
 
     expect(submit.disabled).toBe(true);
     const form = container.querySelector("form") as HTMLFormElement;
-    act(() =>
-      form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-    );
+    act(() => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(mocks.addCellMember).not.toHaveBeenCalled();
     expect(mocks.inviteMember).not.toHaveBeenCalled();
   });

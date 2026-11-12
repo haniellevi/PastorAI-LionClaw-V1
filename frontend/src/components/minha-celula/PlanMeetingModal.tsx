@@ -43,9 +43,7 @@ export function PlanMeetingModal({
 
   const dataError = touched && !data ? "Informe a data da reunião." : undefined;
   const horaError =
-    hora.trim() && !HORA_RE.test(hora.trim())
-      ? "Use o formato 24h HH:MM (ex.: 20:00)."
-      : undefined;
+    hora.trim() && !HORA_RE.test(hora.trim()) ? "Use o formato 24h HH:MM (ex.: 20:00)." : undefined;
 
   async function submit() {
     setTouched(true);
@@ -64,9 +62,7 @@ export function PlanMeetingModal({
       onPlanned(created);
       onClose();
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Não foi possível planejar a reunião.",
-      );
+      setError(err instanceof ApiError ? err.message : "Não foi possível planejar a reunião.");
     } finally {
       setBusy(false);
     }
@@ -77,7 +73,8 @@ export function PlanMeetingModal({
   return (
     // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
     // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
-    <DsDialog className="ops-dialog"
+    <DsDialog
+      className="ops-dialog"
       open
       onClose={() => {
         if (!busy) onClose();
@@ -86,9 +83,7 @@ export function PlanMeetingModal({
       description="Cria uma reunião pontual. Não altera o dia e o horário padrão da célula — para mudar o padrão, use “Solicitar alteração”."
     >
       <>
-
-
-      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
+        {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
           className="modal-form ops-dialog"

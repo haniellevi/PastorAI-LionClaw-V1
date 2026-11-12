@@ -16,7 +16,12 @@ import { act, createElement as h, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SHELL_DRAWER_ID, drawerSidebarClass, isDesktopCollapsed, useDrawerA11y } from "./useDrawerA11y";
+import {
+  SHELL_DRAWER_ID,
+  drawerSidebarClass,
+  isDesktopCollapsed,
+  useDrawerA11y,
+} from "./useDrawerA11y";
 
 declare global {
   // eslint-disable-next-line no-var

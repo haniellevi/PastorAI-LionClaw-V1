@@ -20,7 +20,4 @@ export function resolveApiBase(
   return DEV_API_BASE;
 }
 
-export const API_BASE = resolveApiBase(
-  process.env.NEXT_PUBLIC_API_URL,
-  process.env.NODE_ENV,
-);
+export const API_BASE = resolveApiBase(process.env.NEXT_PUBLIC_API_URL, process.env.NODE_ENV);

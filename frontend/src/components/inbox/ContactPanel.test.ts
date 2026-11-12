@@ -114,9 +114,7 @@ async function flush(times = 3) {
 }
 
 function findButton(label: string): HTMLButtonElement | undefined {
-  return [...container.querySelectorAll("button")].find((b) =>
-    b.textContent!.includes(label),
-  );
+  return [...container.querySelectorAll("button")].find((b) => b.textContent!.includes(label));
 }
 
 const resetPrivate = vi.fn();
@@ -141,9 +139,7 @@ function pressEscape(target: EventTarget = document) {
   // registro antes de qualquer bubble. Chamar handlers direto não provaria a
   // ordem capture-phase.
   act(() => {
-    target.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    );
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
 }
 
@@ -276,8 +272,9 @@ describe("ContactPanel — Escape (drawer × diálogo interno)", () => {
 
     // Confirma com a promise pendurada → reactivateBusy=true.
     apiMock.reactivateCommunications.mockReturnValue(new Promise(() => {}));
-    const confirm = [...dialog.querySelectorAll("button")].find((b) =>
-      b.textContent!.includes("Reativando") || b.textContent!.includes("Reativar comunicações"),
+    const confirm = [...dialog.querySelectorAll("button")].find(
+      (b) =>
+        b.textContent!.includes("Reativando") || b.textContent!.includes("Reativar comunicações"),
     )!;
     act(() => {
       confirm.click();
@@ -321,9 +318,7 @@ describe("ContactPanel — Escape (drawer × diálogo interno)", () => {
       const { onClose, dialog } = await openReactivateDialog();
       // MESMA lista que o trap do ds/Dialog enxerga (FOCUSABLE_SELECTOR).
       const { FOCUSABLE_SELECTOR } = await import("../ds/a11y");
-      const dialogFocusables = [
-        ...dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-      ];
+      const dialogFocusables = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)];
       expect(dialogFocusables.length).toBeGreaterThanOrEqual(2);
 
       act(() => {
@@ -358,11 +353,7 @@ describe("ContactPanel — Escape (drawer × diálogo interno)", () => {
       expect(container.querySelector('[role="dialog"]')).not.toBeNull();
     } finally {
       if (originalOffsetParent) {
-        Object.defineProperty(
-          HTMLElement.prototype,
-          "offsetParent",
-          originalOffsetParent,
-        );
+        Object.defineProperty(HTMLElement.prototype, "offsetParent", originalOffsetParent);
       }
     }
   });
@@ -389,35 +380,44 @@ describe("ContactPanel — Escape (drawer × diálogo interno)", () => {
   });
 });
 
-
 it.each(["admin", "pastor", "lider_celula", "operador"])(
   "shows private erasure requests only to admin (%s)",
   async (role) => {
     authState.roles = [role];
     apiMock.fetchContactDetail.mockResolvedValue(detail());
     await renderPanel();
-    expect(Boolean(container.querySelector('[data-testid="private-erasure-requests"]')))
-      .toBe(role === "admin");
+    expect(Boolean(container.querySelector('[data-testid="private-erasure-requests"]'))).toBe(
+      role === "admin",
+    );
   },
 );
 
-
 it.each(["admin", "pastor", "lider_celula", "operador"])(
-  "oferece reset privado somente a admin (%s)", async role => {
+  "oferece reset privado somente a admin (%s)",
+  async (role) => {
     authState.roles = [role];
     apiMock.fetchContactDetail.mockResolvedValue(detail());
     await renderPanel();
     const button = findButton("Excluir conteúdo privado da pessoa");
     expect(Boolean(button)).toBe(role === "admin");
-    if (button) { act(() => button.click()); expect(resetPrivate).toHaveBeenCalledOnce(); }
+    if (button) {
+      act(() => button.click());
+      expect(resetPrivate).toHaveBeenCalledOnce();
+    }
   },
 );
 
-
-it('não oferece reset sem pessoa vinculada', async () => {
+it("não oferece reset sem pessoa vinculada", async () => {
   apiMock.fetchContactDetail.mockResolvedValue(detail());
-  await act(async () => root.render(h(ContactPanel, {
-    pessoaId: null, telefone: '550000000000', onClose: vi.fn(), onResetPrivateContent: resetPrivate,
-  })));
-  expect(findButton('Excluir conteúdo privado da pessoa')).toBeUndefined();
+  await act(async () =>
+    root.render(
+      h(ContactPanel, {
+        pessoaId: null,
+        telefone: "550000000000",
+        onClose: vi.fn(),
+        onResetPrivateContent: resetPrivate,
+      }),
+    ),
+  );
+  expect(findButton("Excluir conteúdo privado da pessoa")).toBeUndefined();
 });
