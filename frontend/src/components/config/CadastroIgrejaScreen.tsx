@@ -4,7 +4,6 @@ import "@/components/config/administration-ux-v2.css";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-import { Button } from "@/components/ui/Button";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -14,6 +13,7 @@ import {
   type ChurchCadastro,
 } from "@/lib/church-cadastro-api";
 import { isAdmin } from "@/lib/roles";
+import { DsButton } from "@/components/ds/Button";
 
 const EMPTY: ChurchCadastro = { enderecoInstitucional: null, horariosCulto: null };
 const optional = (value: string) => value.trim() || null;
@@ -125,9 +125,9 @@ export function CadastroIgrejaScreen() {
         <div className="card card-pad">
           <p role="status">Cadastro indisponível nesta versão do servidor.</p>
           {error ? <p role="alert">{error}</p> : null}
-          <button type="button" className="btn" onClick={() => setReload((value) => value + 1)}>
+          <DsButton variant="secondary" onClick={() => setReload((value) => value + 1)}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
       {allowed && scoped && supported && !loading ? (
@@ -165,9 +165,9 @@ export function CadastroIgrejaScreen() {
           </div>
           {error ? <p role="alert">{error}</p> : null}
           {success ? <p role="status">Cadastro salvo.</p> : null}
-          <Button type="submit" variant="primary" loading={saving} loadingText="Salvando…">
-            Salvar cadastro
-          </Button>
+          <DsButton type="submit" loading={saving}>
+            {saving ? "Salvando…" : "Salvar cadastro"}
+          </DsButton>
         </form>
       ) : null}
     </div>

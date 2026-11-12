@@ -9,6 +9,7 @@ import {
   type PublicAgentProfileFacts,
 } from "@/lib/agent-api";
 import { ApiError } from "@/lib/dashboard-api";
+import { DsButton } from "@/components/ds/Button";
 
 type Cell = PublicAgentProfileFacts["celulas"][number] & { id: number };
 const EMPTY: PublicAgentProfileFacts = { enderecoIgreja: null, horariosCulto: null, celulas: [] };
@@ -128,8 +129,7 @@ export function PublicAgentProfile({
 
   return (
     <form
-      className="card card-pad"
-      style={{ marginTop: "var(--s4)" }}
+      className="card card-pad ds-mt-4"
       onSubmit={(event) => {
         void submit(event);
       }}
@@ -151,11 +151,11 @@ export function PublicAgentProfile({
         </div>
       ) : null}
       {scoped && !loading && configured === null ? (
-        <button type="button" className="btn" onClick={() => setReload((value) => value + 1)}>
+        <DsButton variant="secondary" onClick={() => setReload((value) => value + 1)}>
           Tentar novamente
-        </button>
+        </DsButton>
       ) : null}
-      <fieldset disabled={!canEdit} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+      <fieldset disabled={!canEdit} className="ds-fieldset-reset">
         <div className="field">
           <label htmlFor="publicEndereco">Endereço institucional da igreja</label>
           <input
@@ -181,7 +181,7 @@ export function PublicAgentProfile({
             }}
           />
         </div>
-        <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset className="ds-fieldset-reset">
           <legend className="panel-title">Células públicas por bairro</legend>
           {visibleCells.length === 0 ? (
             <p className="sub">
@@ -189,13 +189,9 @@ export function PublicAgentProfile({
             </p>
           ) : null}
           {visibleCells.map((cell, index) => (
-            <div
-              key={cell.id}
-              className="admin-inline-section"
-              style={{ marginBottom: "var(--s3)" }}
-            >
-              <div className="row" style={{ flexWrap: "wrap" }}>
-                <div className="field" style={{ minWidth: "min(100%, 12rem)" }}>
+            <div key={cell.id} className="admin-inline-section ds-mb-3">
+              <div className="row ds-wrap">
+                <div className="field admin-field-fluid">
                   <label htmlFor={`publicBairro${index}`}>Bairro da célula {index + 1}</label>
                   <input
                     id={`publicBairro${index}`}
@@ -204,7 +200,7 @@ export function PublicAgentProfile({
                     onChange={(event) => updateCell(cell.id, "bairro", event.target.value)}
                   />
                 </div>
-                <div className="field" style={{ minWidth: "min(100%, 12rem)" }}>
+                <div className="field admin-field-fluid">
                   <label htmlFor={`publicNome${index}`}>Nome da célula {index + 1}</label>
                   <input
                     id={`publicNome${index}`}
@@ -213,7 +209,7 @@ export function PublicAgentProfile({
                     onChange={(event) => updateCell(cell.id, "nome", event.target.value)}
                   />
                 </div>
-                <div className="field" style={{ minWidth: "min(100%, 12rem)" }}>
+                <div className="field admin-field-fluid">
                   <label htmlFor={`publicEncontro${index}`}>
                     Dia e horário do encontro {index + 1} (opcional)
                   </label>
@@ -226,21 +222,19 @@ export function PublicAgentProfile({
                   />
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn"
+              <DsButton
+                variant="secondary"
                 onClick={() => {
                   setCells((current) => current.filter((item) => item.id !== cell.id));
                   setSuccess(false);
                 }}
               >
                 Remover célula {index + 1}
-              </button>
+              </DsButton>
             </div>
           ))}
-          <button
-            type="button"
-            className="btn"
+          <DsButton
+            variant="secondary"
             disabled={visibleCells.length >= 5}
             onClick={() => {
               setCells((current) => [
@@ -251,17 +245,12 @@ export function PublicAgentProfile({
             }}
           >
             Adicionar célula
-          </button>
+          </DsButton>
         </fieldset>
-        <div style={{ marginTop: "var(--s4)" }}>
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={!canEdit}
-            aria-busy={saving || undefined}
-          >
+        <div className="ds-mt-4">
+          <DsButton type="submit" disabled={!canEdit} loading={saving}>
             {saving ? "Salvando…" : "Salvar informações públicas"}
-          </button>
+          </DsButton>
         </div>
       </fieldset>
       {scoped && success ? <p role="status">Informações públicas salvas.</p> : null}

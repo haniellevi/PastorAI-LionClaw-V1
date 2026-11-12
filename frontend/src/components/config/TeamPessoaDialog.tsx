@@ -7,6 +7,7 @@ import { useLookupPage } from "@/components/lookups/useLookupPage";
 import { fetchContactLookupPage, type ContactLookup } from "@/lib/lookup-api";
 import { linkPessoa } from "@/lib/team-api";
 import type { TeamMember } from "@/lib/dashboard-api";
+import { DsButton } from "@/components/ds/Button";
 
 export function TeamPessoaDialog({
   member,
@@ -81,9 +82,9 @@ export function TeamPessoaDialog({
       {lookup.error ? (
         <div role="alert">
           Não foi possível buscar Pessoas.{" "}
-          <button type="button" onClick={lookup.retry}>
+          <DsButton variant="secondary" onClick={lookup.retry}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
       {!lookup.loading && !lookup.error && !lookup.result?.items.length ? (
@@ -92,16 +93,15 @@ export function TeamPessoaDialog({
       <div aria-label="Pessoas encontradas">
         {!lookup.loading && !lookup.error
           ? lookup.result?.items.map((person) => (
-              <button
+              <DsButton
                 key={person.id}
-                type="button"
-                className="btn btn-sm"
+                variant="secondary"
                 disabled={saving || person.arquivada || person.semInteresse}
                 aria-pressed={selected?.id === person.id}
                 onClick={() => setSelected(person)}
               >
                 {person.nome}
-              </button>
+              </DsButton>
             ))
           : null}
       </div>
@@ -116,25 +116,23 @@ export function TeamPessoaDialog({
       {selected ? <p role="status">Pessoa selecionada: {selected.nome}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       <div className="modal-foot">
-        <button type="button" className="btn" disabled={saving} onClick={onClose}>
+        <DsButton variant="secondary" disabled={saving} onClick={onClose}>
           Cancelar
-        </button>
+        </DsButton>
         {member.pessoaId ? (
-          <button type="button" className="btn" disabled={saving} onClick={() => void save(null)}>
+          <DsButton variant="secondary" disabled={saving} onClick={() => void save(null)}>
             Desvincular Pessoa
-          </button>
+          </DsButton>
         ) : null}
-        <button
-          type="button"
-          className="btn btn-primary"
+        <DsButton
           disabled={saving || !selected || lookup.loading || !!lookup.error}
-          aria-busy={saving}
+          loading={saving}
           onClick={() => {
             if (selected) void save(selected.id);
           }}
         >
           {saving ? "Salvando…" : "Salvar vínculo"}
-        </button>
+        </DsButton>
       </div>
     </Dialog>
   );

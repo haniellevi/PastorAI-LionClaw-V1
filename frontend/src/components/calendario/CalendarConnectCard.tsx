@@ -57,6 +57,7 @@ import {
 } from "@/lib/calendar-api";
 import { Icon } from "@/lib/icons";
 import { useHashRoute } from "@/lib/use-hash-route";
+import { DsButton } from "@/components/ds/Button";
 
 /** Marcadores de retorno. O shell divide a rota no PRIMEIRO "/", então a base
  *  continua sendo `integracoes` e o sufixo sobrevive. */
@@ -620,12 +621,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   /** Bloco inline reusado nos três pontos que pedem a conta declarada. */
   const accountForm = (label: string, cta: string) => (
     <>
-      <label style={{ display: "block", marginTop: "var(--s3)" }}>
-        <span className="sub" style={{ color: "var(--muted)" }}>
-          {label}
-        </span>
+      <label className="ds-block ds-mt-3">
+        <span className="sub ds-muted">{label}</span>
         <input
-          className="input"
+          className="input admin-input-block"
           type="email"
           value={emailInput}
           onChange={(e) => setEmailInput(e.target.value)}
@@ -633,26 +632,19 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           autoComplete="email"
           disabled={busy}
           aria-label={label}
-          style={{ display: "block", marginTop: "var(--s1)", width: "100%" }}
         />
       </label>
 
       {googleAccountEmail && emailValid && declaredEmail !== googleAccountEmail ? (
-        <p className="sub" role="status" style={{ color: "var(--warn)", marginTop: "var(--s2)" }}>
+        <p className="sub ds-text-warn ds-mt-2" role="status">
           Isto TROCA a conta conectada: de {googleAccountEmail} para {declaredEmail}.
         </p>
       ) : null}
 
-      <button
-        type="button"
-        className="btn btn-primary"
-        onClick={() => void connect()}
-        disabled={busy || !emailValid}
-        style={{ marginTop: "var(--s3)" }}
-      >
+      <DsButton className="ds-mt-3" onClick={() => void connect()} disabled={busy || !emailValid}>
         <Icon name="calendar" />
         <span>{redirecting ? "Abrindo o Google…" : cta}</span>
-      </button>
+      </DsButton>
     </>
   );
 
@@ -662,19 +654,19 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const canFinishPending = pending && recoverable !== MSG_CANCELLED;
 
   return (
-    <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
+    <div className="card card-pad ds-mb-4">
       <div className="panel-title">
         <Icon name="calendar" /> Conexão com o Google Agenda
       </div>
 
       {error ? (
-        <p className="sub" role="alert" style={{ color: "var(--danger)", marginTop: "var(--s2)" }}>
+        <p className="sub ds-text-danger ds-mt-2" role="alert">
           {error}
         </p>
       ) : null}
 
       {reidentified ? (
-        <p className="sub" role="alert" style={{ color: "var(--danger)", marginTop: "var(--s2)" }}>
+        <p className="sub ds-text-danger ds-mt-2" role="alert">
           {reidentified}
         </p>
       ) : null}
@@ -682,32 +674,25 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       {mismatch ? (
         /* Conta divergente: o servidor NÃO escreveu nada. Mostrar as duas
            contas é o que torna o erro corrigível. */
-        <div style={{ marginTop: "var(--s2)" }}>
-          <p className="sub" role="alert" style={{ color: "var(--danger)" }}>
+        <div className="ds-mt-2">
+          <p className="sub ds-text-danger" role="alert">
             A conta que autorizou no Google não é a que você informou.
           </p>
-          <p className="sub" style={{ color: "var(--muted)", marginTop: "var(--s2)" }}>
+          <p className="sub ds-muted ds-mt-2">
             Você informou <strong>{mismatch.expected}</strong> e quem autorizou foi{" "}
             <strong>{mismatch.verified}</strong>. Nada foi alterado — a conexão da igreja continua
             exatamente como estava.
           </p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={restart}
-            disabled={busy}
-            style={{ marginTop: "var(--s3)" }}
-          >
+          <DsButton className="ds-mt-3" onClick={restart} disabled={busy}>
             <Icon name="calendar" />
             <span>Tentar novamente</span>
-          </button>
+          </DsButton>
         </div>
       ) : recoverable || !connected || pending ? (
         <>
           <p
-            className="sub"
+            className="sub ds-muted ds-m-0 ds-mt-2 ds-mb-3"
             role={recoverable || pending ? "status" : undefined}
-            style={{ color: "var(--muted)", margin: "var(--s2) 0 var(--s3)" }}
           >
             {recoverable ??
               (pending
@@ -718,13 +703,8 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           {/* Com segredo vivo, a conclusão é do usuário — nunca automática.
               Sem segredo, o caminho é declarar a conta e começar um fluxo. */}
           {canFinishPending ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => void finishFromStorage()}
-                disabled={busy}
-              >
+            <div className="ds-flex ds-wrap ds-gap-2">
+              <DsButton onClick={() => void finishFromStorage()} disabled={busy}>
                 <Icon name="calendar" />
                 <span>
                   {redirecting
@@ -733,10 +713,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
                       ? "Concluindo…"
                       : "Concluir conexão com o Google"}
                 </span>
-              </button>
-              <button type="button" className="btn" onClick={restart} disabled={busy}>
+              </DsButton>
+              <DsButton variant="secondary" onClick={restart} disabled={busy}>
                 <span>Começar de novo</span>
-              </button>
+              </DsButton>
             </div>
           ) : (
             accountForm(
@@ -750,10 +730,8 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           {/* Identidade primeiro: é ela que responde "de quem é esta agenda?".
               `null` = conexão legada, anterior ao binding — segue válida, mas o
               admin pode registrar a conta sem desconectar nada. */}
-          <div className="conn-row" style={{ marginTop: "var(--s2)" }}>
-            <span style={{ color: "var(--muted)" }}>
-              {googleAccountEmail ? "Conectado como" : MSG_LEGACY}
-            </span>
+          <div className="conn-row ds-mt-2">
+            <span className="ds-muted">{googleAccountEmail ? "Conectado como" : MSG_LEGACY}</span>
             {googleAccountEmail ? <span className="pill accent">{googleAccountEmail}</span> : null}
           </div>
 
@@ -765,36 +743,32 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
               googleAccountEmail ? "Trocar conta Google" : "Registrar conta Google",
             )
           ) : !reidentified ? (
-            <button
-              type="button"
-              className="btn"
+            <DsButton
+              variant="secondary"
               onClick={() => {
                 setEmailInput(googleAccountEmail ?? "");
                 setChanging(true);
               }}
               disabled={busy || importing}
-              style={{ marginTop: "var(--s2)" }}
+              className="ds-mt-2"
             >
               <span>{googleAccountEmail ? "Trocar conta Google" : "Registrar conta Google"}</span>
-            </button>
+            </DsButton>
           ) : null}
 
-          <div className="conn-row" style={{ marginTop: "var(--s3)" }}>
-            <span style={{ color: "var(--muted)" }}>Agenda sincronizada</span>
+          <div className="conn-row ds-mt-3">
+            <span className="ds-muted">Agenda sincronizada</span>
             <span className="pill accent">{calendarId ?? "selecione abaixo"}</span>
           </div>
 
           {calendars.length > 0 ? (
-            <label style={{ display: "block", marginTop: "var(--s3)" }}>
-              <span className="sub" style={{ color: "var(--muted)" }}>
-                Escolha a agenda
-              </span>
+            <label className="ds-block ds-mt-3">
+              <span className="sub ds-muted">Escolha a agenda</span>
               <select
-                className="input"
+                className="input admin-input-block"
                 value={calendarId ?? ""}
                 onChange={(e) => void pick(e.target.value)}
                 disabled={busy || importing}
-                style={{ display: "block", marginTop: "var(--s1)", width: "100%" }}
               >
                 <option value="" disabled>
                   Selecione…
@@ -811,25 +785,19 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           {/* PR212-CORRECTIVE-8: flexWrap comprovado por medição — em 320px o
               min-content do par (a palavra "Desconectar" não quebra) passa
               21,9px da borda do card mesmo sem o nowrap global do .btn. */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: "var(--s4)" }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => void runImport()}
-              disabled={busy || importing}
-            >
+          <div className="ds-flex ds-wrap ds-gap-2 ds-mt-4">
+            <DsButton onClick={() => void runImport()} disabled={busy || importing}>
               <Icon name="download" />
               <span>{importing ? "Importando…" : "Importar eventos do Google"}</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
+            </DsButton>
+            <DsButton
+              variant="danger"
               onClick={() => void disconnect()}
               disabled={busy || importing}
             >
               <Icon name="logout" />
               <span>Desconectar</span>
-            </button>
+            </DsButton>
           </div>
         </>
       )}

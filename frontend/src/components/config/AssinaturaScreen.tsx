@@ -38,6 +38,7 @@ import {
   type PlanInfo,
   type Subscription,
 } from "@/lib/subscription-api";
+import { DsButton } from "@/components/ds/Button";
 
 type Tab = "overview" | "plans";
 
@@ -341,21 +342,20 @@ export function AssinaturaScreen() {
       : null;
   const frozenCheckoutRecovery =
     planoSalvoForaDoCatalogo && sub ? (
-      <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
-        <p className="sub" style={{ color: "var(--muted)", marginTop: 0 }}>
+      <div className="card-pad admin-card-divider">
+        <p className="sub ds-muted ds-mt-0">
           A contratação do plano <strong>{sub.plano}</strong> ficou incompleta e esse plano não está
           mais no catálogo. Você pode retomá-la
           {catalog.length > 0 ? " ou escolher um dos planos abaixo" : ""}.
         </p>
-        <button
-          type="button"
-          className="btn btn-sm"
+        <DsButton
+          variant="secondary"
           onClick={() => void contract(sub.plano)}
           disabled={checkoutPlan != null}
-          aria-busy={checkoutPlan === sub.plano || undefined}
+          loading={checkoutPlan === sub.plano}
         >
           {checkoutPlan === sub.plano ? "Abrindo…" : "Retomar contratação"}
-        </button>
+        </DsButton>
       </div>
     ) : null;
 
@@ -371,20 +371,15 @@ export function AssinaturaScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
       {/* Estado pendente: aguardando confirmação, sem liberar acesso. */}
       {uiState === "pending" ? (
-        <div className="error-banner" role="status" style={{ marginBottom: "var(--s4)" }}>
+        <div className="error-banner ds-mb-4" role="status">
           <Icon name="clock" />
           <span>
             <strong>Aguardando confirmação do pagamento.</strong> O acesso completo é liberado assim
@@ -397,7 +392,7 @@ export function AssinaturaScreen() {
           pode já estar ativo; ainda assim o link que destrava a igreja precisa
           permanecer visível e a troca de plano continua bloqueada. */}
       {hasOutstandingRecovery && sub ? (
-        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s4)" }}>
+        <div className="error-banner ds-mb-4" role="alert">
           <Icon name="alert" />
           <span>
             <strong>Regularização anterior pendente.</strong> Conclua essa cobrança para liberar o
@@ -413,15 +408,13 @@ export function AssinaturaScreen() {
               Pagar cobrança de regularização
             </a>
           ) : (
-            <button
-              type="button"
-              className="btn btn-sm btn-primary"
+            <DsButton
               onClick={() => void recoverReversedInvoice()}
               disabled={recovering != null}
-              aria-busy={recovering === "invoice" || undefined}
+              loading={recovering === "invoice"}
             >
               {recovering === "invoice" ? "Preparando…" : "Gerar cobrança de regularização"}
-            </button>
+            </DsButton>
           )}
         </div>
       ) : null}
@@ -430,7 +423,7 @@ export function AssinaturaScreen() {
           vencida persistido, regularizar é ABRIR a fatura atual — nunca um
           novo checkout, que criaria outra assinatura recorrente no Asaas. */}
       {uiState === "past-due" && sub ? (
-        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s4)" }}>
+        <div className="error-banner ds-mb-4" role="alert">
           <Icon name="alert" />
           <span>
             <strong>Pagamento em atraso.</strong> Regularize para manter o acesso da igreja ativo.
@@ -447,36 +440,32 @@ export function AssinaturaScreen() {
           ) : sub.invoiceReversal && !hasOutstandingRecovery ? (
             // Cobrança estornada/excluída: recuperação ESPECÍFICA — nunca o
             // checkout genérico (criaria outra assinatura recorrente).
-            <button
-              type="button"
-              className="btn btn-sm btn-primary"
+            <DsButton
               onClick={() => void recoverReversedInvoice()}
               disabled={recovering != null}
-              aria-busy={recovering === "invoice" || undefined}
+              loading={recovering === "invoice"}
             >
               {recovering === "invoice" ? "Recuperando…" : "Recuperar cobrança"}
-            </button>
+            </DsButton>
           ) : (
-            <button
-              type="button"
-              className="btn btn-sm btn-primary"
+            <DsButton
               onClick={() => void resumeTrackedCheckout(sub.plano)}
               disabled={checkoutPlan != null}
-              aria-busy={checkoutPlan != null || undefined}
+              loading={checkoutPlan != null}
             >
               {checkoutPlan != null ? "Abrindo…" : "Regularizar pagamento"}
-            </button>
+            </DsButton>
           )}
         </div>
       ) : null}
 
       {checkoutLinks ? (
-        <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
-          <h4 style={{ marginTop: 0 }}>Conclua as cobranças</h4>
-          <p className="sub" style={{ color: "var(--muted)" }}>
+        <div className="card card-pad ds-mb-4">
+          <h4 className="ds-mt-0">Conclua as cobranças</h4>
+          <p className="sub ds-muted">
             A mensalidade e a taxa inicial, quando aplicável, são cobranças separadas.
           </p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s2)" }}>
+          <div className="ds-flex ds-wrap ds-gap-2">
             {checkoutLinks.monthly ? (
               <a
                 className="btn btn-primary"
@@ -494,7 +483,7 @@ export function AssinaturaScreen() {
             ) : null}
           </div>
           {!checkoutLinks.monthly && !checkoutLinks.setup ? (
-            <p className="sub" style={{ color: "var(--muted)", marginBottom: 0 }}>
+            <p className="sub ds-muted ds-mb-0">
               Os links ainda estão sendo preparados pelo Asaas. Atualize esta tela em instantes.
             </p>
           ) : null}
@@ -505,8 +494,8 @@ export function AssinaturaScreen() {
           inicial ou retomada de um placeholder não rastreado. Assinatura já
           rastreada e troca de plano não pedem CPF/CNPJ. */}
       {!showSkeleton && (sub === null || placeholder) ? (
-        <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
-          <div className="field" style={{ margin: 0, maxWidth: 360 }}>
+        <div className="card card-pad ds-mb-4">
+          <div className="field admin-field-narrow">
             <label htmlFor="subscription-cpf-cnpj">CPF ou CNPJ do responsável financeiro</label>
             <input
               id="subscription-cpf-cnpj"
@@ -534,7 +523,7 @@ export function AssinaturaScreen() {
       ) : null}
 
       {!showSkeleton ? (
-        <div className="tabs admin-tabs" style={{ marginBottom: "var(--s4)" }}>
+        <div className="tabs admin-tabs ds-mb-4">
           <button
             type="button"
             className={`tab${tab === "overview" ? " active" : ""}`}
@@ -571,14 +560,12 @@ export function AssinaturaScreen() {
         // Só assinatura RASTREADA renderiza o painel de assinante — um
         // placeholder cai no vazio de "nenhum plano contratado".
         assinante && sub ? (
-          <div className="grid-2" style={{ alignItems: "start" }}>
+          <div className="grid-2 ds-items-start">
             <div className="card card-pad">
-              <div
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
-              >
+              <div className="ds-flex ds-justify-between ds-items-center">
                 <div>
                   <h4>Plano {current?.label ?? sub.plano}</h4>
-                  <div className="sub" style={{ color: "var(--muted)", marginTop: 3 }}>
+                  <div className="sub ds-muted ds-mt-1">
                     {complimentary
                       ? "Cortesia da plataforma · sem cobrança"
                       : sub.setupPago
@@ -586,31 +573,20 @@ export function AssinaturaScreen() {
                         : "Setup pendente"}
                   </div>
                   {complimentary ? (
-                    <p className="helper" style={{ margin: "var(--s2) 0 0" }}>
-                      {COMPLIMENTARY_ADMIN_MESSAGE}
-                    </p>
+                    <p className="helper ds-m-0 ds-mt-2">{COMPLIMENTARY_ADMIN_MESSAGE}</p>
                   ) : null}
                 </div>
                 <SubscriptionPill state={uiState} />
               </div>
-              <div
-                style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: "var(--s4)" }}
-              >
-                <span className="val num" style={{ fontSize: 30, fontWeight: 640 }}>
+              <div className="ds-flex ds-items-baseline ds-gap-2 ds-mt-4">
+                <span className="val num admin-plan-price">
                   {complimentary ? BRL.format(0) : current ? BRL.format(current.preco) : "—"}
                 </span>
-                <span style={{ color: "var(--muted)" }}>/mês</span>
+                <span className="ds-muted">/mês</span>
               </div>
-              <div style={{ marginTop: "var(--s4)" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: 13,
-                    marginBottom: 6,
-                  }}
-                >
-                  <span style={{ color: "var(--muted)" }}>Membros ativos</span>
+              <div className="ds-mt-4">
+                <div className="admin-meter-head">
+                  <span className="ds-muted">Membros ativos</span>
                   <span className="num">
                     <strong>{membros}</strong> / {limite ?? "∞"}
                   </span>
@@ -620,14 +596,7 @@ export function AssinaturaScreen() {
                 </div>
                 {nextPlan && limite != null ? (
                   <div
-                    className="sub"
-                    style={{
-                      color: over ? "var(--warn)" : "var(--muted)",
-                      marginTop: 8,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
+                    className={over ? "sub admin-upgrade-hint is-over" : "sub admin-upgrade-hint"}
                   >
                     <Icon name="alert" />
                     <span>
@@ -641,15 +610,15 @@ export function AssinaturaScreen() {
             </div>
 
             <div className="card card-pad">
-              <h4 style={{ marginBottom: "var(--s4)" }}>Detalhes da assinatura</h4>
+              <h4 className="ds-mb-4">Detalhes da assinatura</h4>
               <div className="config-row">
-                <span style={{ color: "var(--muted)" }}>Próxima cobrança</span>
+                <span className="ds-muted">Próxima cobrança</span>
                 <span className="mono num">
                   {complimentary ? "Sem cobrança" : formatDate(sub.proximaCobranca)}
                 </span>
               </div>
               <div className="config-row">
-                <span style={{ color: "var(--muted)" }}>Taxa de setup</span>
+                <span className="ds-muted">Taxa de setup</span>
                 {sub.setupPago ? (
                   <StatusPill tone="ok">{complimentary ? "Isento" : "Pago"}</StatusPill>
                 ) : (
@@ -658,26 +627,25 @@ export function AssinaturaScreen() {
               </div>
               {!complimentary && sub.setupRecoveryRequired ? (
                 <div className="config-row">
-                  <span style={{ color: "var(--muted)" }}>Setup em aberto sem cobrança ativa</span>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
+                  <span className="ds-muted">Setup em aberto sem cobrança ativa</span>
+                  <DsButton
+                    variant="secondary"
                     onClick={() => void emitSetupCharge()}
                     disabled={recovering != null}
-                    aria-busy={recovering === "setup" || undefined}
+                    loading={recovering === "setup"}
                   >
                     {recovering === "setup" ? "Emitindo…" : "Gerar nova taxa de setup"}
-                  </button>
+                  </DsButton>
                 </div>
               ) : null}
               <div className="config-row">
-                <span style={{ color: "var(--muted)" }}>Custo de LLM</span>
-                <span style={{ color: "var(--muted)" }}>Por conta da igreja (BYO)</span>
+                <span className="ds-muted">Custo de LLM</span>
+                <span className="ds-muted">Por conta da igreja (BYO)</span>
               </div>
             </div>
           </div>
         ) : (
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
+          <div className="empty-state ds-p-6">
             <Icon name="card" />
             <p>
               <strong>Nenhum plano contratado.</strong> Escolha um plano em “Planos por porte” para
@@ -688,11 +656,9 @@ export function AssinaturaScreen() {
       ) : catalog.length === 0 ? (
         <>
           {frozenCheckoutRecovery ? (
-            <div className="card" style={{ marginBottom: "var(--s4)" }}>
-              {frozenCheckoutRecovery}
-            </div>
+            <div className="card ds-mb-4">{frozenCheckoutRecovery}</div>
           ) : null}
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
+          <div className="empty-state ds-p-6">
             <Icon name="card" />
             <p>Nenhum plano disponível no momento.</p>
           </div>
@@ -701,38 +667,35 @@ export function AssinaturaScreen() {
         <div className="card">
           <div className="panel-title">Planos por porte da igreja</div>
           {pendingPlanChange && sub ? (
-            <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
-              <p style={{ marginTop: 0 }}>
+            <div className="card-pad admin-card-divider">
+              <p className="ds-mt-0">
                 <strong>Confirmar mudança de plano?</strong>
               </p>
-              <p className="sub" style={{ color: "var(--muted)" }}>
+              <p className="sub ds-muted">
                 {`${current?.label ?? sub.plano} → ${pendingPlanChange.label} (${BRL.format(pendingPlanChange.preco)}/mês). `}
                 Válido a partir do próximo ciclo — cobranças já emitidas não mudam.
               </p>
-              <div style={{ display: "flex", gap: "var(--s2)" }}>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
+              <div className="ds-flex ds-gap-2">
+                <DsButton
                   onClick={() => void confirmPlanChange()}
                   disabled={changingPlan}
-                  aria-busy={changingPlan || undefined}
+                  loading={changingPlan}
                 >
                   {changingPlan ? "Atualizando…" : "Confirmar mudança"}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
+                </DsButton>
+                <DsButton
+                  variant="secondary"
                   onClick={() => setPendingPlanChange(null)}
                   disabled={changingPlan}
                 >
                   Cancelar
-                </button>
+                </DsButton>
               </div>
             </div>
           ) : null}
           {assinante && planChangeBlocked ? (
-            <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
-              <p className="sub" style={{ color: "var(--muted)", margin: 0 }}>
+            <div className="card-pad admin-card-divider">
+              <p className="sub ds-muted ds-m-0">
                 {complimentary
                   ? COMPLIMENTARY_ADMIN_MESSAGE
                   : "Regularize as cobranças pendentes (mensalidade e taxa de setup) para poder mudar de plano."}
@@ -779,9 +742,8 @@ export function AssinaturaScreen() {
                       ) : assinante ? (
                         // Assinante: troca ATUALIZA a assinatura existente
                         // (sem CPF, sem checkout) após confirmação explícita.
-                        <button
-                          type="button"
-                          className="btn btn-sm"
+                        <DsButton
+                          variant="secondary"
                           onClick={() => setPendingPlanChange(plan)}
                           disabled={changingPlan || planChangeBlocked}
                           title={
@@ -793,21 +755,20 @@ export function AssinaturaScreen() {
                           }
                         >
                           Mudar plano
-                        </button>
+                        </DsButton>
                       ) : (
-                        <button
-                          type="button"
-                          className="btn btn-sm"
+                        <DsButton
+                          variant="secondary"
                           onClick={() => void contract(plan.code)}
                           disabled={checkoutPlan != null}
-                          aria-busy={checkoutPlan === plan.code || undefined}
+                          loading={checkoutPlan === plan.code}
                         >
                           {checkoutPlan === plan.code
                             ? "Abrindo…"
                             : retomar
                               ? "Retomar contratação"
                               : "Contratar"}
-                        </button>
+                        </DsButton>
                       )}
                     </td>
                   </tr>

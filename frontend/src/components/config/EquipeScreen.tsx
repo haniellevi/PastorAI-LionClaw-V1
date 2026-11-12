@@ -40,6 +40,7 @@ import {
 import { TeamPessoaDialog } from "./TeamPessoaDialog";
 
 import { RolePick, RoleTags } from "./RolePick";
+import { DsButton } from "@/components/ds/Button";
 
 const ENVIAR_COORDINATION_ROLES = new Set([
   "admin",
@@ -124,6 +125,9 @@ export function EquipeScreen() {
 
   // ação por linha (reenviar convite / excluir acesso)
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Qual ação está em curso na linha: os dois botões ficam desabilitados,
+  // mas só o da ação clicada mostra progresso.
+  const [busyAction, setBusyAction] = useState<"resend" | "revoke" | null>(null);
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -335,6 +339,7 @@ export function EquipeScreen() {
     async (m: TeamMember) => {
       if (!token) return;
       setBusyId(m.usuarioId);
+      setBusyAction("resend");
       try {
         const r = await resendInvite(token, m.usuarioId);
         flashToast(
@@ -353,6 +358,7 @@ export function EquipeScreen() {
         });
       } finally {
         setBusyId(null);
+        setBusyAction(null);
       }
     },
     [token, flashToast, handleSessionError],
@@ -369,6 +375,7 @@ export function EquipeScreen() {
         return;
       }
       setBusyId(m.usuarioId);
+      setBusyAction("revoke");
       try {
         await revokeAccess(token, m.usuarioId);
         flashToast({ kind: "ok", text: `Acesso de ${m.nome} revogado.` });
@@ -385,6 +392,7 @@ export function EquipeScreen() {
         }
       } finally {
         setBusyId(null);
+        setBusyAction(null);
       }
     },
     [token, flashToast, load, handleSessionError],
@@ -395,7 +403,7 @@ export function EquipeScreen() {
       {
         header: "Pessoa",
         cell: (m) => (
-          <div style={{ display: "grid", gap: 4 }}>
+          <div className="team-person-cell">
             <span className="nm">{m.nome}</span>
             {isAdminUser && m.pessoaVinculo === "sem_vinculo" ? (
               <StatusPill tone="warn">
@@ -430,48 +438,47 @@ export function EquipeScreen() {
         header: "Ações",
         width: "1px",
         cell: (m) => (
-          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-            <button
-              type="button"
-              className="btn btn-sm"
+          <div className="team-row-actions">
+            <DsButton
+              variant="secondary"
               onClick={() => setLinking(m)}
               aria-label={`Vincular Pessoa a ${m.nome}`}
             >
               Vincular Pessoa
-            </button>
-            <button type="button" className="btn btn-sm" onClick={() => openEdit(m)}>
+            </DsButton>
+            <DsButton variant="secondary" onClick={() => openEdit(m)}>
               Editar papéis
-            </button>
+            </DsButton>
             {m.status === "convidado" ? (
-              <button
-                type="button"
-                className="btn btn-sm"
+              <DsButton
+                variant="secondary"
                 onClick={() => void handleResend(m)}
                 disabled={busyId === m.usuarioId}
-                aria-busy={busyId === m.usuarioId || undefined}
+                loading={busyId === m.usuarioId && busyAction === "resend"}
               >
-                {busyId === m.usuarioId ? "Enviando…" : "Reenviar convite"}
-              </button>
+                {busyId === m.usuarioId && busyAction === "resend"
+                  ? "Enviando…"
+                  : "Reenviar convite"}
+              </DsButton>
             ) : null}
             {isSelf(m) ? (
               <StatusPill tone="muted">Você</StatusPill>
             ) : m.status === "revogado" ? null : (
-              <button
-                type="button"
-                className="btn btn-sm btn-danger"
+              <DsButton
+                variant="danger"
                 onClick={() => void handleRevoke(m)}
                 disabled={busyId === m.usuarioId}
-                aria-busy={busyId === m.usuarioId || undefined}
+                loading={busyId === m.usuarioId && busyAction === "revoke"}
               >
                 Revogar
-              </button>
+              </DsButton>
             )}
           </div>
         ),
       });
     }
     return base;
-  }, [openEdit, isSelf, handleResend, handleRevoke, busyId, isAdminUser]);
+  }, [openEdit, isSelf, handleResend, handleRevoke, busyId, busyAction, isAdminUser]);
 
   const showSkeleton = loading && !loaded;
   const firstCoordinationWithoutActivePerson = members.find(
@@ -492,14 +499,10 @@ export function EquipeScreen() {
         </div>
         <div className="actions">
           {podeConvidar ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => (inviteOpen ? resetInvite() : setInviteOpen(true))}
-            >
+            <DsButton onClick={() => (inviteOpen ? resetInvite() : setInviteOpen(true))}>
               <Icon name="plus" />
               <span>Dar acesso ao painel</span>
-            </button>
+            </DsButton>
           ) : null}
         </div>
       </div>
@@ -513,13 +516,12 @@ export function EquipeScreen() {
             Use “Vincular Pessoa” para regularizar o vínculo.
           </span>
           {firstCoordinationWithoutActivePerson ? (
-            <button
-              type="button"
-              className="btn btn-sm"
+            <DsButton
+              variant="secondary"
               onClick={() => setLinking(firstCoordinationWithoutActivePerson)}
             >
               Vincular Pessoa
-            </button>
+            </DsButton>
           ) : null}
         </div>
       ) : null}
@@ -528,21 +530,15 @@ export function EquipeScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
       {inviteOpen ? (
         <form
-          className="card card-pad"
-          style={{ marginBottom: "var(--s4)" }}
+          className="card card-pad ds-mb-4"
           onSubmit={(e) => {
             e.preventDefault();
             void submitInvite();
@@ -550,12 +546,12 @@ export function EquipeScreen() {
         >
           <h3>{invMode === "existente" ? "Convidar pessoa cadastrada" : "Convidar nova pessoa"}</h3>
           {invError ? (
-            <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+            <div className="error-banner ds-mb-3" role="alert">
               <Icon name="alert" />
               <span>{invError}</span>
             </div>
           ) : null}
-          <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+          <p className="sub ds-muted ds-mb-3">
             Dê acesso ao painel sem alterar a célula da Pessoa. O convidado entra como{" "}
             <strong>membro</strong>; os demais papéis são definidos depois, aqui na Equipe. Quem
             ainda não está cadastrado completa o cadastro ao ativar o convite.
@@ -563,7 +559,7 @@ export function EquipeScreen() {
 
           {invMode === "existente" ? (
             <>
-              <div className="field" style={{ marginBottom: "var(--s2)" }}>
+              <div className="field ds-mb-2">
                 <label htmlFor="invPessoaQuery">Pessoa</label>
                 <input
                   id="invPessoaQuery"
@@ -573,38 +569,25 @@ export function EquipeScreen() {
                   autoFocus
                 />
                 {pessoasError ? (
-                  <div className="error-banner" role="alert" style={{ marginTop: 6 }}>
+                  <div className="error-banner ds-mt-2" role="alert">
                     <Icon name="alert" />
                     <span>{pessoasError}</span>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
+                    <DsButton
+                      variant="secondary"
                       onClick={pessoasLookup.retry}
                       disabled={pessoasLoading}
                     >
                       Tentar novamente
-                    </button>
+                    </DsButton>
                   </div>
                 ) : null}
-                <div
-                  style={{
-                    maxHeight: 220,
-                    overflowY: "auto",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--r-md)",
-                    marginTop: 6,
-                  }}
-                >
+                <div className="team-picker">
                   {pessoasLoading ? (
-                    <p
-                      className="sub"
-                      role="status"
-                      style={{ color: "var(--muted)", padding: "var(--s3)" }}
-                    >
+                    <p className="sub ds-muted ds-p-3" role="status">
                       Carregando Pessoas…
                     </p>
                   ) : pessoasFiltradas.length === 0 ? (
-                    <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
+                    <p className="sub ds-muted ds-p-3">
                       {pessoasError ? "A lista não está disponível." : "Nenhuma Pessoa encontrada."}
                     </p>
                   ) : (
@@ -620,33 +603,12 @@ export function EquipeScreen() {
                             if (!bloqueado) selectPessoa(p);
                           }}
                           disabled={bloqueado}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 8,
-                            width: "100%",
-                            textAlign: "left",
-                            padding: "8px 12px",
-                            background: sel ? "var(--accent-soft)" : "transparent",
-                            border: "none",
-                            borderBottom: "1px solid var(--border)",
-                            cursor: bloqueado ? "not-allowed" : "pointer",
-                            opacity: bloqueado ? 0.55 : 1,
-                            font: "inherit",
-                            color: "inherit",
-                          }}
+                          className={sel ? "team-picker-option is-selected" : "team-picker-option"}
+                          aria-pressed={sel}
                         >
-                          <span
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 2,
-                              minWidth: 0,
-                            }}
-                          >
+                          <span className="team-picker-option-text">
                             <span className="nm">{p.nome}</span>
-                            <span className="sub mono" style={{ color: "var(--muted)" }}>
+                            <span className="sub mono ds-muted">
                               {p.telefone}
                               {p.email ? ` · ${p.email}` : " · sem e-mail"}
                             </span>
@@ -676,10 +638,10 @@ export function EquipeScreen() {
               </div>
 
               {invPessoaId && invNeedsEmail ? (
-                <div className="field" style={{ marginBottom: "var(--s2)" }}>
+                <div className="field ds-mb-2">
                   <label htmlFor="invEmailExist">
                     E-mail para login{" "}
-                    <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
+                    <span className="sub ds-muted ds-regular">
                       — esta pessoa ainda não tem e-mail cadastrado
                     </span>
                   </label>
@@ -693,10 +655,9 @@ export function EquipeScreen() {
                 </div>
               ) : null}
 
-              <button
-                type="button"
-                className="btn btn-sm"
-                style={{ marginBottom: "var(--s3)" }}
+              <DsButton
+                variant="secondary"
+                className="ds-mb-3"
                 onClick={() => {
                   setInvMode("nova");
                   setInvPessoaId(null);
@@ -708,12 +669,12 @@ export function EquipeScreen() {
                 }}
               >
                 Não está na lista? Cadastrar pessoa nova
-              </button>
+              </DsButton>
             </>
           ) : (
             <>
-              <div className="row" style={{ marginBottom: "var(--s2)" }}>
-                <div className="field" style={{ margin: 0 }}>
+              <div className="row ds-mb-2">
+                <div className="field ds-m-0">
                   <label htmlFor="invNovoNome">Nome</label>
                   <input
                     id="invNovoNome"
@@ -723,7 +684,7 @@ export function EquipeScreen() {
                     autoFocus
                   />
                 </div>
-                <div className="field" style={{ margin: 0 }}>
+                <div className="field ds-m-0">
                   <label htmlFor="invNovoEmail">E-mail do convidado</label>
                   <input
                     id="invNovoEmail"
@@ -734,10 +695,9 @@ export function EquipeScreen() {
                   />
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn btn-sm"
-                style={{ marginBottom: "var(--s3)" }}
+              <DsButton
+                variant="secondary"
+                className="ds-mb-3"
                 onClick={() => {
                   setInvMode("existente");
                   setInvNome("");
@@ -746,29 +706,24 @@ export function EquipeScreen() {
                 }}
               >
                 ← Voltar à busca de pessoa cadastrada
-              </button>
+              </DsButton>
             </>
           )}
 
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={!inviteReady || inviting}
-              aria-busy={inviting || undefined}
-            >
+          <div className="ds-flex ds-gap-2">
+            <DsButton type="submit" disabled={!inviteReady || inviting} loading={inviting}>
               {inviting ? "Enviando…" : "Enviar convite"}
-            </button>
-            <button type="button" className="btn" onClick={resetInvite} disabled={inviting}>
+            </DsButton>
+            <DsButton variant="secondary" onClick={resetInvite} disabled={inviting}>
               Cancelar
-            </button>
+            </DsButton>
           </div>
         </form>
       ) : null}
 
       <div className="card">
         {showSkeleton ? (
-          <div className="queue" style={{ padding: "var(--s4)" }}>
+          <div className="queue ds-p-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <div className="qitem skeleton" key={i}>
                 <div className="qbody">
@@ -832,7 +787,7 @@ export function EquipeScreen() {
                 <span>{editError}</span>
               </div>
             ) : null}
-            <p className="sub" style={{ color: "var(--muted)" }}>
+            <p className="sub ds-muted">
               Papéis acumulados (união). Remover o último administrador é bloqueado. Líder de Célula
               é derivado da liderança de uma célula ativa e não pode ser editado aqui.{" "}
               {editRoles.has("lider_celula")
@@ -847,22 +802,12 @@ export function EquipeScreen() {
               locked={{ lider_celula: "Gerido pela Central de Células" }}
             />
             <div className="modal-foot">
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={closeEdit}
-                disabled={savingRoles}
-              >
+              <DsButton variant="secondary" onClick={closeEdit} disabled={savingRoles}>
                 Cancelar
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary btn-sm"
-                disabled={savingRoles}
-                aria-busy={savingRoles || undefined}
-              >
+              </DsButton>
+              <DsButton type="submit" disabled={savingRoles} loading={savingRoles}>
                 {savingRoles ? "Salvando…" : "Salvar papéis"}
-              </button>
+              </DsButton>
             </div>
           </form>
         </DsDialog>

@@ -31,6 +31,7 @@ import { usePermissions } from "@/lib/permissions-context";
 import { fetchPermissions, savePermissions } from "@/lib/roles-api";
 import { ROLE_DEFS, ROLE_ORDER, type Role } from "@/lib/roles";
 import { getHashRouteHistoryIndex, registerHashRouteGuard } from "@/lib/use-hash-route";
+import { DsButton } from "@/components/ds/Button";
 
 /** Papéis editáveis (admin tem acesso total, fora da matriz). */
 const EDITABLE_ROLES: Array<Exclude<Role, "admin">> = ROLE_ORDER.filter(
@@ -258,18 +259,12 @@ export function PermissoesScreen() {
           <p>Defina o que cada responsabilidade pode acessar no painel.</p>
         </div>
         <div className="actions">
-          <button type="button" className="btn" onClick={discard} disabled={!dirty || saving}>
+          <DsButton variant="secondary" onClick={discard} disabled={!dirty || saving}>
             Descartar
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void save()}
-            disabled={!dirty || saving}
-            aria-busy={saving || undefined}
-          >
+          </DsButton>
+          <DsButton onClick={() => void save()} disabled={!dirty || saving} loading={saving}>
             {saving ? "Salvando…" : "Salvar permissões"}
-          </button>
+          </DsButton>
         </div>
       </div>
 
@@ -277,14 +272,9 @@ export function PermissoesScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -326,7 +316,7 @@ export function PermissoesScreen() {
                   ))}
                 </select>
               </div>
-              <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+              <fieldset className="ds-fieldset-reset">
                 <legend className="panel-title">Acessos desta responsabilidade</legend>
                 {MENU_SCREENS.map((screen) => {
                   const label = SCREEN_LABEL[screen] ?? screen;

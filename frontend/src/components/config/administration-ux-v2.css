@@ -643,10 +643,10 @@
   .administration-ux .ux-stack-table td[data-label="Ações"]::before {
     display: none;
   }
-  .administration-ux div[style*="display: flex"] {
+  .administration-ux :is(div[style*="display: flex"], div.ds-flex) {
     flex-wrap: wrap;
   }
-  .administration-ux div[style*="display: flex"] > input {
+  .administration-ux :is(div[style*="display: flex"], div.ds-flex) > input {
     flex-basis: 100%;
   }
   .administration-ux .governance-purpose {
@@ -697,5 +697,226 @@
 @media (prefers-reduced-motion: reduce) {
   .administration-ux :is(.btn, .ds-btn, summary) {
     transition: none;
+  }
+}
+
+/* ---------- Configurações: classes semânticas (substituem style inline) ---------- */
+.administration-ux .admin-card-divider {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.administration-ux .admin-field-narrow {
+  margin: 0;
+  max-width: 360px;
+}
+.administration-ux .admin-field-fluid {
+  min-width: min(100%, 12rem);
+}
+.administration-ux .admin-plan-price {
+  font-size: 30px;
+  font-weight: 640;
+}
+.administration-ux .admin-meter-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s2);
+  font-size: 13px;
+  margin-bottom: var(--s2);
+}
+.administration-ux .admin-upgrade-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  color: var(--text-secondary);
+}
+.administration-ux .admin-upgrade-hint > svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+.administration-ux .admin-upgrade-hint.is-over {
+  color: var(--state-warn);
+}
+
+/* Identidade visual */
+.administration-ux .admin-input-block {
+  display: block;
+  width: 100%;
+  margin-top: var(--s1);
+}
+.administration-ux .identity-name-hint {
+  font-size: 12px;
+}
+.administration-ux .identity-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  padding: var(--s3);
+  margin-bottom: var(--s3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+}
+.administration-ux .identity-preview img {
+  max-width: 100%;
+  max-height: 120px;
+  object-fit: contain;
+}
+.administration-ux .identity-preview-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Pessoas com acesso */
+.administration-ux .team-person-cell {
+  display: grid;
+  gap: var(--s1);
+}
+/* Ações da linha: o rótulo nunca quebra dentro do botão. A célula usa
+   overflow-wrap: anywhere, o que antes reduzia cada botão a uma letra por
+   linha. Em telas estreitas quem desce é o botão inteiro. */
+.administration-ux .team-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--s2);
+}
+.administration-ux .team-row-actions > * {
+  flex: none;
+  white-space: nowrap;
+}
+.administration-ux .team-picker {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: var(--s2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+}
+.administration-ux .team-picker-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--s2) var(--s3);
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.administration-ux .team-picker-option:last-child {
+  border-bottom: 0;
+}
+.administration-ux .team-picker-option:hover:not(:disabled):not(.is-selected) {
+  background: var(--surface-panel);
+}
+.administration-ux .team-picker-option.is-selected {
+  background: var(--selection-soft);
+}
+.administration-ux .team-picker-option:focus-visible {
+  outline-offset: -2px;
+}
+.administration-ux .team-picker-option:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.administration-ux .team-picker-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+/* Enquanto a tabela existe mas a largura é curta, as ações viram uma coluna
+   arrumada de botões com a mesma largura; no modo cartão (≤760px) voltam a
+   ficar lado a lado e descem inteiras quando não cabem. */
+@media (min-width: 761px) and (max-width: 1360px) {
+  .administration-ux .team-row-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .administration-ux .team-row-actions > .pill {
+    align-self: flex-start;
+  }
+}
+@media (max-width: 760px) {
+  .administration-ux .team-row-actions {
+    flex-wrap: wrap;
+  }
+}
+/* Qualquer botão de ação em tabela administrativa: o rótulo não quebra por
+   letra (a célula usa overflow-wrap: anywhere); o botão inteiro desce. */
+.administration-ux .data-table td .ds-btn {
+  flex: none;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+.administration-ux .data-table td > .ds-flex {
+  flex-wrap: wrap;
+}
+/* Título de painel dentro de card com padding: sem recuo duplo e com respiro
+   antes do primeiro campo (mesmo ritmo do `.card-pad > h3`). */
+.administration-ux .card-pad > .panel-title,
+.administration-ux .card-pad fieldset > legend.panel-title {
+  padding: 0 0 12px;
+  margin: 0 0 20px;
+}
+/* Seção logo abaixo do cabeçalho da tela: sem divisória repetida. */
+.administration-ux .screen-head + .admin-section {
+  margin-block-start: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+.administration-ux .admin-section > .card {
+  margin-block-start: 12px;
+}
+/* Selos de status não quebram no meio da palavra dentro de tabela ("Ativ/o"):
+   a célula usa overflow-wrap: anywhere para e-mails longos. */
+.administration-ux .data-table :is(.pill, .role-chip) {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+/* Integrações: destinatários dos avisos da Agenda */
+.administration-ux .alert-recipient-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--s3);
+}
+.administration-ux .alert-recipient-row {
+  gap: var(--s2);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.administration-ux .alert-recipient-name {
+  flex: 1;
+  min-width: 0;
+}
+.administration-ux .alert-recipient-name.is-inactive {
+  color: var(--text-secondary);
+}
+.administration-ux .alert-recipient-pill {
+  margin-left: var(--s2);
+}
+.administration-ux .alert-recipient-input {
+  flex: 1 1 140px;
+}
+.administration-ux .alert-recipient-input--tel {
+  flex-basis: 160px;
+}
+@media (max-width: 760px) {
+  /* No modo cartão o selo ocupa só o próprio texto, não a coluna inteira. */
+  .administration-ux .ux-stack-table td > .pill {
+    justify-self: start;
   }
 }

@@ -3408,7 +3408,8 @@ button.jr-row:focus-visible {
   height: 16px;
   flex: none;
 }
-.error-banner .btn {
+.error-banner .btn,
+.error-banner .ds-btn {
   margin-left: auto;
 }
 
