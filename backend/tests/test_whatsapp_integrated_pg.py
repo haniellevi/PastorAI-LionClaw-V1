@@ -478,7 +478,7 @@ def test_b4_whatsapp_refuses_visitor_for_past_meeting_with_panel_guidance(integr
     t = integrated_turn
     with t.factory.begin() as session:
         meeting = session.get(CelulaReuniao, t.users[0].meeting)
-        meeting.data = dt.date.today() - dt.timedelta(days=2)
+        meeting.data = dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=2)
     t.send(_COMMAND)
     assert not t.rows(AgentActionProposal)
     assert not t.rows(CelulaExpectativaVisitante)

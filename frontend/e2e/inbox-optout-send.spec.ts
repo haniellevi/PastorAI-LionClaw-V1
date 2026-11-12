@@ -98,7 +98,12 @@ test("envio humano: contato sem opt-out recebe e contato em opt-out é bloqueado
       await route.fallback();
       return;
     }
-    await route.fulfill({ status, headers, contentType: "application/json", body: JSON.stringify(body) });
+    await route.fulfill({
+      status,
+      headers,
+      contentType: "application/json",
+      body: JSON.stringify(body),
+    });
   });
 
   await loginThroughUi(page);
@@ -114,7 +119,9 @@ test("envio humano: contato sem opt-out recebe e contato em opt-out é bloqueado
   await page.locator("button.conv", { hasText: "Contato em opt-out fictício" }).click();
   await composer.fill("Resposta sintética bloqueada");
   await page.getByRole("button", { name: "Enviar mensagem" }).click();
-  await expect(page.locator(".ds-toast")).toContainText("pediu para não receber mensagens (opt-out)");
+  await expect(page.locator(".ds-toast")).toContainText(
+    "pediu para não receber mensagens (opt-out)",
+  );
   await expect(composer).toHaveValue("Resposta sintética bloqueada");
   expect(sent).toEqual(["Resposta sintética liberada"]);
   // O 409 esperado aparece no console do navegador; nada além dele.
