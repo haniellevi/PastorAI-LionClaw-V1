@@ -34,6 +34,7 @@ import re
 import secrets
 import stat
 import subprocess
+import tempfile
 import time
 
 import first_transition_database as fdb
@@ -194,7 +195,8 @@ def filter_restore_list(listing, superusers):
        refuses ``ALTER EVENT TRIGGER ... OWNER TO`` a non-superuser, and clone roles are mirrored
        as NOLOGIN non-superusers. Event triggers owned by a superuser stay and fire during the replay.
     Everything else (tables, data, policies, functions, publications, the ``public`` objects the catalog
-    fingerprint covers) is kept. Returns ``(lines, removed)``; ``removed`` holds counts only.
+    fingerprint covers) is kept. Returns ``(lines, removed)``; ``removed`` holds counts, plus the sorted NAMES of
+    the dropped event triggers (object names, no data) so the rehearsal receipt shows what it did not exercise.
     """
     require(isinstance(listing, str) and isinstance(superusers, (tuple, frozenset)), 'window-backup-restore-list')
     lines = listing.splitlines()
@@ -203,6 +205,8 @@ def filter_restore_list(listing, superusers):
     kept, removed = [], dict(vault_extension=0, vault_schema=0, event_triggers=0)
     for line in lines:
         entry = TOC_ENTRY.fullmatch(line)
+        # Anything that is neither a comment nor a well-formed entry (e.g. a name with a newline) is not understood.
+        require(entry or line.startswith(';') or not line.strip(), 'window-backup-restore-list')
         what = entry.group(2) if entry else ''
         if TOC_VAULT_EXTENSION.fullmatch(what):
             removed['vault_extension'] += 1
@@ -214,6 +218,7 @@ def filter_restore_list(listing, superusers):
         else:
             kept.append(line)
     require(any(TOC_ENTRY.fullmatch(line) for line in kept), 'window-backup-restore-list')
+    removed['event_trigger_names'] = sorted(unsafe)
     return kept, removed
 
 
@@ -273,23 +278,30 @@ class WindowBackup:
                 '--host', self.config.docker_endpoint, *args]
         run = self.run or subprocess.run
         outcome = None
+        err_file = tempfile.TemporaryFile() if stderr_out else None  # unnamed, private; read back bounded
         try:
             done = run(argv, stdin=stdin if stdin is not None else subprocess.DEVNULL,
                        stdout=stdout if stdout is not None else (subprocess.PIPE if capture else subprocess.DEVNULL),
-                       stderr=subprocess.PIPE if stderr_out else subprocess.DEVNULL, env=child_env, timeout=timeout, close_fds=True, shell=False,
+                       stderr=err_file if stderr_out else subprocess.DEVNULL, env=child_env, timeout=timeout, close_fds=True, shell=False,
                        check=False)
         except subprocess.TimeoutExpired:
             outcome = 'window-backup-timeout'
         except Exception:
             outcome = 'window-backup-spawn-failed'
+        err = b''
+        if err_file is not None:
+            try:
+                err_file.seek(0)
+                err = err_file.read(STDERR_BOUND)
+            finally:
+                err_file.close()
         require(outcome is None, outcome)
         if capture:
             out = getattr(done, 'stdout', b'') or b''
             require(isinstance(out, bytes) and len(out) <= 4096, 'window-backup-output')
             return done.returncode, out.decode('utf-8', 'replace').strip()
         if stderr_out:  # bounded and only ever reduced by restore_error_code; never stored or printed
-            err = getattr(done, 'stderr', b'') or b''
-            return done.returncode, err[:STDERR_BOUND] if isinstance(err, bytes) else b''
+            return done.returncode, err
         return done.returncode, None
 
     def _ok(self, args, code, **kwargs):

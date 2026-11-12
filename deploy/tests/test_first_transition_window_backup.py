@@ -134,7 +134,8 @@ class Host:
                 assert stdin is subprocess.DEVNULL and '-L' in tail and self.copied.get(tail[-1]) == DUMP
                 self.restore_args = tail
                 self.restored = 'restore' not in self.fail
-                stderr_out = self.restore_stderr if 'restore' in self.fail else b''
+                if 'restore' in self.fail:
+                    stderr.write(self.restore_stderr)
         out = b''
         if verb == 'dump' and 'dump' not in self.fail:
             stdout.write(DUMP)
@@ -427,7 +428,8 @@ def test_restore_uses_a_filtered_list_without_vault_and_foreign_owned_event_trig
         assert entry in text
     assert host.restore_args[-3:] == ('-L', wb.CLONE_LIST, wb.CLONE_DUMP)
     assert '--exit-on-error' in host.restore_args and '--single-transaction' in host.restore_args
-    assert receipt['clone_rehearsal']['restore_excluded'] == dict(vault_extension=2, vault_schema=2, event_triggers=2)
+    assert receipt['clone_rehearsal']['restore_excluded'] == dict(vault_extension=2, vault_schema=2, event_triggers=2,
+                                                                       event_trigger_names=['issue_pg_net_access'])
     assert host.copied[wb.CLONE_DUMP] == DUMP
 
 
@@ -440,7 +442,7 @@ def test_event_triggers_owned_by_a_clone_superuser_are_kept(plan, tmp_path):
 
 def test_filter_never_removes_other_entries_and_refuses_an_empty_result():
     lines, removed = wb.filter_restore_list(LISTING, frozenset({'postgres'}))
-    assert len(lines) == len(LISTING.splitlines()) - 6 and sum(removed.values()) == 6
+    assert len(lines) == len(LISTING.splitlines()) - 6 and sum(v for v in removed.values() if isinstance(v, int)) == 6
     with pytest.raises(Refused, match='^window-backup-restore-list$'):
         wb.filter_restore_list('; only comments\n', frozenset())
 
@@ -468,3 +470,16 @@ def test_every_backup_code_literal_is_published_and_escapes_the_entry_point():
         assert window._code(Refused(code)) == code
     assert window._code(Refused('window-backup-injected-SENTINEL')) == 'window-refused'
     assert window._code(ValueError('window-backup-dump-failed')) == 'window-refused'
+
+
+def test_unparseable_listing_line_refuses_instead_of_staying(plan):
+    forged = LISTING + 'fragment of a name\n4002; 0 0 EXTENSION - supabase_vault x\n'
+    with pytest.raises(Refused, match='^window-backup-restore-list$'):
+        wb.filter_restore_list(forged.replace('4013;', 'broken\n4013;', 1), frozenset({'postgres'}))
+
+
+def test_restore_stderr_is_bounded_when_read(plan, tmp_path):
+    host = Host(plan, fail={'restore'})
+    host.restore_stderr = b'pg_restore: from TOC entry 9; 1 2 EXTENSION - x y\n' + b'x' * (wb.STDERR_BOUND * 3)
+    with pytest.raises(Refused, match='^window-backup-restore-failed-extension$'):
+        provider(plan, tmp_path, host)(request(plan, expectation(plan)))
