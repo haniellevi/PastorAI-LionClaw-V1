@@ -27,7 +27,7 @@ from first_transition_candidate import check_closed_gates, check_candidate_datab
 import first_transition_database as fdb
 from first_transition_adapter import digest, prepare
 from first_transition_candidate import (CLOSED_GATES, CandidatePort, CandidateRunner, topology_contract,
-                                        verify_candidate_release)
+                                        verify_candidate_release, write_candidate_release, write_hold_override)
 from first_transition_orchestrator import assemble, load_config
 from first_transition_window_backup import REHEARSAL_SCHEMA, WindowBackup, WindowBackupConfig
 from first_transition_window_bindings import (UnknownWriters, bindings_from_dict, validate_bindings_config)
@@ -333,6 +333,31 @@ def _readiness(args, prepared, secret, database, ingress):
         require(binding.observe(binding.scope, timeout=10) in ('open', 'blocked'), 'window-bindings-shape')
 
 
+def prepare_layout(args, out=print):
+    """Eve of the window: write (or verify byte for byte) ``<release_root>/<sha>`` and the A9 hold file.
+
+    ``run`` refuses unless both already exist (``_readiness``), and the same writers run again inside
+    ``run`` as an exclusive-or-identical check. Public configuration only: no secret, database,
+    Docker daemon, journal, ingress or legacy process is touched. Writing files on the target host
+    still needs the operator's separate approval.
+    """
+    io = args._io
+    raw = _json(args.config)
+    config = load_config(Path(args.config))
+    require(config.digest == digest(raw), 'window-config-invalid')
+    plan = prepare(Path(config.repo), git=io.get('git'))
+    files = write_candidate_release(config.repo, config.candidate, config.manifest,
+                                    migrations=[m.name for m in plan.migrations],
+                                    package_manifest_sha256=config.package_manifest_sha256, git=io.get('git'))
+    write_hold_override(config.candidate)
+    verify_candidate_release(config.repo, config.candidate, config.manifest,
+                             package_manifest_sha256=config.package_manifest_sha256, git=io.get('git'))
+    out(json.dumps(dict(layout=str(Path(config.candidate.release_root) / config.candidate.sha), files=files,
+                        hold_override=config.candidate.hold_override, plan_digest=plan.digest,
+                        assertions_are_authorization=False, production_ready=False), sort_keys=True))
+    return 0
+
+
 def run(args, out=print, *, a10=False):
     fdb.require_explicit_environment()
     require(args.expect_plan_digest and args.expect_window_digest, 'window-run-prerequisites')
@@ -417,7 +442,8 @@ class _Parser(argparse.ArgumentParser):
 
 def main(argv=None, out=print, *, io=None):
     parser = _Parser(prog='first_transition_window', description='Expected digests are NOT human authorization.')
-    parser.add_argument('mode', choices=('prepare', 'check', 'rehearse-backup', 'check-bindings', 'run', 'a10'))
+    parser.add_argument('mode', choices=('prepare', 'prepare-layout', 'check', 'rehearse-backup', 'check-bindings',
+                                         'run', 'a10'))
     parser.add_argument('--config', required=True)
     parser.add_argument('--env-file')
     parser.add_argument('--env-var', help='Explicit variable in the private file; required for prepare/run.')
@@ -434,6 +460,8 @@ def main(argv=None, out=print, *, io=None):
             out(json.dumps(dict(plan_digest=p.plan.digest, window_digest=p.window_digest,
                                 assertions_are_authorization=False, production_ready=False), sort_keys=True))
             return 0
+        if args.mode == 'prepare-layout':
+            return prepare_layout(args, out)
         if args.mode in ('run', 'a10'):
             return run(args, out, a10=args.mode == 'a10')
         if args.mode == 'check-bindings':

@@ -26,9 +26,23 @@ roteiro e dos registros históricos que digam o contrário.
   (runbook §12.4).
 - Leitura técnica de produção (sem dados de pessoas) autorizada.
 - A VPS de produção é compartilhada com outros sistemas do Raniel (olaki, sites-api, emcorr, GravAI, Fowler, hermes): a janela e os releases tocam só a Igreja 12 (runbook §12.0).
-- Painel (frontend) novo vai ao ar na mesma janela, logo após a A10, com o
-  mesmo SHA do backend e SIM próprio (SIM 5); passo e volta: runbook §12.5.
+- Painel (frontend) novo vai ao ar na mesma janela, logo após a A10, com SIM
+  próprio (SIM 5); passo e volta: runbook §12.5. SHA do painel: ver a linha
+  da decisão de 12/11 abaixo.
 - Antes de PROD, rodar o ensaio sintético existente; DEV online fica para depois.
+- SHA da janela, decisão de 12/11 tomada pelo orquestrador com delegação do
+  Raniel (opção A, sem repinar): backend em `afdfb78d` com o executor fixo
+  `37c7d68d`; ferramenta e painel no SHA da `main`. O painel só vai ao ar se o
+  contrato da API for igual ao de `afdfb78d`; se não for, o J8 não publica nada
+  (runbook §12.5). Conferido em 12/11 com a `main` que já tem a #665: contrato
+  idêntico. Kit da primeira virada: runbook §12.6. Falta o SIM da preparação da
+  VPS (V8/V9) antes do SIM 2.
+- `statement_timeout` de 2 min na role do aplicador: não alterar a role. O
+  caminho fixo da janela não repassa `PGOPTIONS` nem aceita `options` na URL;
+  decisão em aberto com o orquestrador (runbook §12.6).
+- O release seguinte (backend da `main`, com as correções feitas depois de
+  `afdfb78d`) depende de o Raniel atualizar `BACKEND_DEPLOY_SAFE_BASE_SHA` e
+  cadastrar os 4 secrets de acesso à VPS no environment `backend-production`.
 
 **Escopo:** todo o PRD em código, com os gates fechados e o piloto Filadélfia
 restrito à equipe interna. Abrir gate ou ampliar o piloto continua exigindo

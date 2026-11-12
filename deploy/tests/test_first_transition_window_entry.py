@@ -728,3 +728,33 @@ def test_a10_mode_needs_its_token_and_a_wrong_one_changes_nothing(entry):
     assert answer['refused'] == 'window-transition-refused' and answer['recovery']['state'] == 'a9-complete'
     assert (entry.world.legacy_effects(), entry.world.cdocker.effects()) == before
     entry.world.consumers_held()
+
+
+def test_prepare_layout_writes_layout_and_hold_without_secret_daemon_or_journal(entry):
+    import shutil
+    spec = entry.world.spec
+    target = Path(spec.release_root) / spec.sha
+    shutil.rmtree(target)
+    Path(spec.hold_override).unlink()
+    lines = []
+    argv = ['prepare-layout', '--config', str(entry.paths['config'])]
+    assert window.main(argv, out=lines.append, io=entry.io) == 0, lines
+    result = json.loads(lines[-1])
+    assert result['assertions_are_authorization'] is False and result['production_ready'] is False
+    assert result['layout'] == str(target) and target.is_dir() and Path(spec.hold_override).is_file()
+    assert entry.calls == [] and entry.connections == [] and entry.assembly.popen_calls == []
+    entry.assert_no_journal_or_effects()
+    # Idempotent: a second call only verifies; the window readiness then accepts the layout.
+    assert window.main(argv, out=lines.append, io=entry.io) == 0, lines
+    code, out = entry.execute()
+    assert code == 0, out
+
+
+def test_prepare_layout_never_overwrites_a_different_hold_file(entry):
+    Path(entry.world.spec.hold_override).write_text('services: {}\n')
+    lines = []
+    assert window.main(['prepare-layout', '--config', str(entry.paths['config'])], out=lines.append,
+                       io=entry.io) == 2
+    assert json.loads(lines[-1]) == {'refused': 'candidate-hold-mismatch'}
+    assert Path(entry.world.spec.hold_override).read_text() == 'services: {}\n'
+    entry.assert_no_journal_or_effects()

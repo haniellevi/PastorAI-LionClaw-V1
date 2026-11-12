@@ -120,6 +120,22 @@ def inspect_template(gate_names):
             '{{json $net.NetworkID}}],{{end}}null]]')
 
 
+def _unique_gates(gates, allowed):
+    """Projected gate items -> one 'NAME=value' per name, in first-seen order.
+
+    Only canonical declared names. A name repeated with the byte-identical item (the production
+    broadcast worker carries ``ALLOW_REAL_SENDS=true`` twice, read on 12/11/2026) is one effective
+    value and collapses; the same name with different values is ambiguous and refuses.
+    """
+    seen = {}
+    for item in gates:
+        require(isinstance(item, str) and '=' in item and len(item) <= 512, 'driver-inspect-gates')
+        name = item.split('=', 1)[0]
+        require(name in allowed and seen.get(name, item) == item, 'driver-inspect-gates')
+        seen.setdefault(name, item)
+    return list(seen.values())
+
+
 @dataclass(frozen=True)
 class HostManifest:
     """Sanitized, immutable scope; unknown keys (e.g. any secret) are refused."""
@@ -363,10 +379,7 @@ class ObservedHostDriver:
                 and type(restarts) is int and 0 <= restarts <= 10**6
                 and isinstance(policy, str) and policy in ('always', 'no', '')
                 and isinstance(mode, str) and len(mode) <= 128, 'driver-inspect-state')
-        gates = _tail(gates, 'driver-inspect-gates')
-        names = [g.split('=', 1)[0] if isinstance(g, str) and '=' in g else None for g in gates]
-        require(all(n in self.manifest.gate_names for n in names) and len(set(names)) == len(names)
-                and all(len(g) <= 512 for g in gates), 'driver-inspect-gates')
+        gates = _unique_gates(_tail(gates, 'driver-inspect-gates'), self.manifest.gate_names)
         mounts = _tail(mounts, 'driver-inspect-mounts')
         require(len(mounts) <= 64 and all(
             isinstance(m, list) and len(m) == 5 and type(m[4]) is bool
@@ -443,10 +456,7 @@ class ObservedHostDriver:
                 and [r[0] for r in rows] == list(self.legacy), 'driver-inspect-scope')
         result = {}
         for row in rows:
-            gates = _tail(row[15], 'driver-inspect-gates')
-            names = [g.split('=', 1)[0] if isinstance(g, str) and '=' in g else None for g in gates]
-            require(all(n in self.manifest.gate_names for n in names) and len(set(names)) == len(names)
-                    and all(len(g) <= 512 for g in gates), 'driver-inspect-gates')
+            gates = _unique_gates(_tail(row[15], 'driver-inspect-gates'), self.manifest.gate_names)
             result[self.roles[row[0]]] = sorted(gates)
         return result
 
