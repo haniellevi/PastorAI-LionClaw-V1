@@ -1047,8 +1047,15 @@
             "type": "string"
           },
           "pessoaId": {
-            "title": "Pessoaid",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pessoaid"
           },
           "tratado": {
             "title": "Tratado",
@@ -1057,10 +1064,141 @@
         },
         "required": [
           "id",
-          "pessoaId",
           "tratado"
         ],
         "title": "AlertOut",
+        "type": "object"
+      },
+      "AlertRuleOut": {
+        "properties": {
+          "ativo": {
+            "title": "Ativo",
+            "type": "boolean"
+          },
+          "atualizadoEm": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Atualizadoem"
+          },
+          "descricao": {
+            "title": "Descricao",
+            "type": "string"
+          },
+          "parametros": {
+            "items": {
+              "$ref": "#/components/schemas/AlertRuleParamOut"
+            },
+            "title": "Parametros",
+            "type": "array"
+          },
+          "tipo": {
+            "title": "Tipo",
+            "type": "string"
+          },
+          "titulo": {
+            "title": "Titulo",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "titulo",
+          "descricao",
+          "ativo",
+          "parametros"
+        ],
+        "title": "AlertRuleOut",
+        "type": "object"
+      },
+      "AlertRuleParamOut": {
+        "properties": {
+          "maximo": {
+            "title": "Maximo",
+            "type": "integer"
+          },
+          "minimo": {
+            "title": "Minimo",
+            "type": "integer"
+          },
+          "nome": {
+            "title": "Nome",
+            "type": "string"
+          },
+          "padrao": {
+            "title": "Padrao",
+            "type": "integer"
+          },
+          "rotulo": {
+            "title": "Rotulo",
+            "type": "string"
+          },
+          "unidade": {
+            "title": "Unidade",
+            "type": "string"
+          },
+          "valor": {
+            "title": "Valor",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nome",
+          "rotulo",
+          "unidade",
+          "minimo",
+          "maximo",
+          "padrao",
+          "valor"
+        ],
+        "title": "AlertRuleParamOut",
+        "type": "object"
+      },
+      "AlertRuleUpdate": {
+        "properties": {
+          "ativo": {
+            "title": "Ativo",
+            "type": "boolean"
+          },
+          "parametros": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Parametros",
+            "type": "object"
+          }
+        },
+        "required": [
+          "ativo"
+        ],
+        "title": "AlertRuleUpdate",
+        "type": "object"
+      },
+      "AlertRulesOut": {
+        "properties": {
+          "processamentoLiberado": {
+            "title": "Processamentoliberado",
+            "type": "boolean"
+          },
+          "regras": {
+            "items": {
+              "$ref": "#/components/schemas/AlertRuleOut"
+            },
+            "title": "Regras",
+            "type": "array"
+          }
+        },
+        "required": [
+          "processamentoLiberado",
+          "regras"
+        ],
+        "title": "AlertRulesOut",
         "type": "object"
       },
       "ApproveRequest": {
@@ -19051,6 +19189,123 @@
         "summary": "Responsible",
         "tags": [
           "cd"
+        ]
+      }
+    },
+    "/cell-alert-rules": {
+      "get": {
+        "operationId": "list_cell_alert_rules_cell_alert_rules_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRulesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Cell Alert Rules",
+        "tags": [
+          "cell-alert-rules"
+        ]
+      }
+    },
+    "/cell-alert-rules/{tipo}": {
+      "put": {
+        "operationId": "update_cell_alert_rule_cell_alert_rules__tipo__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tipo",
+            "required": true,
+            "schema": {
+              "title": "Tipo",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertRuleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRuleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Cell Alert Rule",
+        "tags": [
+          "cell-alert-rules"
         ]
       }
     },

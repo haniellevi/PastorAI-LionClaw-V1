@@ -68,7 +68,7 @@ _HORARIO_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 # ---------------------------------------------------------------------------
 class AlertOut(BaseModel):
     id: str
-    pessoaId: str  # noqa: N815
+    pessoaId: str | None = None  # noqa: N815
     gatilho: str | None = None
     acaoEsperada: str | None = None  # noqa: N815
     tratado: bool
@@ -77,7 +77,7 @@ class AlertOut(BaseModel):
     def from_model(cls, a: CellAlert) -> "AlertOut":
         return cls(
             id=str(a.id),
-            pessoaId=str(a.pessoa_id),
+            pessoaId=str(a.pessoa_id) if a.pessoa_id else None,
             gatilho=a.gatilho,
             acaoEsperada=a.acao_esperada,
             tratado=a.tratado,

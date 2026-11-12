@@ -298,6 +298,8 @@ def create_app() -> FastAPI:
     app.include_router(enviar_router)
     from app.routers.responsabilidades import router as responsabilidades_router
     app.include_router(responsabilidades_router)
+    from app.routers.cell_alert_rules import router as cell_alert_rules_router
+    app.include_router(cell_alert_rules_router)
     from app.routers.private_summaries import router as private_summaries_router
     app.include_router(private_summaries_router)
     from app.prayer.router import router as prayer_router

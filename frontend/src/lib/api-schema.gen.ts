@@ -1806,6 +1806,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cell-alert-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Cell Alert Rules */
+        get: operations["list_cell_alert_rules_cell_alert_rules_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cell-alert-rules/{tipo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Cell Alert Rule */
+        put: operations["update_cell_alert_rule_cell_alert_rules__tipo__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cell-central/dashboard": {
         parameters: {
             query?: never;
@@ -5575,9 +5609,57 @@ export interface components {
             /** Id */
             id: string;
             /** Pessoaid */
-            pessoaId: string;
+            pessoaId?: string | null;
             /** Tratado */
             tratado: boolean;
+        };
+        /** AlertRuleOut */
+        AlertRuleOut: {
+            /** Ativo */
+            ativo: boolean;
+            /** Atualizadoem */
+            atualizadoEm?: string | null;
+            /** Descricao */
+            descricao: string;
+            /** Parametros */
+            parametros: components["schemas"]["AlertRuleParamOut"][];
+            /** Tipo */
+            tipo: string;
+            /** Titulo */
+            titulo: string;
+        };
+        /** AlertRuleParamOut */
+        AlertRuleParamOut: {
+            /** Maximo */
+            maximo: number;
+            /** Minimo */
+            minimo: number;
+            /** Nome */
+            nome: string;
+            /** Padrao */
+            padrao: number;
+            /** Rotulo */
+            rotulo: string;
+            /** Unidade */
+            unidade: string;
+            /** Valor */
+            valor: number;
+        };
+        /** AlertRuleUpdate */
+        AlertRuleUpdate: {
+            /** Ativo */
+            ativo: boolean;
+            /** Parametros */
+            parametros?: {
+                [key: string]: number;
+            };
+        };
+        /** AlertRulesOut */
+        AlertRulesOut: {
+            /** Processamentoliberado */
+            processamentoLiberado: boolean;
+            /** Regras */
+            regras: components["schemas"]["AlertRuleOut"][];
         };
         /**
          * ApproveRequest
@@ -13059,6 +13141,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_cell_alert_rules_cell_alert_rules_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRulesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_cell_alert_rule_cell_alert_rules__tipo__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                tipo: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertRuleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRuleOut"];
                 };
             };
             /** @description Validation Error */

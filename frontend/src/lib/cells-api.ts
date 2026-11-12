@@ -37,7 +37,8 @@ export interface CellSummary {
 /** Alerta aberto sobre um liderado da célula (cell_alerts). */
 export interface CellAlert {
   id: string;
-  pessoaId: string;
+  /** Nulo em alertas da célula inteira (relatório, meta, visitante sem cadastro). */
+  pessoaId: string | null;
   gatilho: string | null;
   acaoEsperada: string | null;
   tratado: boolean;
