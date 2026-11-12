@@ -1007,6 +1007,25 @@ terminou verde. Não mexe no backend, no banco nem nos gates.
 5. Anotar o ID/URL do deployment de produção atual (hoje: o de 27/10, SHA
    `afdfb78d`). É o alvo da volta.
 
+**Regra do painel sobre o backend `afdfb78d` (decisão de 12/11/2026):** o
+backend da janela é `afdfb78d` e o painel vem do SHA da `main`. O J8 só
+publica se o contrato da API do backend `afdfb78d` for igual ao que tipa o
+painel (`frontend/openapi.json` do SHA do painel). Se houver **qualquer**
+diferença, o J8 não publica nada: o painel atual fica no ar e o novo vai junto
+com o backend no release seguinte. Conferência (no V5, no computador do
+operador, sem acesso a produção):
+
+```bash
+D=$(mktemp -d) && git archive afdfb78d backend/app | tar -x -C $D && mkdir -p $D/backend/scripts && git show <SHA>:backend/scripts/export_openapi.py > $D/backend/scripts/export_openapi.py && git show <SHA>:frontend/openapi.json > $D/painel.json && (cd $D/backend && python scripts/export_openapi.py --check --output $D/painel.json)
+```
+
+Esperado: `OPENAPI_OK`. Resultado de 12/11 (`afdfb78d` x `e9a8fc4a`):
+idêntico byte a byte (sha256 `751108f0…70aa`). As mudanças de backend entre
+os dois SHAs são internas (paginação do histórico feita no banco com a mesma
+resposta, "dia da igreja" na data do DPA do Jev, tipos e consultas), sem rota,
+parâmetro ou campo de resposta novo ou alterado. O E2E do painel roda contra
+API simulada, então não testa o backend real; a prova é o contrato.
+
 **Passo (depois do SIM 5):**
 
 ```bash

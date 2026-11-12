@@ -31,8 +31,12 @@ roteiro e dos registros históricos que digam o contrário.
 - Antes de PROD, rodar o ensaio sintético existente; DEV online fica para depois.
 - Kit da primeira virada pronto em 12/11 (runbook §12.6): a ferramenta publica
   o backend em `afdfb78d` (SHA fixo e revisado); ferramenta e painel vão no SHA
-  da `main`. Isso difere de "mesmo SHA do backend" acima: decisão do dono
-  pendente. Falta o SIM da preparação da VPS (V8/V9) antes do SIM 2.
+  da `main` (decisão de 12/11, opção A: sem repinar). O painel da `main` só vai
+  ao ar se o contrato da API for igual ao de `afdfb78d` (runbook §12.5; em
+  12/11 era idêntico). Falta o SIM da preparação da VPS (V8/V9) antes do SIM 2.
+- O release seguinte (backend da `main`, com as correções feitas depois de
+  `afdfb78d`) depende de o Raniel atualizar `BACKEND_DEPLOY_SAFE_BASE_SHA` e
+  cadastrar os 4 secrets de acesso à VPS no environment `backend-production`.
 
 **Escopo:** todo o PRD em código, com os gates fechados e o piloto Filadélfia
 restrito à equipe interna. Abrir gate ou ampliar o piloto continua exigindo
