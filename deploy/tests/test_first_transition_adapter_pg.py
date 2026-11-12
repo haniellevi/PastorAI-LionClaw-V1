@@ -512,7 +512,8 @@ def test_changed_adapter_artifact_manifest_cannot_resume_a_journal(plan, databas
         assert set(journal.last('adapter-init')['adapter_sources']) == {
             'first_transition_adapter.py', 'first_transition_local_backup.py', 'first_transition_host_contract.py',
             'first_transition_host_transport.py', 'first_transition_host_driver.py', 'first_transition_database.py',
-            'first_transition_candidate.py', 'first_transition_orchestrator.py', 'package_backend_release.py',
+            'first_transition_candidate.py', 'first_transition_a10.py', 'first_transition_orchestrator.py',
+            'package_backend_release.py',
             'initial_transition_files.py', 'initial_transition_ops.py', 'release_topology.py',
             'first_transition_window.py', 'first_transition_window_backup.py',
             'first_transition_window_bindings.py'}
