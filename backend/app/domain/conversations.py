@@ -2,8 +2,9 @@
 
 Three concerns, all deterministic and unit-testable:
 
-1. Inbox access gating (US-11): conversations/inbox are restricted to
-   privileged roles. Cell leaders never get access. `admin` passes implicitly.
+1. Inbox access gating (US-11/B3): conversations/inbox are restricted to the
+   fixed INBOX_ROLES; `admin` passes implicitly. Restricted roles only see the
+   conversations assigned to them.
 2. Handoff state machine (US-12/US-13): assuming a conversation moves it to
    `humano`; returning it moves it back to `ia`. The set of valid states is
    {ia, humano, aguardando}.

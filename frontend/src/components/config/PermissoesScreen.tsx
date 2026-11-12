@@ -13,7 +13,8 @@ import "@/components/config/administration-ux-v2.css";
  * Regras refletidas na UI (garantidas no backend):
  *  - `admin` tem acesso total e não participa da matriz (não é linha editável);
  *  - `dashboard` é garantido a TODO papel — a coluna é travada (não editável);
- *  - telas Central-only ficam travadas para papéis diferentes de `pastor`.
+ *  - telas Central-only ficam travadas para papéis diferentes de `pastor`;
+ *  - Conversas só existe para os papéis fixos da inbox (B3): travada nos demais.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -23,6 +24,8 @@ import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import {
   CENTRAL_ROLE,
+  hasFixedInbox,
+  INBOX_SCREEN,
   isCentralOnlyScreen,
   MENU_SCREENS,
   type PermissionMatrix,
@@ -281,8 +284,10 @@ export function PermissoesScreen() {
       <div className="card card-pad">
         <p className="perm-cap">
           Marque as telas liberadas para cada papel. As mudanças valem no menu assim que você
-          salvar. <strong>Administrador</strong> tem acesso total e não é editável. Papéis
-          acumulados somam os acessos; as ações continuam sujeitas à autorização do servidor.
+          salvar. <strong>Administrador</strong> tem acesso total e não é editável.{" "}
+          <strong>Conversas</strong> só pode ser liberada para pastor, líderes de G12, consolidação
+          e célula e operador, que são quem recebe atendimentos. Papéis acumulados somam os acessos;
+          as ações continuam sujeitas à autorização do servidor.
         </p>
 
         {showSkeleton ? (
@@ -322,13 +327,18 @@ export function PermissoesScreen() {
                   const label = SCREEN_LABEL[screen] ?? screen;
                   const locked =
                     screen === "dashboard" ||
+                    (screen === INBOX_SCREEN && !hasFixedInbox(selectedRole)) ||
                     (selectedRole !== CENTRAL_ROLE && isCentralOnlyScreen(screen));
                   return (
                     <label className="perm-access-row" key={screen}>
                       <span>{label}</span>
                       {locked ? (
                         <span className="sub">
-                          {screen === "dashboard" ? "Garantido" : "Restrito a pastor/admin"}
+                          {screen === "dashboard"
+                            ? "Garantido"
+                            : screen === INBOX_SCREEN
+                              ? "Só para quem atende"
+                              : "Restrito a pastor/admin"}
                         </span>
                       ) : (
                         <input
@@ -373,6 +383,19 @@ export function PermissoesScreen() {
                           return (
                             <td key={screen} className="locked" title="Hoje é garantido a todos">
                               <span aria-label="Acesso garantido">Sim</span>
+                            </td>
+                          );
+                        }
+                        if (screen === INBOX_SCREEN && !hasFixedInbox(role)) {
+                          return (
+                            <td
+                              key={screen}
+                              className="locked"
+                              title="Conversas é só para quem recebe atendimentos"
+                            >
+                              <span aria-label="Sem acesso a Conversas: só para quem atende">
+                                Não
+                              </span>
                             </td>
                           );
                         }

@@ -11,6 +11,8 @@ O ``admin`` tem acesso implícito a tudo e nunca aparece na matriz.
 
 from __future__ import annotations
 
+from app.domain.conversations import INBOX_ROLES
+
 # Tela sempre liberada a qualquer papel (delta-010) — não pode ser removida.
 DASHBOARD = "dashboard"
 
@@ -32,6 +34,13 @@ ADMIN_ONLY = frozenset({"comunicados", "contatos"})
 # 'pastor' espelha CENTRAL_ROLES de app/deps.py (importar de lá seria circular).
 CENTRAL_ROLE = "pastor"
 CENTRAL_ONLY = frozenset({"central-celula", "relatorios"})
+
+# Decisão B3 (12/11/2026): a tela Conversas (inbox) só existe para os papéis
+# FIXOS que a inbox honra (INBOX_ROLES; o admin é implícito). A matriz pode
+# REMOVER a tela de um papel fixo, mas nunca CONCEDÊ-LA a outro papel (a inbox
+# mostraria vazio, pois só esses papéis recebem conversas). Aplicado antes da
+# união, como ADMIN_ONLY/CENTRAL_ONLY; nunca amplia acesso a conversas.
+INBOX_SCREEN = "inbox"
 
 # Default papel -> telas (ESPELHO de DEFAULT_PERMISSIONS em permissions.ts).
 # Vale quando o tenant NUNCA customizou a matriz (sem linhas em role_permissions);
@@ -101,6 +110,8 @@ def screens_for_role(role: str, tenant_matrix: dict[str, set[str]]) -> frozenset
     screens -= ADMIN_ONLY
     if role != CENTRAL_ROLE:
         screens -= CENTRAL_ONLY
+    if role not in INBOX_ROLES:
+        screens -= {INBOX_SCREEN}
     return screens
 
 

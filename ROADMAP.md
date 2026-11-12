@@ -398,8 +398,11 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 - **em andamento:** dependências corrigidas e triadas (#463/#469/#470; Next 15.5.28 em #552);
   auditorias das dependências de produção registradas como limpas em 10/10, mas permaneciam cinco
   alertas altos nas ferramentas ligados a `braces`. Situação atual **não verificado**.
-- **falta (decidido em 12/11, implementar):** B3 inbox só para os papéis fixos
-  atuais, removendo da configuração a opção de acesso customizado.
+- **feito (código, sem release):** B3 — a tela Conversas só existe para os
+  papéis fixos da inbox (pastor, líderes G12/consolidação/célula, operador;
+  admin implícito). Em #permissoes a opção some para os demais papéis; para os
+  fixos o admin ainda pode remover. Nenhum papel ganha acesso; o assistente do
+  painel segue a mesma regra.
 - **feito (código, sem release):** B4 — o envio humano pelo painel (texto e
   mídia) usa a mesma checagem de opt-out global do agente e recusa com 409 e
   motivo visível ao atendente, antes de Storage/Evolution; a indicação de
