@@ -8,12 +8,12 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
 import { listNotices, deleteNotice, type Notice } from "@/lib/cell-notices-api";
 import { formatPublishedAt } from "./format";
 import type { FlashToast } from "./types";
+import { DsButton } from "@/components/ds/Button";
 
 /** célula → azul; igreja/central → vermelho. */
 function originClass(escopo: string): string {
@@ -89,25 +89,20 @@ export function LeaderNoticesFeed({
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("initial")}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load("initial")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
       {showSkeleton ? (
         <div className="section-body">
           {Array.from({ length: 2 }).map((_, i) => (
-            <div className="sk-line sk-lg" key={i} style={{ marginBottom: "var(--s3)" }} />
+            <div className="sk-line sk-lg ds-mb-3" key={i} />
           ))}
         </div>
       ) : items.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="empty-state ds-p-6">
           <Icon name="bell" />
           <p>
             <strong>Nenhum aviso publicado.</strong>
@@ -129,17 +124,21 @@ export function LeaderNoticesFeed({
                 <div className="notice-foot">
                   <span className="notice-time">{formatPublishedAt(n.publicado_em)}</span>
                   {canInactivate ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                    <DsButton
+                      variant="tertiary"
                       onClick={() => void inactivate(n)}
                       loading={pendingId === n.id}
-                      loadingText="Inativando…"
                       disabled={pendingId !== null && pendingId !== n.id}
                     >
-                      <Icon name="trash" />
-                      <span>Inativar</span>
-                    </Button>
+                      {pendingId === n.id ? (
+                        <span>Inativando…</span>
+                      ) : (
+                        <>
+                          <Icon name="trash" />
+                          <span>Inativar</span>
+                        </>
+                      )}
+                    </DsButton>
                   ) : null}
                 </div>
               </article>

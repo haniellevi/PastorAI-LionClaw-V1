@@ -16,6 +16,7 @@ import { Icon } from "@/lib/icons";
 import type { ContactLookup } from "@/lib/lookup-api";
 import { useLookupPage, type LookupLoader } from "@/components/lookups/useLookupPage";
 import { LookupPager } from "@/components/lookups/LookupPager";
+import { DsButton } from "@/components/ds/Button";
 
 interface Props {
   celulaId: string;
@@ -104,14 +105,12 @@ export function AddCellMemberModal({
       {success ? (
         <div className="modal-form ops-dialog">
           <DsBanner kind="info">{success}</DsBanner>
-          <p className="sub" style={{ color: "var(--muted)" }}>
+          <p className="sub ds-muted">
             Se esta pessoa também precisar entrar no sistema, conceda o acesso separadamente em
             Equipe.
           </p>
           <div className="modal-foot">
-            <button type="button" className="btn btn-primary btn-sm" onClick={onClose}>
-              Concluir
-            </button>
+            <DsButton onClick={onClose}>Concluir</DsButton>
           </div>
         </div>
       ) : (
@@ -129,7 +128,7 @@ export function AddCellMemberModal({
             </div>
           ) : null}
 
-          <p className="sub" style={{ color: "var(--muted)" }}>
+          <p className="sub ds-muted">
             Escolha uma Pessoa já cadastrada. Esta ação apenas cria o vínculo com a célula e não
             concede acesso ao painel.
           </p>
@@ -149,15 +148,7 @@ export function AddCellMemberModal({
               autoFocus
               data-autofocus=""
             />
-            <div
-              style={{
-                maxHeight: 220,
-                overflowY: "auto",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--r-md)",
-                marginTop: 6,
-              }}
-            >
+            <div className="ops-pick-list">
               {loadContactsPage && lookup.loading ? (
                 <p className="sub" role="status">
                   Carregando Pessoas…
@@ -167,12 +158,12 @@ export function AddCellMemberModal({
                   {lookup.error instanceof Error
                     ? lookup.error.message
                     : "Não foi possível carregar as Pessoas."}
-                  <button type="button" className="btn btn-sm" onClick={lookup.retry}>
+                  <DsButton variant="secondary" onClick={lookup.retry}>
                     Tentar novamente
-                  </button>
+                  </DsButton>
                 </div>
               ) : candidatos.length === 0 ? (
-                <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
+                <p className="sub ds-muted ds-p-3">
                   Nenhuma Pessoa elegível sem célula foi encontrada.
                 </p>
               ) : (
@@ -187,30 +178,11 @@ export function AddCellMemberModal({
                         setSelectedPerson(contact);
                         setError(null);
                       }}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 8,
-                        width: "100%",
-                        minHeight: 44,
-                        textAlign: "left",
-                        padding: "8px 12px",
-                        background: isSelected ? "var(--accent-soft)" : "transparent",
-                        border: "none",
-                        borderBottom: "1px solid var(--border)",
-                        cursor: "pointer",
-                        font: "inherit",
-                        color: "inherit",
-                      }}
+                      className={`ops-pick-option${isSelected ? " ops-pick-option--selected" : ""}`}
                     >
-                      <span
-                        style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}
-                      >
+                      <span className="ops-pick-option-copy">
                         <span className="nm">{contact.nome}</span>
-                        <span className="sub mono" style={{ color: "var(--muted)" }}>
-                          {contact.telefone}
-                        </span>
+                        <span className="sub mono ds-muted">{contact.telefone}</span>
                       </span>
                       {isSelected ? <StatusPill tone="accent">Selecionada</StatusPill> : null}
                     </button>
@@ -233,17 +205,12 @@ export function AddCellMemberModal({
           </div>
 
           <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={sending}>
+            <DsButton variant="secondary" onClick={onClose} disabled={sending}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              className="btn btn-primary btn-sm"
-              disabled={!selected || sending}
-              aria-busy={sending || undefined}
-            >
+            </DsButton>
+            <DsButton type="submit" disabled={!selected || sending} loading={sending}>
               {sending ? "Adicionando…" : "Adicionar à célula"}
-            </button>
+            </DsButton>
           </div>
         </form>
       )}

@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { Dialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { SessionExpiredError } from "@/lib/api";
 import { authedFetch, clearAuthedResponseCache } from "@/lib/dashboard-api";
 import { readDeletionReceipt, type PrivateDeletionReceipt } from "@/lib/conversations-api";
@@ -101,27 +101,27 @@ export function PrivateChurchContentReset({
       title="Resetar conteúdo privado da igreja"
       footer={
         <>
-          <Button disabled={busy} onClick={onClose}>
+          <DsButton variant="secondary" disabled={busy} onClick={onClose}>
             Fechar
-          </Button>
+          </DsButton>
           {receipt ? (
             <>
-              <Button disabled={busy} onClick={() => void submit()}>
+              <DsButton variant="secondary" disabled={busy} onClick={() => void submit()}>
                 Atualizar recibo
-              </Button>
-              <Button variant="danger" disabled={busy} onClick={startNewOperation}>
+              </DsButton>
+              <DsButton variant="danger" disabled={busy} onClick={startNewOperation}>
                 Iniciar novo reset
-              </Button>
+              </DsButton>
             </>
           ) : (
-            <Button
+            <DsButton
               variant="danger"
               loading={busy}
               disabled={busy || typedChurchName !== churchName || confirmation !== CONFIRMATION}
               onClick={() => void submit()}
             >
-              Confirmar reset privado
-            </Button>
+              {busy ? "Carregando…" : "Confirmar reset privado"}
+            </DsButton>
           )}
         </>
       }

@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState, type FormEvent } from "react";
 import type { MarcoUV, MatriculaUV, TurmaDetalhe } from "@/lib/uv-api";
+import { DsButton } from "@/components/ds/Button";
 
 type Request = <T>(path: string, method?: string, payload?: unknown) => Promise<T>;
 type Run = (action: () => Promise<void>) => Promise<void>;
@@ -151,9 +152,9 @@ function Formation({
               A conclusão registra o histórico na Pessoa e a aptidão à próxima CD, sem matrícula
               automática.
             </p>
-            <button className="btn btn-primary" disabled={disabled || !ready || !confirmed}>
+            <DsButton type="submit" disabled={disabled || !ready || !confirmed}>
               Concluir UV
-            </button>
+            </DsButton>
           </fieldset>
         </form>
       )}
@@ -222,9 +223,9 @@ function Milestone({
           />
           Validei este marco da Pessoa
         </label>
-        <button className="btn" disabled={disabled || !date || !confirmed}>
+        <DsButton type="submit" variant="secondary" disabled={disabled || !date || !confirmed}>
           {revalidation ? "Revalidar" : "Validar"} {tipo}
-        </button>
+        </DsButton>
       </fieldset>
     </form>
   );
@@ -264,9 +265,13 @@ function Revoke({ base, disabled, request, run, reload }: Actions & { base: stri
           Confirmo a revogação definitiva desta evidência
         </label>
         <p>A liderança atual será preservada. Novas nomeações serão bloqueadas.</p>
-        <button className="btn" disabled={disabled || !reason.trim() || !confirmed}>
+        <DsButton
+          type="submit"
+          variant="secondary"
+          disabled={disabled || !reason.trim() || !confirmed}
+        >
           Revogar Reencontro
-        </button>
+        </DsButton>
       </fieldset>
     </form>
   );

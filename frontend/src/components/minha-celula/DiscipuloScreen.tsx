@@ -131,9 +131,9 @@ export function DiscipuloScreen() {
     supportState[kind] === "error" ? (
       <div role="alert">
         Esta seção está indisponível.{" "}
-        <button type="button" className="btn btn-sm" onClick={() => void loadSupport(kind)}>
+        <DsButton variant="secondary" onClick={() => void loadSupport(kind)}>
           Tentar novamente
-        </button>
+        </DsButton>
       </div>
     ) : supportState[kind] !== "ready" ? (
       <p role="status">Carregando…</p>

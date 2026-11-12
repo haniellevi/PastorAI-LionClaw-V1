@@ -18,6 +18,7 @@ import {
   type Versao,
 } from "@/lib/conhecimento-api";
 import "./conhecimento.css";
+import { DsButton } from "@/components/ds/Button";
 
 type Editor = {
   doc?: Documento;
@@ -250,8 +251,8 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
           <h2>Conhecimento oficial</h2>
           <p>Documentos aprovados pela igreja, com versão e público definidos.</p>
         </div>
-        <button
-          className="btn"
+        <DsButton
+          variant="secondary"
           disabled={busy || !!retry}
           onClick={() => {
             setPainel(null);
@@ -263,7 +264,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
           }}
         >
           Atualizar
-        </button>
+        </DsButton>
       </div>
       <p>
         Conversas e mensagens privadas nunca são convertidas em conhecimento oficial. A revisão é
@@ -277,9 +278,9 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
             O resultado ainda não foi confirmado. Repita a mesma operação com segurança para
             consultar o recibo.
           </p>
-          <button className="btn" disabled={busy} onClick={() => void mutate(retry)}>
+          <DsButton variant="secondary" disabled={busy} onClick={() => void mutate(retry)}>
             Repetir operação
-          </button>
+          </DsButton>
         </section>
       )}
       <fieldset disabled={busy || !!retry} className="conhecimento-controls">
@@ -310,9 +311,9 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
               value={consulta}
               onChange={(e) => setConsulta(e.target.value)}
             />
-            <button className="btn" type="submit">
+            <DsButton variant="secondary" type="submit">
               Buscar
-            </button>
+            </DsButton>
           </div>
         </form>
         {resultados && (
@@ -327,9 +328,9 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
             <ul>
               {resultados.map((r, i) => (
                 <li key={i}>
-                  <button className="btn" onClick={() => openVersion(r.versao_id)}>
+                  <DsButton variant="secondary" onClick={() => openVersion(r.versao_id)}>
                     {r.titulo}
-                  </button>
+                  </DsButton>
                   <p>{r.trecho}</p>
                 </li>
               ))}
@@ -337,8 +338,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
           </section>
         )}
         {painel?.pode_criar && (
-          <button
-            className="btn btn-primary"
+          <DsButton
             onClick={() => {
               rememberFocus();
               setEditor({ conteudo: "", origem: "", publicos: [] });
@@ -347,7 +347,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
             }}
           >
             Criar rascunho
-          </button>
+          </DsButton>
         )}
         {pending.map((p, i) => (
           <section key={p.versao_id} className="card card-pad">
@@ -356,8 +356,8 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
               O rascunho é restrito ao administrador até o envio para revisão. Você pode retomar o
               envio após voltar ao painel.
             </p>
-            <button
-              className="btn"
+            <DsButton
+              variant="secondary"
               onClick={() =>
                 void mutate({
                   path: `documentos/${p.documento_id}/enviar-revisao`,
@@ -366,7 +366,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
               }
             >
               Enviar rascunho salvo para revisão
-            </button>
+            </DsButton>
           </section>
         ))}
         {!painel && !erro && <p role="status">Carregando documentos…</p>}
@@ -385,8 +385,8 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
                     : "nenhuma versão disponível para leitura"}
                 </p>
                 {doc.pode_excluir && (
-                  <button
-                    className="btn"
+                  <DsButton
+                    variant="secondary"
                     onClick={() => {
                       rememberFocus();
                       setEditor(null);
@@ -396,7 +396,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
                     }}
                   >
                     Excluir documento
-                  </button>
+                  </DsButton>
                 )}
                 <details>
                   <summary>Versões e histórico</summary>
@@ -417,13 +417,13 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
                         </p>
                         <div className="conhecimento-actions">
                           {v.pode_ler && (
-                            <button className="btn" onClick={() => openVersion(v.id)}>
+                            <DsButton variant="secondary" onClick={() => openVersion(v.id)}>
                               Ler versão {v.numero}
-                            </button>
+                            </DsButton>
                           )}
                           {v.acoes.map((a) => (
-                            <button
-                              className="btn"
+                            <DsButton
+                              variant="secondary"
                               key={a}
                               disabled={a === "publicar" && !v.publicos.length}
                               onClick={() => {
@@ -450,7 +450,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
                               }}
                             >
                               {ACTIONS[a]}
-                            </button>
+                            </DsButton>
                           ))}
                         </div>
                         {!v.pode_ler && (
@@ -467,8 +467,8 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
           </section>
         )}
         {painel?.tem_mais && (
-          <button
-            className="btn"
+          <DsButton
+            variant="secondary"
             onClick={() =>
               void run(async (signal) => {
                 const next = await conhecimento<Painel>(
@@ -482,7 +482,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
             }
           >
             Carregar mais documentos e versões
-          </button>
+          </DsButton>
         )}
         {(leitura || editor || confirmacao) && (
           <section
@@ -491,9 +491,9 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
             className="card card-pad conhecimento-detail"
             aria-label="Documento selecionado"
           >
-            <button className="btn" onClick={closeDetail}>
+            <DsButton variant="secondary" onClick={closeDetail}>
               Fechar documento
-            </button>
+            </DsButton>
             {leitura && (
               <>
                 <h3>{leitura.titulo}</h3>
@@ -565,9 +565,7 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
                     </label>
                   ))}
                 </fieldset>
-                <button className="btn btn-primary" type="submit">
-                  Salvar rascunho
-                </button>
+                <DsButton type="submit">Salvar rascunho</DsButton>
               </form>
             )}
             {confirmacao && (
@@ -612,15 +610,14 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
                           ? "Registra sua revisão deste texto. A publicação depende do administrador."
                           : "O pastor responsável poderá ler esta versão. O envio não publica o documento."}
                 </p>
-                <button
-                  className="btn btn-primary"
+                <DsButton
                   disabled={
                     confirmacao.acao === "excluir" && tituloConfirmado !== confirmacao.doc.titulo
                   }
                   onClick={confirm}
                 >
                   Confirmar {(ACTIONS[confirmacao.acao] ?? "operação").toLocaleLowerCase("pt-BR")}
-                </button>
+                </DsButton>
               </>
             )}
           </section>

@@ -35,6 +35,7 @@ import { TrackModal } from "./TrackModal";
 import { isConsolidated, useConsolidation } from "./useConsolidation";
 
 import "../contacts/people-ux-v2.css";
+import { DsButton } from "@/components/ds/Button";
 
 function genderLabel(g: string | null): string {
   if (g === "f") return "Feminino";
@@ -138,10 +139,10 @@ export function ConsolidarScreen() {
           <p>Acompanhe os cuidados em andamento.</p>
         </div>
         <div className="actions">
-          <button type="button" className="btn btn-primary" onClick={() => c.openDecision()}>
+          <DsButton onClick={() => c.openDecision()}>
             <Icon name="plus" />
             <span>Lançar decisão</span>
-          </button>
+          </DsButton>
         </div>
       </div>
 
@@ -151,9 +152,9 @@ export function ConsolidarScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{c.error}</span>
-          <button type="button" className="btn btn-sm" onClick={c.reload} disabled={c.loading}>
+          <DsButton variant="secondary" onClick={c.reload} disabled={c.loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -167,14 +168,13 @@ export function ConsolidarScreen() {
           <span role="status">
             {c.people.length} de {c.pipelineTotal} pessoas carregadas
           </span>
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             disabled={c.loadingMore || c.loading}
             onClick={() => void c.loadMore()}
           >
             {c.loadingMore ? "Carregando…" : "Carregar mais pessoas"}
-          </button>
+          </DsButton>
         </div>
       ) : null}
       <div className="people-work-list">
@@ -204,7 +204,7 @@ export function ConsolidarScreen() {
               ))}
             </div>
           ) : !c.loaded ? null : pending.length === 0 ? (
-            <div className="empty-state" style={{ padding: "var(--s6)" }}>
+            <div className="empty-state ds-p-6">
               <Icon name="check" />
               <p>
                 <strong>
@@ -247,14 +247,13 @@ export function ConsolidarScreen() {
                       ) : null}
                     </div>
                     <div className="qactions">
-                      <button
-                        type="button"
-                        className="btn btn-sm"
+                      <DsButton
+                        variant="secondary"
                         aria-label={`Ver progresso de ${p.nome}`}
                         onClick={() => c.openTrack(p)}
                       >
                         Ver progresso
-                      </button>
+                      </DsButton>
                     </div>
                   </div>
                 );
@@ -264,7 +263,7 @@ export function ConsolidarScreen() {
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: "var(--s4)" }}>
+      <div className="card ds-mt-4">
         <div className="panel-title">
           <span>
             <Icon name="check" /> Consolidação concluída
@@ -362,7 +361,7 @@ export function ConsolidarScreen() {
             <span className="count">· módulo indisponível</span>
           </div>
           {!c.loaded ? null : consolidated.length === 0 ? (
-            <div className="empty-state" style={{ padding: "var(--s6)" }}>
+            <div className="empty-state ds-p-6">
               <Icon name="university" />
               <p>
                 <strong>Nenhuma consolidação concluída nesta lista.</strong> A gestão de turmas da
@@ -387,15 +386,15 @@ export function ConsolidarScreen() {
             </div>
           )}
           <div style={{ padding: "var(--s3) var(--s4)" }}>
-            <button
-              type="button"
-              className="btn btn-sm locked-soon"
+            <DsButton
+              variant="secondary"
+              className="locked-soon"
               disabled
               aria-disabled
               title="A gestão de turmas da Universidade da Vida ainda está indisponível"
             >
               Abrir turma da UV <Icon name="clock" />
-            </button>
+            </DsButton>
           </div>
         </div>
       </details>

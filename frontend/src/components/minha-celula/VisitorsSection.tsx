@@ -134,7 +134,7 @@ export function VisitorsSection({
           <div>
             {pendingExpectations.map((e) => (
               <div className="list-row" key={e.id}>
-                <div className="grow" style={{ minWidth: 0 }}>
+                <div className="grow ds-min-w-0">
                   <div className="nm">{e.nome_visitante}</div>
                 </div>
                 {!locked ? (
@@ -180,7 +180,7 @@ export function VisitorsSection({
           <div>
             {visitors.map((v) => (
               <div className="list-row" key={v.id}>
-                <div className="grow" style={{ minWidth: 0 }}>
+                <div className="grow ds-min-w-0">
                   <div className="nm">{v.nome_visitante}</div>
                   {v.origem ? (
                     <div className="sub">

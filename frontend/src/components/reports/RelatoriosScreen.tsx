@@ -34,6 +34,7 @@ import "../cells/operations-ux-v2.css";
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DsButton } from "@/components/ds/Button";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { SessionExpiredError } from "@/lib/api";
@@ -217,9 +218,8 @@ export function RelatoriosScreen() {
       {
         header: "Relatório",
         cell: (r) => (
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             aria-label={`Ver relatório de ${r.celulaNome ?? "Célula"}, reunião de ${formatMeetingDate(r.dataReuniao)}`}
             onClick={(e) => {
               e.stopPropagation();
@@ -227,7 +227,7 @@ export function RelatoriosScreen() {
             }}
           >
             Ver relatório
-          </button>
+          </DsButton>
         ),
       },
     ],
@@ -274,14 +274,9 @@ export function RelatoriosScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -302,7 +297,7 @@ export function RelatoriosScreen() {
         </div>
       ) : error && !loaded ? null : reunioesTotal === 0 ? (
         <div className="card">
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
+          <div className="empty-state ds-p-6">
             <Icon name="document" />
             <p>
               <strong>
@@ -340,14 +335,13 @@ export function RelatoriosScreen() {
                         <div className="sub">Reunião de {formatMeetingDate(r.dataReuniao)}</div>
                       </div>
                       <StatusPill tone={sla.tone}>{sla.label}</StatusPill>
-                      <button
-                        type="button"
-                        className="btn btn-sm"
+                      <DsButton
+                        variant="secondary"
                         aria-label={`Ver relatório de ${r.celulaNome ?? "Célula"}, reunião de ${formatMeetingDate(r.dataReuniao)}`}
                         onClick={() => setDetailId(r.id)}
                       >
                         Ver relatório
-                      </button>
+                      </DsButton>
                     </div>
                   );
                 })}

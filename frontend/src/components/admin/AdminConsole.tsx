@@ -10,7 +10,7 @@ import "@/components/config/administration-ux-v2.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MineralBackdrop } from "@/components/brand/MineralBackdrop";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import {
   AdminSessionExpiredError,
@@ -69,15 +69,9 @@ const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", curren
 function MetricCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="platform-metric">
-      <div className="sub" style={{ color: "var(--muted)" }}>
-        {label}
-      </div>
+      <div className="sub ds-muted">{label}</div>
       <div className="platform-metric-value">{value}</div>
-      {hint ? (
-        <div className="sub" style={{ color: "var(--muted)" }}>
-          {hint}
-        </div>
-      ) : null}
+      {hint ? <div className="sub ds-muted">{hint}</div> : null}
     </div>
   );
 }
@@ -199,9 +193,8 @@ export function AdminConsole() {
     {
       header: "Ações",
       cell: (r) => (
-        <Button
-          variant="ghost"
-          size="sm"
+        <DsButton
+          variant="tertiary"
           aria-label={`Abrir igreja: ${r.nome}`}
           onClick={() => {
             setModalError(null);
@@ -209,7 +202,7 @@ export function AdminConsole() {
           }}
         >
           Abrir igreja
-        </Button>
+        </DsButton>
       ),
     },
   ];
@@ -238,28 +231,28 @@ export function AdminConsole() {
       <header className="platform-head admin-overview mineral-surface" data-mineral-surface>
         <MineralBackdrop compact />
         <div>
-          <h1 style={{ margin: 0 }}>Console da Plataforma</h1>
+          <h1 className="ds-m-0">Console da Plataforma</h1>
           <p className="platform-guidance">Escolha a igreja antes de administrar seus dados.</p>
-          <p className="sub" style={{ margin: 0 }}>
+          <p className="sub ds-m-0">
             {admin ? `${admin.nome} · ${admin.email}` : "Administração multi-igreja"}
           </p>
         </div>
         <nav className="platform-tools" aria-label="Operações da plataforma">
-          <Button variant="ghost" size="sm" onClick={() => setOrquestradorOpen(true)}>
+          <DsButton variant="tertiary" onClick={() => setOrquestradorOpen(true)}>
             Orquestrador
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setJevOpen(true)}>
+          </DsButton>
+          <DsButton variant="tertiary" onClick={() => setJevOpen(true)}>
             Jev
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setPlanosOpen(true)}>
+          </DsButton>
+          <DsButton variant="tertiary" onClick={() => setPlanosOpen(true)}>
             Planos
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setAuditOpen(true)}>
+          </DsButton>
+          <DsButton variant="tertiary" onClick={() => setAuditOpen(true)}>
             Auditoria
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => void logout({ revokeServer: true })}>
+          </DsButton>
+          <DsButton variant="tertiary" onClick={() => void logout({ revokeServer: true })}>
             Sair
-          </Button>
+          </DsButton>
         </nav>
       </header>
 
@@ -306,25 +299,17 @@ export function AdminConsole() {
         <div className="platform-list-head">
           <h2>Igrejas{igrejas ? ` (${igrejas.length})` : ""}</h2>
           <div className="platform-tools">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void load()}
-              loading={loading}
-              loadingText="Atualizando…"
-            >
-              Atualizar
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
+            <DsButton variant="tertiary" onClick={() => void load()} loading={loading}>
+              {loading ? "Atualizando…" : "Atualizar"}
+            </DsButton>
+            <DsButton
               onClick={() => {
                 setModalError(null);
                 setCreateOpen(true);
               }}
             >
               Provisionar igreja
-            </Button>
+            </DsButton>
           </div>
         </div>
 

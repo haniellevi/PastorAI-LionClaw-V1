@@ -24,7 +24,6 @@ import "../cells/operations-ux-v2.css";
 import { useEffect, useMemo, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/dashboard-api";
 import { fetchConversations, type Conversation } from "@/lib/conversations-api";
 import {
@@ -34,6 +33,7 @@ import {
   type IndividualTarget,
   type PublicoAlvo,
 } from "@/lib/events-api";
+import { DsButton } from "@/components/ds/Button";
 
 const PUBLICOS: PublicoAlvo[] = ["toda_igreja", "pastores", "g12_pastoral", "lideres_celula"];
 
@@ -181,7 +181,7 @@ export function ConfirmEventModal({
           </div>
         ) : null}
 
-        <div className="sub" style={{ marginBottom: "var(--s3)" }}>
+        <div className="sub ds-mb-3">
           <strong>{event.titulo}</strong>
           {event.data ? ` · ${event.data}${event.hora ? ` ${event.hora}` : ""}` : ""}
         </div>
@@ -297,7 +297,7 @@ export function ConfirmEventModal({
                         checked={selecionados.has(c.id)}
                         onChange={() => toggleContato(c)}
                       />
-                      <span style={{ minWidth: 0 }}>
+                      <span className="ds-min-w-0">
                         <span
                           style={{
                             display: "block",
@@ -308,11 +308,7 @@ export function ConfirmEventModal({
                         >
                           {c.nome ?? c.telefone}
                         </span>
-                        {c.nome ? (
-                          <span className="sub" style={{ display: "block" }}>
-                            {c.telefone}
-                          </span>
-                        ) : null}
+                        {c.nome ? <span className="sub ds-block">{c.telefone}</span> : null}
                       </span>
                     </label>
                   ))
@@ -351,19 +347,12 @@ export function ConfirmEventModal({
         ) : null}
 
         <div className="modal-foot">
-          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+          <DsButton variant="secondary" onClick={onClose} disabled={busy}>
             Cancelar
-          </button>
-          <Button
-            type="submit"
-            variant="primary"
-            size="sm"
-            loading={busy}
-            loadingText="Confirmando…"
-            disabled={!canSubmit}
-          >
-            {notify ? "Confirmar e agendar" : "Confirmar evento"}
-          </Button>
+          </DsButton>
+          <DsButton type="submit" loading={busy} disabled={!canSubmit}>
+            {busy ? "Confirmando…" : notify ? "Confirmar e agendar" : "Confirmar evento"}
+          </DsButton>
         </div>
       </form>
     </DsDialog>

@@ -81,11 +81,41 @@
   outline-offset: 2px;
 }
 .people-ux .btn,
+.people-ux .ds-btn,
 .people-ux-dialog :is(.btn, .ds-btn) {
   min-height: 40px;
   font: var(--type-label);
   white-space: normal;
   text-align: center;
+}
+/* O rótulo quebra dentro do botão aqui (white-space: normal); a base .ds-btn
+   não tem respiro vertical, então repõe os 5px que o .btn-sm legado dava. */
+.people-ux .ds-btn,
+.people-ux-dialog .ds-btn {
+  padding-block: 5px;
+}
+/* Ícones dentro do DsButton mantêm os 15px que o .btn legado dava (.btn svg). */
+.people-ux .ds-btn svg,
+.people-ux-dialog .ds-btn svg {
+  width: 15px;
+  height: 15px;
+}
+/* Paginação da lista de pessoas (antes inline no ContatosScreen). */
+.people-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  padding: var(--s3);
+  border-top: 1px solid var(--border);
+}
+.people-ux .empty-state.people-detail-empty {
+  padding: var(--s5);
+}
+.people-preflight-list {
+  margin: 6px 0 0;
+  padding-left: 1.1em;
 }
 .people-back {
   align-self: flex-start;
@@ -176,7 +206,8 @@
   margin-top: var(--s2);
   margin-bottom: var(--s3);
 }
-.people-disclosure .btn + .btn {
+.people-disclosure .btn + .btn,
+.people-disclosure .ds-btn + .ds-btn {
   margin-top: var(--s2);
 }
 .people-overview {
@@ -361,7 +392,7 @@
   .people-ux .screen-head .titles h2 {
     font-size: 28px;
   }
-  .people-ux :is(.btn, .tab),
+  .people-ux :is(.btn, .ds-btn, .tab),
   .people-ux-dialog :is(.btn, .ds-btn) {
     min-height: 44px;
   }
@@ -418,11 +449,12 @@
   .people-ux .people-table td:first-child .avatar {
     display: none;
   }
-  .people-ux .people-table td :is(.btn, .people-next-action) {
+  .people-ux .people-table td :is(.btn, .ds-btn, .people-next-action) {
     width: 100%;
   }
   .people-ux .qactions,
-  .people-ux .qactions .btn {
+  .people-ux .qactions .btn,
+  .people-ux .qactions .ds-btn {
     width: 100%;
   }
 }
@@ -441,4 +473,12 @@
 
 .people-ux-dialog .modal-foot[hidden] {
   display: none;
+}
+
+/* "Abrir pessoa" era .btn-sm; no DsButton o padding lateral maior quebrava o
+   rótulo em duas linhas na coluna Detalhe. No celular a regra de 100% vale. */
+@media (min-width: 861px) {
+  .people-ux .people-table td .people-open {
+    white-space: nowrap;
+  }
 }

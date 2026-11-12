@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { MatriculaUV, PresencaRevisao, TurmaDetalhe } from "@/lib/uv-api";
+import { DsButton } from "@/components/ds/Button";
 
 type Props = {
   detail: TurmaDetalhe;
@@ -160,9 +161,9 @@ function StudentAttendance({
               Confirmo a correção; o registro anterior permanecerá no histórico.
             </label>
           ) : null}
-          <button className="btn btn-primary" disabled={!!current && !confirmed}>
+          <DsButton type="submit" disabled={!!current && !confirmed}>
             {current ? "Salvar correção" : "Registrar presença"}
-          </button>
+          </DsButton>
         </fieldset>
       </form>
       {student.conclusao ? <p>UV concluída: chamada disponível somente para consulta.</p> : null}
@@ -171,9 +172,8 @@ function StudentAttendance({
       ) : !available ? (
         <p>Defina o calendário desta aula para lançar presença.</p>
       ) : null}
-      <button
-        className="btn"
-        type="button"
+      <DsButton
+        variant="secondary"
         disabled={busy}
         onClick={() =>
           void run(async () => {
@@ -182,7 +182,7 @@ function StudentAttendance({
         }
       >
         Consultar histórico da aula {aula}
-      </button>
+      </DsButton>
       {notice ? <p role="status">{notice}</p> : null}
       {history ? (
         history.length ? (

@@ -6,7 +6,7 @@ export default function NotFound() {
       <div className="scaffold">
         <h1>Página não encontrada</h1>
         <p>O endereço acessado não existe no painel.</p>
-        <Link className="btn btn-primary" style={{ marginTop: "var(--s4)" }} href="/#dashboard">
+        <Link className="btn btn-primary ds-mt-4" href="/#dashboard">
           Voltar ao painel
         </Link>
       </div>

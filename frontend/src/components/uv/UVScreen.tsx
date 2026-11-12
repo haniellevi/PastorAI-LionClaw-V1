@@ -15,6 +15,7 @@ import { Dialog } from "@/components/ds/Dialog";
 import { UVFormation } from "./UVFormation";
 import { UVAttendance } from "./UVAttendance";
 import "./uv.css";
+import { DsButton } from "@/components/ds/Button";
 
 const curriculum = [1, 2, 3, 4, null, 5, 6, 7, 8];
 const label = (n: number | null) => (n === null ? "Encontro" : `Aula ${n}`);
@@ -126,9 +127,8 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
       {busy ? <p role="status">Carregando…</p> : null}
-      <button
-        type="button"
-        className="btn"
+      <DsButton
+        variant="secondary"
         disabled={busy}
         onClick={() =>
           void run(async () => {
@@ -138,7 +138,7 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
         }
       >
         Atualizar turmas
-      </button>
+      </DsButton>
       <form
         className="card"
         onSubmit={submit(async () => {
@@ -165,15 +165,14 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
             }}
           />
         </label>
-        <button className="btn btn-primary" disabled={busy || !nome.trim()}>
+        <DsButton type="submit" disabled={busy || !nome.trim()}>
           Criar turma
-        </button>
+        </DsButton>
       </form>
       <nav aria-label="Turmas UV" className="actions">
         {turmas.map((t) => (
-          <button
-            type="button"
-            className="btn"
+          <DsButton
+            variant="secondary"
             key={t.id}
             disabled={busy}
             aria-pressed={detail?.id === t.id}
@@ -181,7 +180,7 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
           >
             {t.nome}
             {t.encerrada ? " · Encerrada" : ""}
-          </button>
+          </DsButton>
         ))}
       </nav>
       {!busy && !error && turmas.length === 0 ? (
@@ -225,7 +224,7 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
                   />
                 </label>
               ))}
-              <button className="btn btn-primary">Salvar calendário</button>
+              <DsButton type="submit">Salvar calendário</DsButton>
             </fieldset>
           </form>
           {coordination ? (
@@ -266,7 +265,7 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
                     {u.nome}
                   </label>
                 ))}
-                <button className="btn btn-primary">Salvar responsáveis</button>
+                <DsButton type="submit">Salvar responsáveis</DsButton>
               </fieldset>
             </form>
           ) : null}
@@ -293,9 +292,9 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </label>
-              <button className="btn" disabled={busy || detail.encerrada}>
+              <DsButton type="submit" variant="secondary" disabled={busy || detail.encerrada}>
                 Buscar pessoa
-              </button>
+              </DsButton>
             </form>
             <form
               onSubmit={submit(async () => {
@@ -328,9 +327,9 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
                     ))}
                 </select>
               </label>
-              <button className="btn btn-primary" disabled={busy || detail.encerrada || !person}>
+              <DsButton type="submit" disabled={busy || detail.encerrada || !person}>
                 Matricular pessoa
-              </button>
+              </DsButton>
             </form>
             {detail.matriculas.length ? (
               <ul>
@@ -363,9 +362,9 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
             reload={() => loadDetail(detail.id)}
           />
           {coordination && !detail.encerrada ? (
-            <button type="button" className="btn" disabled={busy} onClick={() => setClosing(true)}>
+            <DsButton variant="secondary" disabled={busy} onClick={() => setClosing(true)}>
               Encerrar turma
-            </button>
+            </DsButton>
           ) : null}
           <Dialog
             open={closing}
@@ -375,11 +374,10 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
             title="Encerrar turma?"
             description="A turma ficará disponível para consulta e não aceitará novas matrículas ou alterações."
           >
-            <button className="btn" disabled={busy} onClick={() => setClosing(false)}>
+            <DsButton variant="secondary" disabled={busy} onClick={() => setClosing(false)}>
               Cancelar
-            </button>
-            <button
-              className="btn btn-primary"
+            </DsButton>
+            <DsButton
               disabled={busy}
               onClick={() =>
                 void run(async () => {
@@ -392,7 +390,7 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
               }
             >
               Confirmar encerramento
-            </button>
+            </DsButton>
           </Dialog>
         </article>
       ) : null}

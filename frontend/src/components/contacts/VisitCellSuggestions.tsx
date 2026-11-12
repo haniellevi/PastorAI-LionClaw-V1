@@ -9,6 +9,7 @@ import {
   type VisitCellPage,
   type VisitCellSuggestion,
 } from "@/lib/visit-cell-api";
+import { DsButton } from "@/components/ds/Button";
 
 export function VisitCellSuggestions({
   personId,
@@ -106,14 +107,9 @@ export function VisitCellSuggestions({
             O vínculo foi confirmado, mas não foi possível atualizar o cadastro. Tente atualizar os
             dados.
           </p>
-          <button
-            type="button"
-            className="btn"
-            disabled={busy}
-            onClick={() => void refreshContact()}
-          >
+          <DsButton variant="secondary" disabled={busy} onClick={() => void refreshContact()}>
             Atualizar cadastro
-          </button>
+          </DsButton>
         </div>
       ) : null}
       {success ? <p role="status">Vínculo confirmado. Pendências de conexão encerradas.</p> : null}
@@ -129,9 +125,8 @@ export function VisitCellSuggestions({
             . {item.already_linked ? "Vínculo já confirmado." : "Sugestão pendente de confirmação."}
           </p>
           {item.blocked_reason ? <p>{item.blocked_reason}</p> : null}
-          <button
-            type="button"
-            className="btn"
+          <DsButton
+            variant="secondary"
             disabled={busy || !!item.blocked_reason || item.already_linked}
             onClick={() => {
               setSelected(item);
@@ -140,7 +135,7 @@ export function VisitCellSuggestions({
             }}
           >
             Revisar vínculo
-          </button>
+          </DsButton>
         </article>
       ))}
       {!personId && result ? (
@@ -172,17 +167,12 @@ export function VisitCellSuggestions({
           </p>
           <p>Ao confirmar, o acompanhamento será marcado como consolidado.</p>
           {error ? <p role="alert">{error}</p> : null}
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={busy}
-            onClick={() => void confirm()}
-          >
+          <DsButton disabled={busy} onClick={() => void confirm()}>
             Confirmar vínculo
-          </button>
-          <button type="button" className="btn" disabled={busy} onClick={() => setSelected(null)}>
+          </DsButton>
+          <DsButton variant="secondary" disabled={busy} onClick={() => setSelected(null)}>
             Cancelar
-          </button>
+          </DsButton>
         </Dialog>
       ) : null}
     </section>

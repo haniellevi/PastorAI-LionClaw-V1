@@ -13,7 +13,6 @@ import "@/components/config/administration-ux-v2.css";
 import { useCallback, useEffect, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import {
   AdminSessionExpiredError,
@@ -26,6 +25,7 @@ import {
   updatePlano,
   type AdminPlano,
 } from "@/lib/admin-api";
+import { DsButton } from "@/components/ds/Button";
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -315,18 +315,12 @@ export function PlanosManagerModal({
           ) : null}
 
           <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={cancel} disabled={busy}>
+            <DsButton variant="secondary" onClick={cancel} disabled={busy}>
               Voltar
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={busy}
-              loadingText="Salvando…"
-            >
-              Salvar plano
-            </Button>
+            </DsButton>
+            <DsButton type="submit" loading={busy}>
+              {busy ? "Salvando…" : "Salvar plano"}
+            </DsButton>
           </div>
         </form>
       ) : (
@@ -340,9 +334,7 @@ export function PlanosManagerModal({
           {planos === null ? (
             <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
               <span className="spinner" aria-hidden="true" />
-              <div className="sub" style={{ marginTop: "var(--s2)" }}>
-                Carregando os planos…
-              </div>
+              <div className="sub ds-mt-2">Carregando os planos…</div>
             </div>
           ) : (
             <>
@@ -363,23 +355,14 @@ export function PlanosManagerModal({
                   helper="Vale para igrejas sem taxa personalizada."
                   disabled={busy}
                 />
-                <div
-                  style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--s2)" }}
-                >
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void saveSetupFee()}
-                    disabled={busy}
-                  >
+                <div className="ds-flex ds-justify-end ds-mt-2">
+                  <DsButton variant="tertiary" onClick={() => void saveSetupFee()} disabled={busy}>
                     Salvar taxa padrão
-                  </Button>
+                  </DsButton>
                 </div>
               </div>
               {planos.length === 0 ? (
-                <p className="sub" style={{ color: "var(--muted)" }}>
-                  Nenhum plano cadastrado.
-                </p>
+                <p className="sub ds-muted">Nenhum plano cadastrado.</p>
               ) : (
                 <table className="data-table ux-stack-table">
                   <thead>
@@ -396,7 +379,7 @@ export function PlanosManagerModal({
                       <tr key={p.id}>
                         <td className="nm" data-label="Plano">
                           {p.nome}
-                          <div className="sub" style={{ color: "var(--muted)" }}>
+                          <div className="sub ds-muted">
                             {p.codigo}
                             {p.precoMensal === 0 ? " · cortesia (somente master)" : ""}
                             {p.ativo ? "" : " · inativo"}
@@ -412,24 +395,16 @@ export function PlanosManagerModal({
                           {p.emUso}
                         </td>
                         <td data-label="Ações">
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "var(--s2)",
-                              justifyContent: "flex-end",
-                            }}
-                          >
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-ghost"
+                          <div className="ds-flex ds-gap-2 ds-justify-end">
+                            <DsButton
+                              variant="tertiary"
                               onClick={() => startEdit(p)}
                               disabled={busy}
                             >
                               Editar
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-danger"
+                            </DsButton>
+                            <DsButton
+                              variant="danger"
                               onClick={() => void remove(p)}
                               disabled={busy || p.emUso > 0}
                               title={
@@ -439,7 +414,7 @@ export function PlanosManagerModal({
                               }
                             >
                               Excluir
-                            </button>
+                            </DsButton>
                           </div>
                         </td>
                       </tr>
@@ -451,12 +426,12 @@ export function PlanosManagerModal({
           )}
 
           <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose}>
+            <DsButton variant="secondary" onClick={onClose}>
               Fechar
-            </button>
-            <Button variant="primary" size="sm" onClick={startNew} disabled={busy}>
+            </DsButton>
+            <DsButton onClick={startNew} disabled={busy}>
               Novo plano
-            </Button>
+            </DsButton>
           </div>
         </div>
       )}

@@ -12,6 +12,7 @@ import {
   fetchAssignments,
   type AssignmentTrack,
 } from "@/lib/consolidacao-api";
+import { DsButton } from "@/components/ds/Button";
 
 const labels = {
   atribuida: "Aguardando aceite",
@@ -148,9 +149,9 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
     <section className="card" aria-label="Aceite da fonovisita">
       <div className="panel-title">
         <span>Aceite da fonovisita</span>
-        <button type="button" className="btn btn-sm" disabled={busy} onClick={() => void load()}>
+        <DsButton variant="secondary" disabled={busy} onClick={() => void load()}>
           Atualizar convites
-        </button>
+        </DsButton>
       </div>
       <p className="people-meta">
         O convite vale por 24 horas corridas. O prazo da fonovisita continua o mesmo. Recusa ou
@@ -183,22 +184,16 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
               {row.convite?.status === "atribuida" &&
               row.convite.responsavelId === user?.appUserId ? (
                 <div className="actions">
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={busy}
-                    onClick={() => void act(row, true)}
-                  >
+                  <DsButton disabled={busy} onClick={() => void act(row, true)}>
                     Aceitar fonovisita de {row.pessoaNome}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn"
+                  </DsButton>
+                  <DsButton
+                    variant="secondary"
                     disabled={busy}
                     onClick={() => void act(row, false)}
                   >
                     Recusar convite
-                  </button>
+                  </DsButton>
                 </div>
               ) : null}
               {coordinator && candidatesFor(row).length > 0 ? (
@@ -220,9 +215,8 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
                       ))}
                     </select>
                   </label>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
+                  <DsButton
+                    variant="secondary"
                     disabled={
                       busy ||
                       !candidatesFor(row).some((member) => member.usuarioId === selected[row.id])
@@ -230,7 +224,7 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
                     onClick={() => void act(row)}
                   >
                     Registrar convite no painel
-                  </button>
+                  </DsButton>
                 </div>
               ) : null}
             </div>
@@ -238,9 +232,9 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
         ))}
       </div>
       {nextCursor ? (
-        <button type="button" className="btn" disabled={busy} onClick={() => void load(nextCursor)}>
+        <DsButton variant="secondary" disabled={busy} onClick={() => void load(nextCursor)}>
           Carregar mais convites
-        </button>
+        </DsButton>
       ) : null}
     </section>
   );

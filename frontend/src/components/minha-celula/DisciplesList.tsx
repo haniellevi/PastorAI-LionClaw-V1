@@ -29,7 +29,7 @@ export function DisciplesList({ members }: { members: CellMember[] }) {
       </div>
 
       {members.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="empty-state ds-p-6">
           <Icon name="team" />
           <p>
             <strong>Nenhum discípulo na célula ainda.</strong>

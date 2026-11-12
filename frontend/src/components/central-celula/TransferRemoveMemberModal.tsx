@@ -160,7 +160,7 @@ export function TransferRemoveMemberModal({
             </div>
           ) : null}
 
-          <p className="sub" style={{ color: "var(--muted)" }}>
+          <p className="sub ds-muted">
             {mode === "transferir" ? (
               <>
                 Transfere <strong>{pessoa.nome}</strong> de <strong>{origem.nome}</strong> para
@@ -200,19 +200,11 @@ export function TransferRemoveMemberModal({
             <div className="field">
               <label htmlFor="transferDestino">Célula de destino</label>
               {destinos.length === 0 ? (
-                <p className="sub" style={{ color: "var(--muted)" }}>
+                <p className="sub ds-muted">
                   Nenhuma célula ativa com líder disponível como destino.
                 </p>
               ) : (
-                <div
-                  style={{
-                    maxHeight: 220,
-                    overflowY: "auto",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--r-md)",
-                    marginTop: 6,
-                  }}
-                >
+                <div className="ops-pick-list">
                   {destinos.map((c) => {
                     const isSelected = destinoId === c.id;
                     return (
@@ -223,24 +215,9 @@ export function TransferRemoveMemberModal({
                           setDestinoId(c.id);
                           setError(null);
                         }}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 8,
-                          width: "100%",
-                          minHeight: 44,
-                          textAlign: "left",
-                          padding: "8px 12px",
-                          background: isSelected ? "var(--accent-soft)" : "transparent",
-                          border: "none",
-                          borderBottom: "1px solid var(--border)",
-                          cursor: "pointer",
-                          font: "inherit",
-                          color: "inherit",
-                        }}
+                        className={`ops-pick-option${isSelected ? " ops-pick-option--selected" : ""}`}
                       >
-                        <span style={{ minWidth: 0 }}>
+                        <span className="ds-min-w-0">
                           <span className="nm">{c.nome}</span>
                         </span>
                         {isSelected ? <StatusPill tone="accent">Selecionada</StatusPill> : null}

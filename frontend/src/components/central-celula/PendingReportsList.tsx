@@ -84,7 +84,7 @@ export function PendingReportsList({
       {loading ? (
         <div className="section-body" aria-hidden="true">
           {Array.from({ length: 2 }).map((_, i) => (
-            <div className="sk-line sk-lg" key={i} style={{ marginBottom: "var(--s3)" }} />
+            <div className="sk-line sk-lg ds-mb-3" key={i} />
           ))}
         </div>
       ) : error ? null : items.length === 0 ? (

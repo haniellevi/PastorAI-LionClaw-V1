@@ -7,6 +7,7 @@ import {
   type AvaliacaoPessoa,
   type DecisaoInput,
 } from "@/lib/enviar-api";
+import { DsButton } from "@/components/ds/Button";
 
 export function AvaliacaoPanel({
   pessoaId,
@@ -158,9 +159,9 @@ export function AvaliacaoPanel({
                     onChange={(e) => setMotivo(e.target.value)}
                   />
                 </div>
-                <button type="submit" className="btn btn-primary" disabled={busy}>
+                <DsButton type="submit" disabled={busy}>
                   {busy ? "Registrando…" : "Registrar decisão"}
-                </button>
+                </DsButton>
               </fieldset>
             </form>
           )}

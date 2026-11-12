@@ -18,7 +18,6 @@ import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { Tabs } from "@/components/ds/Tabs";
 import { DsToast, DsToastRegion } from "@/components/ds/Toast";
-import { Button } from "@/components/ui/Button";
 import { Icon } from "@/lib/icons";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -405,13 +404,12 @@ export function MinhaCelulaLider() {
                   ) : materialsState === "error" ? (
                     <div role="alert">
                       Não foi possível carregar os materiais.{" "}
-                      <button
-                        type="button"
-                        className="btn btn-sm"
+                      <DsButton
+                        variant="secondary"
                         onClick={() => setMaterialsAttempt((value) => value + 1)}
                       >
                         Tentar novamente
-                      </button>
+                      </DsButton>
                     </div>
                   ) : (
                     <MaterialsFeed materials={materials} />
@@ -448,20 +446,19 @@ export function MinhaCelulaLider() {
                       </p>
                       <div className="chip-actions">
                         {CELL_SENSITIVE.map((f) => (
-                          <Button
+                          <DsButton
                             key={f.tipo}
-                            variant="default"
-                            size="sm"
+                            variant="secondary"
                             onClick={() => openSensitive(f.tipo)}
                           >
                             <Icon name="lock" />
                             <span>{f.label}</span>
-                          </Button>
+                          </DsButton>
                         ))}
-                        <Button variant="default" size="sm" onClick={() => setShowMult(true)}>
+                        <DsButton variant="secondary" onClick={() => setShowMult(true)}>
                           <Icon name="send" />
                           <span>Solicitar multiplicação</span>
-                        </Button>
+                        </DsButton>
                       </div>
                     </div>
                   </section>

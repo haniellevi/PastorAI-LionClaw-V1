@@ -300,7 +300,8 @@ a {
   font-size: 14px;
   overflow-wrap: anywhere;
 }
-.login-card .btn-block {
+.login-card .btn-block,
+.login-card .ds-btn--block {
   min-height: 48px;
 }
 .auth-link-button {
@@ -3014,7 +3015,8 @@ button.jr-row:focus-visible {
    .btn-sm ganhavam altura, e só abaixo de 640px. As abas já herdam os 44px de
    altura da .ds-tab da fundação. Acima de 768px o desktop fica intacto. */
 @media (max-width: 768px) {
-  .agenda .screen-head .actions .btn {
+  .agenda .screen-head .actions .btn,
+  .agenda .screen-head .actions .ds-btn {
     min-height: 44px;
     min-width: 44px;
   }
@@ -3049,7 +3051,8 @@ button.jr-row:focus-visible {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 44px 44px;
   }
-  .agenda .screen-head .btn-primary {
+  .agenda .screen-head .btn-primary,
+  .agenda .screen-head .ds-btn--primary {
     grid-column: 1 / -1;
     grid-row: 2;
   }
@@ -3605,11 +3608,17 @@ button.jr-row:focus-visible {
 .mc .chip-actions .ds-btn {
   white-space: nowrap;
 }
+/* Anterior/Próximo da Agenda são só-ícone: mantêm o respiro lateral do antigo
+   .btn-sm para caber nas colunas de 44px do cabeçalho mobile. */
+.agenda .screen-head .actions .agenda-nav-btn {
+  padding: 0 9px;
+}
 
 /* alvo de toque ≥44px no mobile pros controles de modal e selects */
 @media (max-width: 600px) {
   select,
   .modal-head .btn,
+  .modal-foot .ds-btn,
   .modal-foot .btn {
     min-height: 44px;
   }
@@ -4184,6 +4193,7 @@ table.data-table {
 
 @media (max-width: 860px) {
   .journey-screen .btn,
+  .journey-screen .ds-btn,
   .people-screen .btn,
   .cells-screen .btn,
   .g12-screen .btn,
@@ -7717,6 +7727,8 @@ table.data-table {
 }
 .admin-screen .btn:focus-visible,
 .operations-screen .btn:focus-visible,
+.admin-screen .ds-btn:focus-visible,
+.operations-screen .ds-btn:focus-visible,
 .profile-screen .ds-btn:focus-visible,
 .admin-screen .role-pick label:focus-within {
   outline: 2px solid var(--focus-ring);
@@ -8888,12 +8900,14 @@ table.data-table {
   outline-offset: 2px;
 }
 /* chips de dados sensíveis: secundários discretos com borda */
-.mc .chip-actions .btn {
+.mc .chip-actions .btn,
+.mc .chip-actions .ds-btn {
   background: transparent;
   border: 1px solid var(--border-emphasis);
   color: var(--text-primary);
 }
-.mc .chip-actions .btn:hover:not(:disabled) {
+.mc .chip-actions .btn:hover:not(:disabled),
+.mc .chip-actions .ds-btn:hover:not(:disabled) {
   background: var(--selection-soft);
   color: var(--action-primary);
 }

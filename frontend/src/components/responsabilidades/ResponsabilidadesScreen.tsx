@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/dashboard-api";
 import { fetchContactDetail } from "@/lib/contacts-api";
 import { fetchContactLookupPage, type ContactLookup } from "@/lib/lookup-api";
 import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
+import { DsButton } from "@/components/ds/Button";
 import {
   atribuirResponsabilidade,
   encerrarResponsabilidade,
@@ -275,12 +276,12 @@ export function ResponsabilidadesScreen() {
                 {formError}
               </p>
               <div className="responsabilidades-actions">
-                <button className="btn btn-primary" type="submit">
+                <DsButton type="submit">
                   {saving ? "Salvando…" : ending ? "Confirmar encerramento" : "Atribuir"}
-                </button>
-                <button className="btn" type="button" onClick={close}>
+                </DsButton>
+                <DsButton variant="secondary" onClick={close}>
                   Cancelar
-                </button>
+                </DsButton>
               </div>
             </fieldset>
           </form>
@@ -312,9 +313,9 @@ export function ResponsabilidadesScreen() {
         ) : error ? (
           <div role="alert">
             {error}{" "}
-            <button className="btn" onClick={() => setReload((v) => v + 1)}>
+            <DsButton variant="secondary" onClick={() => setReload((v) => v + 1)}>
               Tentar novamente
-            </button>
+            </DsButton>
           </div>
         ) : (
           <>
@@ -330,28 +331,28 @@ export function ResponsabilidadesScreen() {
                 </p>
                 {row.encerrada_em && <p>Encerramento registrado.</p>}
                 {!row.encerrada_em && (!row.fim || row.fim >= hoje) && (
-                  <button className="btn" disabled={saving} onClick={() => open(row)}>
+                  <DsButton variant="secondary" disabled={saving} onClick={() => open(row)}>
                     Encerrar
-                  </button>
+                  </DsButton>
                 )}
               </article>
             ))}
             <nav className="responsabilidades-actions" aria-label="Paginação do histórico">
-              <button
-                className="btn"
+              <DsButton
+                variant="secondary"
                 disabled={offset === 0 || saving}
                 onClick={() => setOffset((v) => Math.max(0, v - PAGE_SIZE))}
               >
                 Anterior
-              </button>
+              </DsButton>
               <span>Página {offset / PAGE_SIZE + 1}</span>
-              <button
-                className="btn"
+              <DsButton
+                variant="secondary"
                 disabled={rows.length <= PAGE_SIZE || saving}
                 onClick={() => setOffset((v) => v + PAGE_SIZE)}
               >
                 Próxima
-              </button>
+              </DsButton>
             </nav>
           </>
         )}

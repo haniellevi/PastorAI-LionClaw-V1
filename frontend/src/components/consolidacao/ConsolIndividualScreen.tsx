@@ -29,6 +29,7 @@ import { TrackModal } from "./TrackModal";
 import { useConsolidation } from "./useConsolidation";
 
 import "../contacts/people-ux-v2.css";
+import { DsButton } from "@/components/ds/Button";
 
 export function ConsolIndividualScreen() {
   const c = useConsolidation();
@@ -77,9 +78,8 @@ export function ConsolIndividualScreen() {
     {
       header: "Acompanhamento",
       cell: ({ contact }) => (
-        <button
-          type="button"
-          className="btn btn-sm"
+        <DsButton
+          variant="secondary"
           aria-label={`Abrir trilha de ${contact.nome}`}
           onKeyDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -88,7 +88,7 @@ export function ConsolIndividualScreen() {
           }}
         >
           Abrir trilha
-        </button>
+        </DsButton>
       ),
     },
   ];
@@ -104,10 +104,10 @@ export function ConsolIndividualScreen() {
           <p>Confira os registros e confirme a próxima etapa de cada pessoa.</p>
         </div>
         <div className="actions">
-          <button type="button" className="btn btn-primary" onClick={() => c.openDecision()}>
+          <DsButton onClick={() => c.openDecision()}>
             <Icon name="plus" />
             <span>Lançar decisão</span>
-          </button>
+          </DsButton>
         </div>
       </div>
 
@@ -117,9 +117,9 @@ export function ConsolIndividualScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{c.error}</span>
-          <button type="button" className="btn btn-sm" onClick={c.reload} disabled={c.loading}>
+          <DsButton variant="secondary" onClick={c.reload} disabled={c.loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -133,14 +133,13 @@ export function ConsolIndividualScreen() {
           <span role="status">
             {c.people.length} de {c.pipelineTotal} pessoas carregadas
           </span>
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             disabled={c.loadingMore || c.loading}
             onClick={() => void c.loadMore()}
           >
             {c.loadingMore ? "Carregando…" : "Carregar mais pessoas"}
-          </button>
+          </DsButton>
         </div>
       ) : null}
       <div className="people-work-list">
@@ -168,7 +167,7 @@ export function ConsolIndividualScreen() {
               ))}
             </div>
           ) : !c.loaded ? null : rows.length === 0 ? (
-            <div className="empty-state" style={{ padding: "var(--s6)" }}>
+            <div className="empty-state ds-p-6">
               <Icon name="consol-individual" />
               <p>
                 <strong>
@@ -205,15 +204,13 @@ export function ConsolIndividualScreen() {
                       {step.label}
                       {step.optional ? <span className="seg-chip">opcional</span> : null}
                     </div>
-                    <div className="sub" style={{ color: "var(--muted)" }}>
-                      {step.desc}
-                    </div>
+                    <div className="sub ds-muted">{step.desc}</div>
                   </div>
                 </div>
               );
             })}
           </div>
-          <p className="lock-note" style={{ marginTop: "var(--s3)" }}>
+          <p className="lock-note ds-mt-3">
             <Icon name="lock" />
             Concluídas todas as visitas, a pessoa é marcada como consolidada individual no registro.
             A gestão de turmas da Universidade da Vida ainda está indisponível.

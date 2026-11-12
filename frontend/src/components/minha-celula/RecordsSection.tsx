@@ -108,7 +108,7 @@ export function RecordsSection({
               const who = memberName(r.pessoa_id);
               return (
                 <div className="list-row" key={r.id}>
-                  <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="grow ds-min-w-0">
                     <div className="nm">{r.conteudo}</div>
                     {who ? <div className="sub">{who}</div> : null}
                   </div>

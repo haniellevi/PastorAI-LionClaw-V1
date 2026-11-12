@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Dialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { SessionExpiredError } from "@/lib/api";
 import { authedFetch } from "@/lib/dashboard-api";
 
@@ -110,9 +110,9 @@ function Requests({ token, personId, expireSession }: Props) {
   return (
     <section className="panel-section">
       <h4>Pedidos de exclusão</h4>
-      <Button size="sm" onClick={() => void refresh()} disabled={busy}>
+      <DsButton variant="secondary" onClick={() => void refresh()} disabled={busy}>
         Atualizar pedidos
-      </Button>
+      </DsButton>
       {items.map((row) => (
         <div key={row.id}>
           <p>
@@ -133,21 +133,20 @@ function Requests({ token, personId, expireSession }: Props) {
           {row.state === "pendente" ? (
             <>
               <p>Uso da memória suspenso até a decisão. O conteúdo ainda está preservado.</p>
-              <Button
-                size="sm"
+              <DsButton
                 variant="danger"
                 disabled={busy}
                 onClick={() => setChoice({ id: row.id, approve: true })}
               >
                 Aprovar exclusão
-              </Button>
-              <Button
-                size="sm"
+              </DsButton>
+              <DsButton
+                variant="secondary"
                 disabled={busy}
                 onClick={() => setChoice({ id: row.id, approve: false })}
               >
                 Recusar pedido
-              </Button>
+              </DsButton>
             </>
           ) : null}
           {row.state === "recusado" ? (
@@ -181,7 +180,8 @@ function Requests({ token, personId, expireSession }: Props) {
         }
         footer={
           <>
-            <Button
+            <DsButton
+              variant="secondary"
               disabled={busy}
               onClick={() => {
                 setChoice(null);
@@ -189,14 +189,14 @@ function Requests({ token, personId, expireSession }: Props) {
               }}
             >
               Cancelar
-            </Button>
-            <Button
-              variant={choice?.approve ? "danger" : "default"}
+            </DsButton>
+            <DsButton
+              variant={choice?.approve ? "danger" : "secondary"}
               loading={busy}
               onClick={() => void decide()}
             >
-              {choice?.approve ? "Confirmar exclusão" : "Confirmar recusa"}
-            </Button>
+              {busy ? "Carregando…" : choice?.approve ? "Confirmar exclusão" : "Confirmar recusa"}
+            </DsButton>
           </>
         }
       >

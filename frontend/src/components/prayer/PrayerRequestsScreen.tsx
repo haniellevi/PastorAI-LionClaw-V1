@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { prayerFetch, type PrayerRequest } from "./api";
+import { DsButton } from "@/components/ds/Button";
 const STATES = {
   open: "Novo",
   assigned: "Em acompanhamento",
@@ -72,14 +73,13 @@ export function PrayerRequestsScreen() {
             {STATES[row.state]} · {new Date(row.created_at).toLocaleDateString("pt-BR")}
           </p>
           <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{row.summary}</p>
-          <button
-            type="button"
-            className="btn"
+          <DsButton
+            variant="secondary"
             aria-expanded={selected === row.id}
             onClick={() => setSelected(selected === row.id ? null : row.id)}
           >
             Ver detalhes
-          </button>
+          </DsButton>
           {selected === row.id ? (
             <p>
               Compartilhamento autorizado:{" "}
@@ -93,24 +93,14 @@ export function PrayerRequestsScreen() {
           (row.state === "assigned" &&
             row.responsavel_id !== user?.appUserId &&
             user?.roles.includes("pastor")) ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busy === row.id}
-              onClick={() => void change(row.id, "assume")}
-            >
+            <DsButton disabled={busy === row.id} onClick={() => void change(row.id, "assume")}>
               Assumir
-            </button>
+            </DsButton>
           ) : null}
           {row.state === "assigned" && row.responsavel_id === user?.appUserId ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={busy === row.id}
-              onClick={() => void change(row.id, "close")}
-            >
+            <DsButton disabled={busy === row.id} onClick={() => void change(row.id, "close")}>
               Encerrar
-            </button>
+            </DsButton>
           ) : null}
         </article>
       ))}

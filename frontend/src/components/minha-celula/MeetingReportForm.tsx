@@ -171,14 +171,9 @@ export function MeetingReportForm({
       <div className="error-banner" role="alert">
         <Icon name="alert" />
         <span>{error}</span>
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() => void load("initial")}
-          disabled={loading}
-        >
+        <DsButton variant="secondary" onClick={() => void load("initial")} disabled={loading}>
           Tentar novamente
-        </button>
+        </DsButton>
       </div>
     );
   }

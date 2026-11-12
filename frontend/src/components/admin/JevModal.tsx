@@ -14,7 +14,6 @@ import "@/components/config/administration-ux-v2.css";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import {
   AdminSessionExpiredError,
   type AdminJevStatus,
@@ -23,6 +22,7 @@ import {
   saveJevConfig,
   testJev,
 } from "@/lib/admin-api";
+import { DsButton } from "@/components/ds/Button";
 
 export interface JevModalProps {
   token: string;
@@ -185,25 +185,22 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
       footer={
         loaded ? (
           <>
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={ocupado}>
+            <DsButton variant="secondary" onClick={onClose} disabled={ocupado}>
               Fechar
-            </button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
+            </DsButton>
+            <DsButton
+              variant="tertiary"
               loading={busy}
-              loadingText="Testando…"
               disabled={saving || !status?.configurado || !status?.enviosExternosPermitidos}
               onClick={() => void runTest()}
             >
-              Testar conexão
-            </Button>
+              {busy ? "Testando…" : "Testar conexão"}
+            </DsButton>
           </>
         ) : undefined
       }
     >
-      <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s2)" }}>
+      <p className="sub ds-muted ds-mb-2">
         Modo sombra: o Jev só registra probabilidades ao lado da decisão das regras; não muda rota,
         resposta, consentimento nem etapa. O que você salva aqui vale na hora, e campo vazio usa o
         ambiente do servidor. O guard <code>ALLOW_REAL_SENDS</code> e a URL da API ficam só no
@@ -225,9 +222,7 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
       {!loaded ? (
         <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
           <span className="spinner" aria-hidden="true" />
-          <div className="sub" style={{ marginTop: "var(--s2)" }}>
-            Carregando…
-          </div>
+          <div className="sub ds-mt-2">Carregando…</div>
         </div>
       ) : status ? (
         <>
@@ -235,7 +230,7 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
           <dl className="detail-list" style={{ display: "grid", gap: "var(--s2)", margin: 0 }}>
             <div>
               <dt className="sub">Integração com o agente</dt>
-              <dd style={{ margin: 0 }}>
+              <dd className="ds-m-0">
                 {status.integradoAoAgente
                   ? "Ligada: turnos das igrejas listadas geram eventos de sombra"
                   : "Não integrada: nenhum turno chama o Jev ainda, a lista não tem efeito"}
@@ -243,11 +238,11 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
             </div>
             <div>
               <dt className="sub">Chave de API</dt>
-              <dd style={{ margin: 0 }}>{descreverChave(status)}</dd>
+              <dd className="ds-m-0">{descreverChave(status)}</dd>
             </div>
             <div>
               <dt className="sub">Envios externos (ALLOW_REAL_SENDS)</dt>
-              <dd style={{ margin: 0 }}>
+              <dd className="ds-m-0">
                 {status.enviosExternosPermitidos
                   ? "Permitidos"
                   : "Desligados — nenhuma chamada ao Jev sai do servidor"}
@@ -255,13 +250,13 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
             </div>
             <div>
               <dt className="sub">Modelo</dt>
-              <dd style={{ margin: 0 }}>
+              <dd className="ds-m-0">
                 {status.modelo} · timeout {status.timeoutSegundos}s
               </dd>
             </div>
             <div>
               <dt className="sub">DPA com a TypeSafe</dt>
-              <dd style={{ margin: 0 }}>
+              <dd className="ds-m-0">
                 {status.dpaAssinadoEm
                   ? `Assinado em ${formatDia(status.dpaAssinadoEm)}`
                   : "Não informado"}
@@ -273,7 +268,7 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
                   ? "Igrejas em modo sombra"
                   : "Igrejas na lista (sem efeito até a integração)"}
               </dt>
-              <dd style={{ margin: 0 }}>
+              <dd className="ds-m-0">
                 {status.igrejas.length === 0 ? (
                   "Nenhuma (desligado)"
                 ) : (
@@ -293,10 +288,9 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
           </dl>
 
           <form
-            className="admin-section"
+            className="admin-section ds-mt-4"
             aria-label="Configuração do Jev"
             onSubmit={(e) => void salvar(e)}
-            style={{ marginTop: "var(--s4)" }}
           >
             <h3 style={{ margin: "0 0 var(--s3)" }}>Configuração</h3>
             <div className="field">
@@ -392,16 +386,9 @@ export function JevModal({ token, igrejas, onClose, onExpired }: JevModalProps) 
                   : "Libera depois de informar a data do DPA."}
               </div>
             </fieldset>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={saving}
-              loadingText="Salvando…"
-              disabled={busy}
-            >
-              Salvar configuração
-            </Button>
+            <DsButton type="submit" loading={saving} disabled={busy}>
+              {saving ? "Salvando…" : "Salvar configuração"}
+            </DsButton>
           </form>
         </>
       ) : null}
