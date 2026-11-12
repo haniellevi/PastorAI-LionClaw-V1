@@ -153,8 +153,8 @@ def reply_still_authorized(db,message,*,conversation,recipient_phone,instance):
 def mark_delivered(db, message):
     if message.agent_privilege_context.get("stage") == "handoff":
         from app.db.models import Conversation
-        from app.services.conversation_handoff import (
-            mark_conversation_for_handoff_locked,
+        from app.services.knowledge_gap_routing import (
+            route_unanswered_question_locked,
         )
 
         conv = db.scalar(
@@ -166,4 +166,5 @@ def mark_delivered(db, message):
             .with_for_update()
         )
         if conv is not None:
-            mark_conversation_for_handoff_locked(db, conversation=conv)
+            # Decisão 21: responsável do setor; sem ele, fila comum do admin.
+            route_unanswered_question_locked(db, conversation=conv)

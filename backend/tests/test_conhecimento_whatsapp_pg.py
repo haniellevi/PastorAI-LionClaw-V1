@@ -382,3 +382,55 @@ def test_quote_redaction_and_fingerprint_are_rolled_back_on_failure(knowledge_tu
         with p.factory.begin() as s:
             s.execute(text('drop trigger conhecimento_test_receipt_fail on conhecimento_exclusoes'))
             s.execute(text('drop function conhecimento_test_receipt_fail()'))
+
+
+def _knowledge_responsible(p, *, papel='operador'):
+    """Pessoa responsável pelo setor conhecimento_oficial, ligada ao usuário outsider."""
+    pessoa = uuid4()
+    with p.factory.begin() as s:
+        s.execute(text("insert into pessoas(id,igreja_id,nome,telefone) values(:p,:t,'Responsável sintético','sintetico-d21')"),
+                  dict(p=pessoa, t=p.v['t']))
+        s.execute(text('update app_users set pessoa_id=:p where id=:u'), dict(p=pessoa, u=p.v['outsider']))
+        s.execute(text('update user_roles set papel=:r where user_id=:u'), dict(r=papel, u=p.v['outsider']))
+        s.execute(text("insert into responsabilidades_setor(igreja_id,pessoa_id,setor,inicio,atribuida_por) "
+                       "values(:t,:p,'conhecimento_oficial',current_date - 1,:a)"),
+                  dict(t=p.v['t'], p=pessoa, a=p.v['uid']))
+
+
+def test_d21_gap_goes_to_configured_sector_responsible(knowledge_turn):
+    p = knowledge_turn
+    _knowledge_responsible(p)
+    _, r, t = send(p, 'CONHECIMENTO buscar termo inexistente')
+    assert len(t.calls) == 1 and 'Não encontrei informação oficial' in r.texto
+    with p.factory() as s:
+        conv = s.get(Conversation, p.conv)
+        assert (conv.estado, conv.assumido_por, conv.espera_desde) == ('humano', p.v['outsider'], None)
+
+
+def test_d21_gap_without_responsible_goes_to_admin_queue(knowledge_turn):
+    p = knowledge_turn
+    _, r, t = send(p, 'CONHECIMENTO buscar termo inexistente')
+    assert len(t.calls) == 1
+    with p.factory() as s:
+        conv = s.get(Conversation, p.conv)
+        assert conv.estado == 'humano' and conv.assumido_por is None and conv.espera_desde is not None
+
+
+def test_d21_responsible_without_inbox_role_is_refused_and_falls_back(knowledge_turn):
+    p = knowledge_turn
+    _knowledge_responsible(p, papel='membro')
+    send(p, 'CONHECIMENTO buscar termo inexistente')
+    with p.factory() as s:
+        conv = s.get(Conversation, p.conv)
+        assert conv.estado == 'humano' and conv.assumido_por is None and conv.espera_desde is not None
+
+
+def test_d21_answered_question_is_not_routed(knowledge_turn):
+    p = knowledge_turn
+    _knowledge_responsible(p)
+    document(p)
+    _, r, _ = send(p, 'CONHECIMENTO buscar orientação')
+    assert 'Orientação sintética aprovada' in r.texto
+    with p.factory() as s:
+        conv = s.get(Conversation, p.conv)
+        assert conv.estado == 'ia' and conv.assumido_por is None
