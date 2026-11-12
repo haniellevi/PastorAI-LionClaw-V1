@@ -801,6 +801,70 @@ Ferramenta: `deploy/first_transition_window.py` (modos `prepare`, `check`,
 `check-bindings`, `rehearse-backup`, `run` e `a10`). O modo `run` vai da
 contenção até a A9 numa execução só. O modo `a10` é uma execução separada.
 
+### 12.0 A VPS é compartilhada: a janela para só a Igreja 12
+
+A VPS de produção também roda outros sistemas do Raniel (leitura de
+12/11/2026): `olaki-whatsapp` (Evolution, Postgres e Redis próprios),
+`sites-api`, `site-emcorr` (PocketBase), `worker` do GravAI, o site Fowler
+(contêineres parados; o nginx encaminha para fora) e o serviço
+`hermes-gateway`. Cada sistema tem sua rede Docker, seus volumes e seu backup.
+A Igreja 12 usa só a rede `pastorai_default` e os contêineres `pastorai_*`;
+o banco dela é o Supabase, fora da VPS.
+
+Compartilhados com os outros: o nginx (portas 80/443, um processo para todos
+os sites), o daemon Docker, o firewall (ufw/nftables), o certbot e a CPU,
+memória e disco (1 CPU, 4 GB).
+
+O que a janela faz em cada um, e por que não atinge os outros:
+
+| Ação da janela | Alcance |
+|---|---|
+| Site em manutenção (503) | Só o `server` da API da Igreja 12, pelo `include` que existe só no arquivo dela. Antes de qualquer efeito a ferramenta recusa (`window-nginx-shared`) se outro arquivo incluir ou puder carregar a pasta da manutenção, ou se outro site usar o mesmo nome. |
+| `nginx -t` e `systemctl reload nginx` | Único efeito no nginx inteiro. É recarga sem queda; os arquivos dos outros sites não mudam. Se o `nginx -t` falhar, nada é recarregado. |
+| Bloqueio Evolution→backend | Tabela nftables própria (`bridge igreja12_window`) que só derruba a porta 8000 dentro da bridge da rede `pastorai_default`. Não mexe no ufw nem nas regras do Docker. |
+| Parar e religar processos | Só os quatro IDs fixos do manifesto, conferidos na rede da Igreja 12. Candidato com projeto Compose próprio e vazio; backup da janela com rede interna própria. |
+| Pausar o backup automático | Só o arquivo `/etc/cron.d/pastorai-backup` (passo J2). Os backups dos outros são timers próprios e continuam. |
+
+**Proibido na janela** (atinge todos os sistemas): `systemctl stop` ou
+`restart` de `nginx`, `docker`, `containerd` ou `cron`; `ufw`/`iptables`;
+`docker compose down` ou `docker system/network/volume prune`; reiniciar a VPS.
+
+**Edição única do site (passo V6, SIM próprio):** o certificado continua
+**dentro do arquivo da Igreja 12**, como o certbot deixou: nunca mover
+`ssl_certificate` para o `nginx.conf` ou `conf.d`, porque isso muda o
+certificado padrão dos outros sites. A pasta `/etc/nginx/igreja12-window`
+só pode ser incluída pelo site da Igreja 12; a ferramenta confere isso a
+cada observação.
+
+**Carga:** o backup da janela com restore em clone usa CPU e disco da mesma
+VPS. Os outros sistemas podem ficar mais lentos nesse trecho; o V7/J10 mostra
+se algum deixou de responder.
+
+#### Conferência dos outros sistemas (V7 antes, J10 depois; só leitura)
+
+Na VPS, gravar a foto antes da janela e repetir no fim:
+
+```bash
+umask 077
+{
+  sudo docker ps -a --format '{{.Names}} {{.State}}' | grep -v -e '^pastorai_' -e '^igreja12-' | sort
+  sudo docker ps -q | xargs sudo docker inspect -f '{{.Name}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' | grep -v -e '^/pastorai_' -e '^/igreja12-' | sort
+  for name in $(sudo nginx -T 2>/dev/null | grep -oP '^\s*server_name\s+\K[^;]+' | tr ' ' '\n' | grep -v -x -e '_' -e 'api.igreja12.com.br' | sort -u); do
+    printf '%s %s\n' "$name" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 --resolve "$name:443:127.0.0.1" "https://$name/")"
+  done
+  for url in http://127.0.0.1:8087/ http://127.0.0.1:8090/health http://127.0.0.1:18101/api/health; do
+    printf '%s %s\n' "$url" "$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$url")"
+  done
+  systemctl is-active hermes-gateway nginx docker cron
+} > ~/outros-sistemas-$(date -u +%Y%m%dT%H%MZ).txt
+```
+
+Comparar os dois arquivos (`diff`). Esperado: nenhuma diferença. O código
+HTTP de cada sistema é comparado com o dele mesmo antes da janela (alguns
+respondem 404 ou 500 na raiz por desenho). Qualquer diferença: parar, não
+reiniciar nada de outro sistema por conta própria e avisar o Raniel. O
+arquivo não tem segredo nem dado de pessoa; fica só na VPS.
+
 ### 12.1 Antes da janela (véspera)
 
 | Passo | O que acontece | SIM do Raniel |
@@ -811,13 +875,14 @@ contenção até a A9 numa execução só. O modo `a10` é uma execução separa
 | V4 | Aviso à equipe: todos serão deslogados; painel e WhatsApp ficam pausados durante a janela. | Raniel envia |
 | V5 | Pré-requisitos do painel (seção 12.5): Vercel CLI logada na conta certa, checkout limpo do SHA ligado ao projeto, variáveis conferidas por nome, publicação automática desligada e ID do deployment atual anotado. | dentro do SIM 1 (só leitura) |
 | V6 | Edição única do site nginx da API: pasta vazia `/etc/nginx/igreja12-window` (root, 0755) e a linha `include /etc/nginx/igreja12-window/*.conf;` logo após `server_name` no bloco 443, com backup, `nginx -t` e reload. Certificado, IPv6, cabeçalhos de proxy e o bloco de redirecionamento da porta 80 continuam como estão: a ferramenta aceita esse formato do certbot (seção "Topologia nginx nominal" do `RELEASE-LOTE-2026-10.md`). Na configuração dos bindings: `site_path` = `/etc/nginx/sites-available/pastorai-api-http` e `enabled_path` = `/etc/nginx/sites-enabled/pastorai-api-http` (é atalho na VPS, conferido em 12/11). | **SIM próprio** (edição na VPS) |
+| V7 | Foto dos outros sistemas da VPS (seção 12.0): contêineres, saúde e código HTTP de cada um. Tudo precisa estar respondendo antes de abrir a janela. | dentro do SIM 1 (só leitura) |
 
 ### 12.2 Janela
 
 | Passo | O que acontece | SIM do Raniel |
 |---|---|---|
 | J1 | Registrar início (UTC), operador, duração máxima em minutos e SHAs. `prepare` e conferência dos digests. | **SIM 2** (abrir a janela) |
-| J2 | Pausar o backup automático do host (cron M02) e confirmar que ninguém mais usa console, SQL Editor, MCP ou CLI do Supabase. | dentro do SIM 2 |
+| J2 | Pausar o backup automático do host (cron M02) **só da Igreja 12**: `sudo mv /etc/cron.d/pastorai-backup /root/pastorai-backup.cron.pausado` (nunca parar o serviço `cron` nem os timers dos outros sistemas) e confirmar que ninguém mais usa console, SQL Editor, MCP ou CLI do Supabase. | dentro do SIM 2 |
 | J3 | `run`: antes de tocar no sistema antigo, a ferramenta **fotografa os quatro gates de cada processo antigo** (`transition-gate-snapshot`). Valor desconhecido recusa aqui, antes de qualquer efeito. | **SIM 3** (o `run` inteiro, J3 a J6, inclui o ponto de não retorno) |
 | J4 | Bloqueia as duas entradas (site 503 e Evolution→backend), `restart=no`, SIGTERM e saída 0 dos quatro processos antigos; duas observações sem nenhuma escrita; linha de base das pendências (`transition-pending-baseline`); backup da janela com restore e replay em clone. | dentro do SIM 3 |
 | — | **Até aqui ainda dá para voltar ao sistema antigo** (`resume_legacy`). | — |
@@ -825,7 +890,8 @@ contenção até a A9 numa execução só. O modo `a10` é uma execução separa
 | J6 | 51 migrations, uma por vez; candidato criado parado; só o backend sobe, com envios fechados, e passa no smoke; workers continuam parados; entradas continuam bloqueadas (A9). O resultado imprime `a10_token`. | dentro do SIM 3 |
 | J7 | A10 (seção 12.3). | **SIM 4** (religar workers e envios como estavam) |
 | J8 | Publicar o painel no mesmo SHA do backend e fazer o smoke dele (seção 12.5). Se falhar, voltar só o painel ao deployment anterior. | **SIM 5** (publicar o painel; inclui voltar o painel se o smoke falhar) |
-| J9 | Religar o backup do host, conferir `AgentConfig` e Jev, registrar o encerramento. | — |
+| J9 | Religar o backup do host (`sudo mv /root/pastorai-backup.cron.pausado /etc/cron.d/pastorai-backup`, dono root e modo 644), conferir `AgentConfig` e Jev, registrar o encerramento. | — |
+| J10 | Repetir a foto dos outros sistemas (seção 12.0) e comparar com a do V7: nenhuma diferença. | — |
 
 **SIM 3** cobre o `run` inteiro: contenção, backup, migrations e A9. Como o
 `run` não para entre o backup e a primeira migration, dizer SIM 3 é aceitar o
@@ -902,8 +968,8 @@ primeira migration); o 5 é limite técnico registrado.
 2. **WhatsApp e cobranças que chegarem durante a janela:** as entradas
    respondem 503. Não está verificado se a Evolution e o Asaas reenviam depois;
    mensagens e avisos de pagamento podem se perder.
-3. **Backup automático da VPS:** precisa ser pausado antes do J2 e religado no
-   J9. Um `pg_dump` durante as migrations pode segurar lock e fazer uma
+3. **Backup automático da VPS:** precisa ser pausado no J2 e religado no
+   J9 (só o arquivo da Igreja 12; seção 12.0). Um `pg_dump` durante as migrations pode segurar lock e fazer uma
    migration falhar (`lock_timeout` de 2 s), o que para a janela depois do
    ponto de não retorno.
 4. **Depois da primeira migration não há volta ao sistema antigo:** só manter

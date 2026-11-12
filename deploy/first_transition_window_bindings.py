@@ -11,6 +11,10 @@ ingress ones an ``entry``, and every method takes ``(scope, *, timeout)``.
   probes the real server block through 127.0.0.1 with the public name: ``blocked`` needs the exact
   snippet and a 503 carrying the marker, ``open`` needs no snippet and no marker; anything else
   refuses. The one-time include edit of the production site is NOT done here.
+  nginx is shared with other systems of the same VPS: the reload is the only host-wide effect
+  (graceful; their files are untouched), the site keeps its OWN certificate lines (never moved
+  to the shared ``http`` context) and the snippet path must be reachable only through the one
+  include of this site; any other include that could load it refuses (``window-nginx-shared``).
 * ``BridgePortIngress`` (entry ``evolution-backend``): Evolution reaches the backend over the
   shared Docker bridge, and without br_netfilter bridged frames never cross iptables (so a
   DOCKER-USER rule would not see them). The block is therefore an nftables ``bridge`` family
@@ -36,6 +40,8 @@ construction. Tests use fakes and synthetic namespaces only.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import fnmatch
+import glob
 import ipaddress
 import json
 import os
@@ -168,6 +174,58 @@ class NginxConfig:
     @property
     def include_line(self):
         return 'include ' + self.include_dir + '/*.conf;'
+
+
+NGINX_PREFIX = '/etc/nginx/'
+LETSENCRYPT_OPTIONS = '/etc/letsencrypt/options-ssl-nginx.conf'
+GLOB_CHARS = frozenset('*?[')
+
+
+def _include_target(argument):
+    """Absolute, normalized and symlink-resolved form of one ``include`` argument.
+
+    Quotes are removed as nginx does; ``..``, ``.`` and repeated slashes are normalized and the
+    literal directory prefix is resolved through symlinks. Variables and escapes cannot be judged
+    statically and refuse.
+    """
+    if len(argument) >= 2 and argument[0] == argument[-1] and argument[0] in '"\'':
+        argument = argument[1:-1]
+    require(argument and not set(argument) & set('"\'\\$'), 'window-nginx-shared')
+    path = os.path.normpath(argument if argument.startswith('/') else NGINX_PREFIX + argument)
+    parts = path.split('/')
+    literal = next((i for i, part in enumerate(parts) if set(part) & GLOB_CHARS), len(parts))
+    prefix = os.path.realpath('/'.join(parts[:literal]) or '/')
+    return '/'.join([prefix.rstrip('/'), *parts[literal:]]) if literal < len(parts) else prefix
+
+
+def _glob_reaches(argument, path):
+    """Whether an nginx ``include`` argument (glob, relative to the prefix) can load ``path``.
+
+    The file name is matched against the last component; every directory the pattern can reach
+    is expanded on disk (as nginx's glob does, following symlinks) and compared by real path, so a
+    symlink reached through a wildcard directory component also counts.
+    """
+    directory, name = _include_target(argument).rsplit('/', 1)
+    folder, filename = os.path.realpath(path).rsplit('/', 1)
+    if not fnmatch.fnmatchcase(filename, name):
+        return False
+    candidates = glob.glob(directory) if set(directory) & GLOB_CHARS else [directory]
+    return any(os.path.realpath(candidate) == folder for candidate in candidates)
+
+
+def _shared_nginx_guard(effective, config, snippet):
+    """The maintenance snippet can only reach THIS site: no other include can load it, and the
+    shared certbot options file carries TLS settings only, never routing."""
+    plain = re.sub(r'#[^\n]*', '', effective)
+    includes = re.findall(r'(?:^|[;{}\s])include\s+("[^"]*"|\'[^\']*\'|[^;{}\s]+)\s*;', plain)
+    require(sum(1 for argument in includes if _glob_reaches(argument, str(snippet))) == 1
+            and plain.count(config.include_line) == 1, 'window-nginx-shared')
+    marker = '# configuration file ' + LETSENCRYPT_OPTIONS + ':\n'
+    if marker in effective:
+        options = effective.split(marker, 1)[1].split('# configuration file ', 1)[0]
+        require(all(line.startswith('ssl_') and line.endswith(';') and not set(line) & set('{}')
+                    for line in (raw.strip() for raw in options.splitlines()) if line and not line.startswith('#')),
+                'window-nginx-topology')
 
 
 CERTBOT_SUFFIX = re.compile(r'[ \t]+# managed by Certbot$')
@@ -323,6 +381,7 @@ class NginxMaintenanceIngress(_Binding):
         # optional port-80 redirect), never in any other effective file.
         require(self._name_count(selected) == servers and self._name_count(outside) == 0,
                 'window-nginx-topology')
+        _shared_nginx_guard(effective, self.config, self.snippet)
 
     def _name_count(self, config_text):
         return sum(self.config.server_name.lower() in [token.strip("'\"").lower() for token in names.split()]

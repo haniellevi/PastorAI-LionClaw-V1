@@ -70,6 +70,7 @@ class Nginx:
     def __init__(self, snippet, test_rc=0):
         self.snippet, self.test_rc, self.live, self.calls = snippet, test_rc, False, []
         self.loaded = None  # path nginx -T prints (sites-enabled symlink), default the site itself
+        self.extra = ''  # other files of the shared nginx, as ``nginx -T`` prints them
 
     def __call__(self, argv, *, timeout, stdin=None):
         self.calls.append(argv)
@@ -77,7 +78,8 @@ class Nginx:
         if argv[0].endswith('nginx'):
             if argv[1:] == ('-T',):
                 site = self.snippet.parent.parent / 'site'
-                return 0, ('# configuration file ' + str(self.loaded or site) + ':\n' + site.read_text()).encode()
+                return 0, ('# configuration file ' + str(self.loaded or site) + ':\n' + site.read_text()
+                           + self.extra).encode()
             assert argv[1:] == ('-t', '-q')
             return self.test_rc, b''
         if argv[0].endswith('systemctl'):
@@ -235,6 +237,78 @@ def test_nginx_certbot_production_shape_without_include_refuses(tmp_path):
     with pytest.raises(Refused, match='^window-nginx-include-missing$'):
         ingress.verify_topology(timeout=5)
     assert fake.calls == []
+
+
+OPTIONS = ('# configuration file /etc/letsencrypt/options-ssl-nginx.conf:\n# synthetic certbot options\n'
+           'ssl_session_cache shared:le_nginx_SSL:10m;\nssl_protocols TLSv1.2 TLSv1.3;\n')
+# Other systems of the same VPS, each with its own server block and certificate.
+NEIGHBOURS = ('# configuration file /etc/nginx/sites-enabled/other-a:\nserver {\n    listen 443 ssl;\n'
+              '    server_name a.example.test;\n    ssl_certificate /srv/a/fullchain.pem;\n'
+              '    location / { proxy_pass http://127.0.0.1:8087; }\n}\n'
+              '# configuration file /etc/nginx/sites-enabled/other-b:\nserver {\n    listen 80;\n'
+              '    server_name b.example.test;\n    include /etc/nginx/proxy_params;\n    return 404;\n}\n')
+
+
+def _shared(tmp_path, extra=OPTIONS + NEIGHBOURS):
+    ingress, fake = _nginx(tmp_path, site=CERTBOT_SITE)
+    fake.extra = '\n' + extra
+    return ingress, fake
+
+
+def test_nginx_certbot_site_beside_other_systems_round_trips_touching_only_its_snippet(tmp_path):
+    ingress, fake = _shared(tmp_path)
+    assert ingress.observe(SCOPE, timeout=5) == 'open'
+    assert ingress.block(SCOPE, timeout=5) is True and ingress.observe(SCOPE, timeout=5) == 'blocked'
+    assert ingress.open(SCOPE, timeout=5) is True and ingress.observe(SCOPE, timeout=5) == 'open'
+    # The only host-wide effect is the graceful reload; no other file is ever written.
+    effects = {c[1:] for c in fake.calls if not c[0].endswith('curl')}
+    assert effects == {('-T',), ('-t', '-q'), ('reload', 'nginx.service')}
+    assert sorted(os.listdir(tmp_path)) == ['igreja12-window', 'site']
+
+
+@pytest.mark.parametrize('extra', [
+    # another system includes the maintenance folder: its site would also answer 503
+    NEIGHBOURS.replace('    return 404;', '    include {dir}/*.conf;\n    return 404;'),
+    # a broader glob elsewhere could load the snippet too
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/*'),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/maintenance.conf'),
+    # quoted or non-normalized forms nginx still resolves to the maintenance folder
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '"{dir}/*.conf"'),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', "'{dir}/*.conf'"),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{dir}/../igreja12-window//./*.conf'),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{link}/*.conf'),
+    # a symlink reached through a wildcard directory component
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '{aliases}/*/*.conf'),
+    # forms that cannot be judged statically refuse
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '/etc/nginx/$site/*.conf'),
+    NEIGHBOURS.replace('/etc/nginx/proxy_params', '"/etc/nginx/a\\\\ b/*.conf"'),
+])
+def test_nginx_snippet_reachable_from_another_system_refuses_before_any_effect(tmp_path, extra):
+    ingress, fake = _shared(tmp_path)
+    (tmp_path / 'alias').symlink_to(ingress.config.include_dir)  # another name for the same folder
+    (tmp_path / 'aliases').mkdir()
+    (tmp_path / 'aliases' / 'other').mkdir()
+    (tmp_path / 'aliases' / 'window').symlink_to(ingress.config.include_dir)
+    fake.extra = '\n' + OPTIONS + extra.replace('{dir}', ingress.config.include_dir).replace(
+        '{link}', str(tmp_path / 'alias')).replace('{aliases}', str(tmp_path / 'aliases'))
+    for operation in ('observe', 'block', 'open'):
+        with pytest.raises(Refused, match='^window-nginx-shared$'):
+            getattr(ingress, operation)(SCOPE, timeout=5)
+    assert all(c[1:] == ('-T',) for c in fake.calls) and not ingress.snippet.exists()
+
+
+def test_nginx_wildcard_directories_of_other_systems_that_never_reach_the_window_pass(tmp_path):
+    ingress, fake = _shared(tmp_path)
+    (tmp_path / 'aliases' / 'other').mkdir(parents=True)
+    fake.extra = '\n' + OPTIONS + NEIGHBOURS.replace('/etc/nginx/proxy_params', str(tmp_path / 'aliases') + '/*/*.conf')
+    assert ingress.block(SCOPE, timeout=5) is True and ingress.open(SCOPE, timeout=5) is True
+
+
+def test_nginx_shared_certbot_options_with_routing_refuses(tmp_path):
+    ingress, fake = _shared(tmp_path, OPTIONS + 'return 200;\n' + NEIGHBOURS)
+    with pytest.raises(Refused, match='^window-nginx-topology$'):
+        ingress.block(SCOPE, timeout=5)
+    assert not ingress.snippet.exists() and not any(c[0].endswith('systemctl') for c in fake.calls)
 
 
 CERTBOT_FAULTS = {

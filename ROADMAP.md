@@ -25,6 +25,7 @@ roteiro e dos registros históricos que digam o contrário.
   na janela, WhatsApp/cobranças chegando na janela e pausa do backup da VPS
   (runbook §12.4).
 - Leitura técnica de produção (sem dados de pessoas) autorizada.
+- A VPS de produção é compartilhada com outros sistemas do Raniel (olaki, sites-api, emcorr, GravAI, Fowler, hermes): a janela e os releases tocam só a Igreja 12 (runbook §12.0).
 - Painel (frontend) novo vai ao ar na mesma janela, logo após a A10, com o
   mesmo SHA do backend e SIM próprio (SIM 5); passo e volta: runbook §12.5.
 - Antes de PROD, rodar o ensaio sintético existente; DEV online fica para depois.
