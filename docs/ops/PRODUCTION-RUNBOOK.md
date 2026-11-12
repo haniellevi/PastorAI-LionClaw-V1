@@ -876,6 +876,8 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 | V5 | Pré-requisitos do painel (seção 12.5): Vercel CLI logada na conta certa, checkout limpo do SHA ligado ao projeto, variáveis conferidas por nome, publicação automática desligada e ID do deployment atual anotado. | dentro do SIM 1 (só leitura) |
 | V6 | Edição única do site nginx da API: pasta vazia `/etc/nginx/igreja12-window` (root, 0755) e a linha `include /etc/nginx/igreja12-window/*.conf;` logo após `server_name` no bloco 443, com backup, `nginx -t` e reload. Certificado, IPv6, cabeçalhos de proxy e o bloco de redirecionamento da porta 80 continuam como estão: a ferramenta aceita esse formato do certbot (seção "Topologia nginx nominal" do `RELEASE-LOTE-2026-10.md`). Na configuração dos bindings: `site_path` = `/etc/nginx/sites-available/pastorai-api-http` e `enabled_path` = `/etc/nginx/sites-enabled/pastorai-api-http` (é atalho na VPS, conferido em 12/11). | **SIM próprio** (edição na VPS) |
 | V7 | Foto dos outros sistemas da VPS (seção 12.0): contêineres, saúde e código HTTP de cada um. Tudo precisa estar respondendo antes de abrir a janela. | dentro do SIM 1 (só leitura) |
+| V8 | Preparar a VPS com o kit (seção 12.6): ferramenta no SHA aprovado, três arquivos de configuração, pastas do backup, imagem do Postgres, arquivo privado do aplicador, correção da linha repetida no arquivo do candidato e `prepare-layout`. Não toca no sistema antigo, no banco, no nginx nem nos gates. | **SIM próprio** (escrita na VPS) |
+| V9 | Conferências sem efeito com o kit instalado: `prepare`, `check` (duas leituras do banco) e `check-bindings`; ensaio do backup da janela (`rehearse-backup`: cópia do banco, restore e as 51 migrations num clone isolado, na própria VPS). | dentro do SIM V8 |
 
 ### 12.2 Janela
 
@@ -913,11 +915,16 @@ adiante ou restaurar o backup da janela continuam exigindo SIM próprio.
 
 ### 12.3 A10: workers e envios de volta como estavam
 
-Comando (só depois do SIM 4; o token é o `a10_token` impresso pela A9):
+Comando (só depois do SIM 4; o token é o `a10_token` impresso pela A9;
+variáveis `$PY`, `$T` e `$ARGS` da seção 12.6):
 
 ```bash
-python3 -I deploy/first_transition_window.py a10 --config <config.json> --env-file <arquivo-privado> --env-var MIGRATION_DATABASE_URL --backup-config <backup.json> --bindings-config <bindings.json> --expect-plan-digest <plan> --expect-window-digest <window> --a10-token <a10_token>
+$PY -E -s $T a10 $ARGS --expect-plan-digest <plan> --expect-window-digest <window> --a10-token <a10_token>
 ```
+
+Não usar `python3 -I` com o caminho do script: o `-I` tira a pasta do script
+do caminho de importação e a ferramenta nem carrega. `-E -s` ignora variáveis
+`PYTHON*` e pacotes do usuário, que é o que se quer.
 
 O que a A10 faz, em ordem:
 
@@ -1039,3 +1046,138 @@ da A10 e o aviso V4 pedindo que a equipe só use o painel depois do smoke do J8.
 Manter o site em manutenção até o J8 não é possível sem mudar a A10, que reabre
 as entradas do WhatsApp e do site juntas; pelo resultado acima, não é
 necessário.
+
+### 12.6 Kit e roteiro do dia
+
+Preparado em 12/11/2026 com leitura só de metadados da VPS e do banco (nada
+alterado). **Dois SHAs diferentes, por desenho:**
+
+- **Backend publicado:** `afdfb78d71a53f2861632806e13cdda4662d7d63`, fixo na
+  ferramenta (`APPLICATION_SHA`; aplicador `37c7d68d`). Outro SHA é recusado
+  (`unreviewed-release`). As 51 migrations são as mesmas da `main`; as
+  correções de backend feitas depois de `afdfb78d` só entram no release
+  seguinte.
+- **Ferramenta e painel:** o SHA da `main` que contém esta seção (`<SHA>`
+  abaixo). Os quatro checks e o `synthetic-release` precisam estar verdes nele
+  (V3).
+
+**Kit (onde cada item fica na VPS):**
+
+| Item | Local na VPS | Estado em 12/11 |
+|---|---|---|
+| Ferramenta no `<SHA>` (só a pasta `deploy/`) | `/opt/pastorai-releases/tool-<SHA>/deploy` | falta copiar (V8) |
+| Repositório com os blobs de `afdfb78d` e `37c7d68d` | `/opt/pastorai-releases/repo` | pronto (clone de 31/10) |
+| Python 3.13 com psycopg2 2.x | `/var/lib/pastorai-first-transition/venv/bin/python` | pronto (3.13.15, 2.9.12) |
+| Configuração da transição | `/var/lib/pastorai-first-transition/window/first-transition.json` | gerado no kit; falta copiar |
+| Configuração do backup da janela | `/var/lib/pastorai-first-transition/window/backup.json` | gerado no kit; falta copiar |
+| Configuração das entradas e escritores | `/var/lib/pastorai-first-transition/window/bindings.json` | gerado no kit; falta copiar |
+| Pastas do backup e do clone (root, 0700) | `/var/lib/pastorai-first-transition/window-backups` e `.../clone-work` | falta criar |
+| Imagem do backup e do clone | `postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929` (a mesma do CI) | falta baixar |
+| Imagem do candidato | `sha256:b795374e…501c` (`pastorai-backend:afdfb78d`, revisão `afdfb78d`) | pronta |
+| Pacote do backend | igual ao gerado pela ferramenta do repositório; manifesto `08c7696f…cbb`, tarball `5780362531fc8550c3e71cb6a99f4c4170694999263b1d86edf2b2d948116b7d` | pronto (`/var/lib/pastorai-first-transition/package`) |
+| Layout do candidato e arquivo de espera da A9 | `/opt/pastorai-releases/afdfb78d…/` e `/var/lib/pastorai-first-transition/state/a9-hold.override.yml` | falta (`prepare-layout`, V8) |
+| Arquivo privado do candidato | `/opt/pastorai-lionclaw/deploy/.env.v2` (root 0600) | existe; tem `ALLOW_REAL_SENDS=false` repetido: corrigir no V8 |
+| Arquivo privado do aplicador | `/root/igreja12-janela.conf` (root 0600, uma linha `MIGRATION_DATABASE_URL=`) | falta; criado no V8 a partir do `DATABASE_URL` do `.env.v2`, sem ninguém ver o valor |
+| Diário da janela | `/var/lib/pastorai-first-transition/state/journal` | vazio (não pode existir diário velho) |
+
+Valores lidos em 12/11 que já estão nos arquivos: daemon `cca7e973…`, rede
+`pastorai_default` (`3f9e8901…`, ponte `br-3f9e89014eac`), os quatro IDs
+antigos e os três de apoio (iguais aos de 31/10), identidade do banco
+`9b48b837…` e catálogo `b561d41f…` (o de 31/10 era de uma versão anterior da
+consulta), 78 migrations no ledger, banco com 23 MB, PostgreSQL 17.6.
+
+**Fatos de 12/11 que pedem atenção:**
+
+1. O `broadcast-worker` antigo tem `ALLOW_REAL_SENDS=true` duas vezes. A
+   ferramenta agora trata o valor repetido igual como um só; valores
+   diferentes continuam recusando.
+2. Na sessão do aplicador (`postgres` pelo pooler, porta 5432):
+   `statement_timeout` = **2 min**, `lock_timeout` = 0, sem superusuário,
+   com BYPASSRLS e CREATEROLE. Pela regra do V1, decidir antes do SIM 3:
+   com 23 MB de banco nenhuma migration deve chegar perto de 2 min, e o
+   ensaio V9 mede isso no clone. Se alguma passar de 60 s no clone, parar e
+   decidir antes da janela.
+
+#### Preparação (V8, SIM próprio; V9 dentro dele)
+
+No computador do operador, com o checkout na `main` em `<SHA>`:
+
+```bash
+git archive --format=tar <SHA> deploy | ssh vps "sudo install -d -m 755 /opt/pastorai-releases/tool-<SHA> && sudo tar -x --no-same-owner -C /opt/pastorai-releases/tool-<SHA>"
+```
+
+```bash
+scp first-transition.json backup.json bindings.json vps:/tmp/
+```
+
+Na VPS (`ssh vps`, depois `sudo -i`):
+
+```bash
+W=/var/lib/pastorai-first-transition
+install -d -m 700 $W/window $W/window-backups $W/clone-work
+install -m 600 /tmp/first-transition.json /tmp/backup.json /tmp/bindings.json $W/window/ && rm /tmp/first-transition.json /tmp/backup.json /tmp/bindings.json
+docker pull postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
+B=/root/env.v2.bak-$(date -u +%Y%m%dT%H%M)
+cp -p /opt/pastorai-lionclaw/deploy/.env.v2 $B
+awk '!(/^ALLOW_REAL_SENDS=false$/ && seen++)' $B > /opt/pastorai-lionclaw/deploy/.env.v2
+grep -c '^ALLOW_REAL_SENDS=' /opt/pastorai-lionclaw/deploy/.env.v2
+(umask 077; grep -E '^DATABASE_URL=' /opt/pastorai-lionclaw/deploy/.env.v2 | sed 's/^DATABASE_URL=/MIGRATION_DATABASE_URL=/' > /root/igreja12-janela.conf)
+stat -c '%U %a' /opt/pastorai-lionclaw/deploy/.env.v2 /root/igreja12-janela.conf
+```
+
+Esperado: o `grep -c` mostra `1`; os dois arquivos `root 600`.
+
+Variáveis usadas em todos os comandos seguintes (na VPS, como root):
+
+```bash
+PY=/var/lib/pastorai-first-transition/venv/bin/python
+T=/opt/pastorai-releases/tool-<SHA>/deploy/first_transition_window.py
+W=/var/lib/pastorai-first-transition/window
+ARGS="--config $W/first-transition.json --backup-config $W/backup.json --bindings-config $W/bindings.json --env-file /root/igreja12-janela.conf --env-var MIGRATION_DATABASE_URL"
+```
+
+Layout do candidato e conferências (V9):
+
+```bash
+$PY -E -s $T prepare-layout --config $W/first-transition.json
+$PY -E -s $T prepare $ARGS
+$PY -E -s $T check $ARGS
+$PY -E -s $T check-bindings $ARGS
+$PY -E -s $T rehearse-backup $ARGS
+```
+
+Esperado: `prepare-layout` com `files` 144; `prepare` imprime `plan_digest`
+e `window_digest` (anotar os dois); `check` com `same_database` e `ddl_free`
+`ok` nas duas leituras; `check-bindings` com as duas entradas `open` e
+`unknown_writers` 0; `rehearse-backup` termina com recibo e as 51 migrations
+no clone. Qualquer `refused`: parar e trazer o código para a equipe; nada foi
+alterado no sistema antigo. O `rehearse-backup` guarda uma cópia do banco em
+`window-backups` (root 0700); ela fica até o fim da janela.
+
+#### Roteiro do dia
+
+Horário de exemplo: início às 10:00 (Brasília), em dia útil. Duração prevista
+do SIM 2 ao fim: cerca de **80 min**; reservar **2 h**. Duração máxima a
+registrar no J1: 120 min. Em todos os passos, os comandos rodam na VPS como
+root com as variáveis acima.
+
+| Hora | Passo | Duração | Comando que o operador dispara | Se falhar |
+|---|---|---|---|---|
+| 09:30 | V4 lembrado, V7 foto dos outros sistemas | 10 min | bloco da seção 12.0 | Algum outro sistema fora do ar: não abrir a janela. |
+| 10:00 | **SIM 2** — J1 abrir a janela | 5 min | `$PY -E -s $T prepare $ARGS` e conferir que os digests são os do V9; registrar início UTC, operador, 120 min e SHAs | Digest diferente: parar; algo mudou desde a véspera. |
+| 10:05 | J2 pausar só o backup da Igreja 12 | 2 min | `mv /etc/cron.d/pastorai-backup /root/pastorai-backup.cron.pausado` | Se não existir, conferir com `ls /etc/cron.d/` e anotar. Nunca parar o serviço `cron`. |
+| 10:07 | **SIM 3** — J3 a J6 (`run`, inclui o ponto de não retorno) | 20–35 min | `$PY -E -s $T run $ARGS --expect-plan-digest <plan> --expect-window-digest <window>` | Saída com `refused`: ler `recovery.state`. Antes da DDL (`contained-pre-ddl`, `backup-window-used`): a equipe decide `resume_legacy` (volta o sistema antigo). Depois da DDL: tudo fica contido (site em manutenção, nada enviado); nada de reiniciar, restaurar ou voltar sem SIM próprio. |
+| 10:40 | anotar `a10_token` do resultado | 1 min | — | Resultado sem `a10_token`: não seguir para a A10. |
+| 10:42 | **SIM 4** — J7 A10 | 5–10 min | `$PY -E -s $T a10 $ARGS --expect-plan-digest <plan> --expect-window-digest <window> --a10-token <a10_token>` | A ferramenta contém sozinha (site em manutenção, workers parados). Não repetir nem reabrir por conta própria; repetir o mesmo comando só se ela parou no meio (retoma do diário). |
+| 10:52 | **SIM 5** — J8 painel | 15 min | no computador do operador: `cd <pasta>/frontend` e `vercel --prod` (seção 12.5) | Smoke falhou: `vercel rollback <deployment anotado no V5>`; backend e gates ficam como estão. |
+| 11:07 | J9 religar o backup e conferir | 5 min | `mv /root/pastorai-backup.cron.pausado /etc/cron.d/pastorai-backup && chown root:root /etc/cron.d/pastorai-backup && chmod 644 /etc/cron.d/pastorai-backup` | Se o arquivo não voltar, o backup diário de amanhã não roda: corrigir no mesmo dia. |
+| 11:12 | J10 foto dos outros sistemas e `diff` com a das 09:30 | 10 min | bloco da seção 12.0 | Diferença: não mexer em outro sistema; avisar o Raniel. |
+| 11:22 | Encerramento | — | registrar horários, resultado do `run`, da A10 e do J8 | — |
+
+**Painel (J8):** publicar **somente** no projeto Vercel
+`pastorai-frontend-prod`, a partir de um checkout limpo do `<SHA>` ligado a
+ele por `vercel link` (seção 12.5). Nunca criar projeto novo nem usar o
+projeto antigo `pastorai-frontend`.
+
+O kit gerado (três JSON, tarball do backend e notas) fica fora do Git, com a
+equipe; o caminho exato está na descrição da PR que criou esta seção.
