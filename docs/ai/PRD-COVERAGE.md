@@ -2,12 +2,39 @@
 project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
-last_verified: 2026-09-05
-audited_repository_sha: 64838cd3f1c6604ef091a940e19f704616d500b3
+last_verified: 2026-11-12
+audited_repository_sha: 244a7d9ab4b90b73c7598a8600918de25214fcb6
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
 # Cobertura atual do PRD e da visão WhatsApp-first
+
+Reclassificação de 12/11/2026 sobre a `main` `244a7d9a`: a "Matriz do produto"
+e as listas "Ausente" e "Formação e Jornada G12" abaixo foram refeitas pelo
+código atual (conferido com `rg`) e pelo [ROADMAP](../../ROADMAP.md). Os
+recortes datados entre 22/09 e 02/10 e as seções técnicas de setembro seguem
+como histórico. "Implementado" cobre só código na `main`; nenhuma linha prova
+migration aplicada, deploy ou ativação em produção, que ficam **não verificados**.
+
+Lacunas restantes do PRD em 12/11/2026 (uma por linha):
+
+- RF-26: gerador de alertas configurável com os gatilhos decididos em 12/11.
+- RF-33: executores das ações e dos gatilhos dos agendamentos do agente (hoje só SLA).
+- RF-47: interface do assistente do sistema no painel.
+- RF-49: provisionamento automático da igreja após pagamento confirmado.
+- Decisão 21: encaminhar dúvida sem resposta ao responsável do setor e ao admin.
+- B3: remover da configuração a opção de acesso customizado à inbox.
+- B4: bloquear opt-out no envio humano; visitante em reunião passada só no painel.
+- Memória: checkpoint durável do LangGraph e provisionamento dos logins dedicados.
+- Especialistas completos por área no WhatsApp (Central e demais) e plataforma genérica de propostas.
+- Outbox única também para SLA e broadcast; quiet hours não verificado.
+- Agenda: definir "G2b", credencial Google por igreja e conciliar EVT-7.
+- Consentimento por finalidade e governança E4B/D3/D6/D2A (retomar após a primeira publicação).
+- MFA no console, cookie HttpOnly e CSP bloqueando.
+- Observabilidade: métricas por rota, retenção e metas de serviço.
+- Acessibilidade e desempenho de campo; B17 (banco em São Paulo).
+- Corridas a diagnosticar em `uv_matriculas` e `cd_turmas`.
+- Aceite pastoral das 20 conversas e do G12 (após o deploy, sem bloquear o desenvolvimento).
 
 Recorte V1b de 27/09/2026: [candidato de áudio](../sprints/2026-09-27-v1b-relatorio-celula-audio.md)
 implementado e validado localmente sobre PR430 `a8bf21d`, com aceite separado/versionado e retenção
@@ -139,38 +166,43 @@ significa ativa em produção.
 
 | Domínio | Estado | Evidência no repositório | Lacuna para a visão aprovada |
 |---|---|---|---|
-| Autenticação, RBAC e tenant | `IMPLEMENTADO / D2A INTEGRADA E INATIVA` | D1A integrada e aplicada em DEV; a PR #313 integrou a fronteira privada D2A no SHA auditado | A integração não aplicou migration compartilhada, não provisionou credencial, não conectou o runtime, não fez deploy manual ou do backend, não promoveu a produção e não ativou o agente; houve somente preview automático da PR |
-| Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
-| Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
-| Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE / SESSÃO DEDICADA INTEGRADA EM MAIN E INATIVA / PROJEÇÃO PRIVADA READ-ONLY OFFLINE` | LangGraph stateless, contexto confiável D2B1, fronteira de sessão dedicada e adaptador read-only da projeção integrados localmente; a conexão dedicada é selecionada explicitamente e falha fechada sem URL, enquanto reserva V2, locks web, UoW de staging e coordenador offline fail-closed continuam sem caller | Revisão independente do manifesto; função/migration SQL da projeção, writers mínimos, atestação posterior, caller confiável, consentimento operacional, commit externo, despacho, saver, receipts globais, primeira execução genérica, memória, conhecimento e operação permanecem bloqueados |
-| Isolamento da memória | `PARCIAL / FATIA 3 CANDIDATA E DESLIGADA` | Resumo operacional privado por conversa, com igreja/pessoa do servidor, FKs compostas, FORCE RLS, correção vigente, reserva mensal atômica e exclusão propagada; provedores simulados e PG sintético. Sem consumer no prompt, WhatsApp, agregação ou checkpoint | Revisão RLS/migration/privacidade, integração e aceite; reconstrução de contexto e pedido de exclusão nas fatias seguintes. Aplicação/ativação remotas não verificadas |
-| Conhecimento oficial | `PARCIAL / BASE CANDIDATA` | Documentos e snapshots imutáveis, públicos explícitos e autorização com RLS; decisões pastorais provisórias centralizadas | API editorial, busca autorizada e painel; sem ingestão, embeddings ou integração WhatsApp nesta fatia. Produção não verificada |
-| Triagem semântica Jev (TypeSafe) | `S1 CANDIDATA / ATIVAÇÃO BLOQUEADA / HOLDOUT REAL NÃO AFERIDO` | `semantic_triage.py`, runtime/worker Tier A, adaptador LLM tipado, avaliador `jev_tier_a_eval.py`; plano [arquivo histórico: `docs/ops/mvp-fase2-agente-inteligente-plano.md`](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-fase2-agente-inteligente-plano.md) e relatório `docs/ops/jev-tier-a-20260926/EVALUATION.md` | Flag ativa vazia e independente de shadow; release aprovada ausente. Crise/humano/erro suprimem resposta e fazem handoff; provável opt-out apenas confirma SAIR uma vez, comando explícito persiste saída. Corpus dev/holdout congelado, Wilson95 e métricas pontuais separados. Ativação exige avaliação real revisada, DPA/decisão nominal e aceite interno; sem deploy/egress nesta preparação. Console de configuração #420 preservado; S2/S3 separados |
-| Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / EXECUTOR V2 LOCAL OFFLINE COM TRUST ANCHORS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; o executor v2 é candidato local fail-closed e a revisão externa ainda bloqueia DEV por divergência e PROD por evidência insuficiente | Trust anchors externos, atestações DEV/PROD separadas, revisão independente v3 e decisão humana de cutover permanecem bloqueados |
-| Propostas e confirmação | `AUSENTE COMO PLATAFORMA / FATIA ESPECÍFICA OFFLINE CANDIDATA` | O relatório possui envelope pendente fechado e uma UoW que pode agrupar confirmação, auditoria sem conteúdo e reply pendente numa transação externa; não existe plataforma D2C genérica nem caller | Receipts duráveis autenticados, unicidade global, consentimento, caller, commit comprovado e resposta pós-commit |
-| Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
-| Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
-| Experiência visual do painel | `IMPLEMENTADA / QA E PUBLICAÇÃO RASTREÁVEIS` | [UX expressiva v3 de 01/10](../sprints/2026-10-01-ux-expressiva-v3.md), 42 unidades de operação, gestão e plataforma com direção aprovada, paridade de conteúdo e movimento acessível | QA sintético não comprova operação autenticada com provedores, todos os RNFs de campo ou conclusão das capacidades de domínio |
-| Minha Célula | `IMPLEMENTADO / PARCIAL` | reuniões, presenças, visitantes, relatórios e materiais; [fatia local de presença própria WhatsApp de 02/10](../sprints/2026-10-02-mvp-own-presence.md), com S3, confirmação e serviço compartilhado | Validar piloto e gates operacionais; [expectativa própria de visitante WhatsApp](../sprints/2026-10-02-mvp-own-visitor-expectation.md) é candidato local validado; oração WhatsApp permanece pendente. Testes locais não concluem a V4 |
-| Central de Células | `IMPLEMENTADO / PARCIAL` | gestão, solicitações, transferência, remoção e eventos append-only | Especialista WhatsApp, planejamento e comunicação pela outbox |
-| Relatório de célula web | `IMPLEMENTADO / WRITERS SERIALIZADOS LOCALMENTE` | Os seis writers web mantêm o fluxo humano e agora usam locks tenant-bound de reunião, célula e acesso, takeover explícito e boundary sanitizado | O router humano ainda não usa o mesmo serviço de aplicação do agente; a composição consolidada continua candidata em revisão |
-| Relatório pelo WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | parser, snapshot, workflow, envelope, serviço ORM, UoW que agrupa relatório, auditoria e `Message` `ia_pendente` com flush sem commit, e coordenador offline fail-closed que relê o inbound bloqueado, exige alvo opaco, aceita somente texto puro sem metadados de mídia e mantém ciclo de proposta ligado a turno e transação | Não existe caller integrado no agente, runtime, worker, webhook, router humano ou `turn_plan_adapter`; também faltam integração com o resolvedor confiável de reunião, fonte aprovada de consentimento `tarefas_operacionais`, `AgentConfig`, commit, outbox, receipt global, resposta pós-commit e idempotência operacional comprovada. `transcribe_audio` existe em `backend/app/services/llm.py` com testes dedicados, mas sem caller de produção no WhatsApp nem prova operacional; o merge não alterou nem autorizou `AgentConfig.ativo` |
-| Agenda | `PARCIAL` | CRUD, visões, confirmações, importação Google e alertas internos | Operação WhatsApp, envio futuro unificado e semântica de entrega |
-| Consolidação | `PARCIAL` | decisões, etapas, responsáveis, SLA e conclusão manual | Máquina de estados e read model duráveis, transações e elegibilidade |
-| Universidade da Vida | `AUSENTE COMO MÓDULO` | Placeholder e referências históricas | PRD, turmas, aulas, presenças, Encontro, batismo, papéis e APIs |
-| Capacitação Destino | `PARCIAL / CANDIDATA ENCADEADA` | Contrato puro (#495), catálogo versionado, turmas, calendário e responsáveis com API/painel mínimos na branch CD PR 2, dependente da UV #494; cadeia real em PostgreSQL local sintético | Integração, matrícula, presença, conclusão/certificação e WhatsApp; aplicação remota/produção não verificadas |
-| Enviar e multiplicação | `PARCIAL` | célula, solicitações e multiplicação têm partes implementadas | Jornada de aptidão, aprovação sensível e integração com formação |
-| Broadcast | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter | Política por finalidade e canário nominal separado |
-| Asaas | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, isolamento e hardening | Inventário e canário financeiro real, sem envolver a igreja em cortesia |
-| Brevo | `IMPLEMENTADO / GATE OPERACIONAL` | serviço e modo de envio fechado | Domínio, remetente, monitoramento e canário próprio |
-| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Revisão offline da proposta de remediação; em gate posterior, criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
-| Exclusão e direitos da pessoa | `PARCIAL` | Exclusão de conversa remove conversa, mensagens e mídia | Propagar para transcrição, resumo, checkpoint, vetores e auditoria sem conteúdo |
-| Exclusão de tenant e reset administrativo | `CANDIDATA LOCAL / REVISÃO E MERGE` | candidato local grava manifesto externo em audit, preserva platform admin destacado, enumera todo `public.e4b_*`, bloqueia o ledger no reset total e oferece reset e drain externos idempotentes em dry-run; URL vem de ambiente protegido ou prompt, nunca argv | A migration de `app_users.igreja_id` anulável segue o processo simples por `migrate.py`; revisar o SHA e Raniel autorizar o merge por número da PR B. Execução de banco ou provedor continua fora desta fatia |
-| Observabilidade de IA | `PARCIAL` | logs, custo, filas e metadados seguros de falha | Métricas por rota e tenant, SLO, retenção e alerta de workflows presos |
-| Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos; [programa de desempenho e contratos de leitura](../performance/2026-10-02-fluidity-plan.md); [frontend publicado e recibo](../performance/2026-10-02-fluidity-release.md) | Leitor de tela, teclado, zoom, mobile e métricas de campo; backend/telemetria ainda não publicados neste programa |
-| Backup e recuperação | `GATE OPERACIONAL` | Runbooks e evidências operacionais anteriores | Manter restauração periódica e incluir novas tabelas privadas |
+| Autenticação, RBAC e tenant (RF-01..05) | `IMPLEMENTADO / GATE OPERACIONAL` | Clerk, papéis por tela isolados por igreja (#536), logout no servidor (#568), fronteira privada D2A; RLS por `igreja_id` | MFA no console; cookie de sessão HttpOnly com revisão independente; CSP ainda em modo de teste; migration do logout e produção: não verificado |
+| Pessoas e responsabilidades | `IMPLEMENTADO / PARCIAL` | responsabilidade por setor com vigência (#530), pendências por responsabilidade (#534), gestão web (#539), vínculo Pessoa ↔ usuário (#543) | Composição completa por setor no Hoje; produção: não verificado |
+| Conexão WhatsApp (RF-06..09) | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário; sem idempotência no provedor se a Evolution der timeout |
+| Atendimento, conversas e handoff (RF-10..17) | `IMPLEMENTADO / GATE OPERACIONAL` | inbox, atribuição, devolução à IA, fila humana; resposta LLM com contexto curto; consultas públicas determinísticas | Aceite das 20 conversas; B3 (inbox só papéis fixos, remover opção customizada) decidido em 12/11 e não implementado |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL` | LangGraph com contexto confiável D2B1, turno privilegiado com catálogo e roteador (`agent/privileged_turn.py`), propostas duráveis (`services/agent_action_proposals.py`) | Checkpointer não instalado (`agent/private_checkpoint.py` é só contrato fail-closed); especialistas completos por área; governança D2/D3/D6 a retomar após a primeira publicação |
+| Memória privada | `PARCIAL / GATE OPERACIONAL` | resumos privados por conversa (#526, #588), retomada pelo comando exato (#531), exclusão e pedido de exclusão (#509, #518, #535, #541, #561), logins dedicados (#583–#585, #590) | Checkpoint durável; logins não provisionados; tombstones; upload com resultado desconhecido; tudo desligado |
+| Conhecimento oficial | `IMPLEMENTADO / GATE OPERACIONAL` | base versionada, API e painel editorial, busca autorizada, exclusão admin e consulta WhatsApp (#513–#517, #524, #525), desligada | Decisão 21 (dúvida → responsável do setor; admin recebe sem responsável/escaladas) definida em 12/11 e não implementada; aceite pastoral |
+| Triagem semântica Jev | `PARCIAL / ATIVAÇÃO BLOQUEADA` | `services/semantic_triage.py`, adaptador tipado e avaliador | Avaliação real, DPA e decisão nominal; envia texto pastoral a terceiro |
+| Dados vivos como ferramentas | `PARCIAL` | catálogo privilegiado (`services/agent_privilege_catalog.py`) e pacotes `*_whatsapp` de agenda, UV, CD, Enviar, conhecimento | Catálogo por especialista completo, com os mesmos serviços do painel em todas as áreas |
+| Consentimento e opt-out (RF-36, RF-37) | `IMPLEMENTADO / PARCIAL` | termo LGPD versionado, aceite multiturno (#593), opt-out global; código E4B sem uso arquivado (#651) | Consentimento por finalidade completo (governança a retomar após a primeira publicação); B4 decidido em 12/11 e não implementado |
+| Propostas e confirmação | `PARCIAL` | propostas duráveis e fechadas usadas pelo turno privilegiado; SIM literal e recibo após commit em agenda, Enviar e relatório | Plataforma genérica para todas as ações sensíveis; produção: não verificado |
+| Notificações proativas e outbox | `PARCIAL` | `services/notification_outbox.py` usado por agenda, eventos, lembretes de relatório e runtime; gates próprios fechados | SLA e broadcast ainda em caminhos próprios; quiet hours: não verificado |
+| Painel de Hoje (RF-18..20) | `IMPLEMENTADO / PARCIAL` | dashboard, fila por responsabilidade, pendências da Central (#528), contagens privadas (#546) | Lacunas de conhecimento por responsável (depende da decisão 21) |
+| Visitantes e contato (RF-21..23) | `IMPLEMENTADO` | lista, detalhe, vínculo a célula; simulador de visitante (#462/#466) | Produção: não verificado |
+| Células, Minha Célula e Central (RF-24, RF-25) | `IMPLEMENTADO / PARCIAL` | gestão, solicitações, transferência, eventos append-only, presença e expectativa próprias pelo WhatsApp | Especialista WhatsApp completo da Central e planejamento |
+| Alertas ao líder (RF-26) | `PARCIAL` | sinais de saúde da célula (`services/cell_health_service.py`) e baixa do alerta com regra de leitura (#589) | Gerador configurável ausente; gatilhos iniciais decididos em 12/11 (visitante novo, liderado em consolidação, relatório pendente, prazo vencendo, meta atingida), editáveis pelo admin |
+| Relatório de célula (RF-27..29) | `IMPLEMENTADO / GATE OPERACIONAL` | web, texto V1a e áudio V1b, pendências e lembretes pela outbox | B15 parcial (gatilho por palavra + dígito); aceite e ativação |
+| Agente IA: credencial e comportamento (RF-30..32) | `IMPLEMENTADO` | `routers/agent.py`: credencial OpenAI BYO por igreja, modelo, configuração e perfil público | Produção: não verificado |
+| Agendamentos do agente (RF-33) | `PARCIAL` | `routers/agent.py`: criar, listar e editar/desativar (`/agent/crons`); tela em `components/config/AgenteScreen.tsx`; `workers/cron_worker.py` executa só a ação de SLA e registra "sem handler" para as demais | Executores para as demais ações e para os gatilhos de estado; último disparo guardado só em memória do processo |
+| Agenda (RF-34, RF-35) | `PARCIAL / GATE OPERACIONAL` | CRUD, visões, importação Google, operações WhatsApp com SIM (#540), lembretes pela outbox (#547, #560) | "G2b" sem definição em nenhum arquivo; credencial Google por igreja; EVT-7 a conciliar antes de reenviar |
+| Comunicados e broadcast (RF-38) | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter; ensaio de parada ativo (#586) | Política por finalidade e canário nominal separado |
+| Assinatura e Asaas (RF-39..42) | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, porte por membros ativos e auto-upgrade enfileirado (`services/billing.py`, `billing_worker.py`) | Canário financeiro real; não envolver a igreja em cortesia |
+| E-mail Brevo (RF-03) | `IMPLEMENTADO / GATE OPERACIONAL` | serviço com modo de envio fechado | Domínio, remetente e canário próprio |
+| Consolidação (RF-43..46) | `IMPLEMENTADO / GATE OPERACIONAL` | ações transacionais compartilhadas entre painel e WhatsApp (`services/consolidation_workflow.py`), fonovisita e lembretes (#487–#490) | Aceite do caminho G12 completo no piloto |
+| Pedido de oração (V4) | `IMPLEMENTADO / GATE OPERACIONAL` | pacote `backend/app/prayer`, sigilo (#515), áudio protegido (#529), inbox (#519) | Conferir o código contra a regra de sigilo confirmada em 12/11 (só pastores; líder com SIM e enquanto durar o vínculo); aceite |
+| Células próximas | `IMPLEMENTADO / GATE OPERACIONAL` | indicação por bairro (#486), pacote `backend/app/cell_suggest` | Sem cálculo de distância (fora do recorte) |
+| Universidade da Vida | `IMPLEMENTADO / GATE OPERACIONAL` | `routers/uv.py`, `services/uv.py`, `uv_whatsapp/`, tela `components/uv`; corrida de turma corrigida (#596, `afdfb78d`) | `uv_matriculas`: padrão de corrida a diagnosticar; migrations em PROD: não verificado |
+| Capacitação Destino | `IMPLEMENTADO / GATE OPERACIONAL` | `routers/cd.py`, `services/cd.py`, `cd_whatsapp/`, tela `components/cd`; corrida de currículo corrigida (#595) | `cd_turmas`: padrão de corrida a diagnosticar; migrations em PROD: não verificado |
+| Enviar e multiplicação | `IMPLEMENTADO / GATE OPERACIONAL` | `routers/enviar.py`, `services/enviar_*.py`, `enviar_whatsapp/`, tela `components/enviar` (#502–#507, #510, #520, #521) | Coordenação vinculada a Pessoa ativa antes do release; `_080000` pode falhar com linha legada |
+| Assistente do sistema no painel (RF-47) | `PARCIAL` | `routers/assistant.py` e `services/assistant.py`: igreja do servidor, telas pelos papéis reais, LLM da igreja com resposta de reserva | Nenhuma tela do painel chama `/assistant/message` (só o tipo gerado); falta a interface e o aceite |
+| Super-Admin e provisionamento (RF-48, RF-49) | `PARCIAL` | `routers/platform_admin.py` (console e criação manual de igreja com primeiro admin) | Provisionamento automático após pagamento confirmado; MFA no console |
+| Onboarding da igreja | `PARCIAL` | convites e reenvio isolados (#538), ativação sem espera mútua (#556), aviso de contas sem Pessoa (#557) | Onboarding guiado completo; governança a retomar após a primeira publicação |
+| Exclusão e direitos da pessoa | `PARCIAL / GATE OPERACIONAL` | exclusão por conversa, pessoa e igreja, pedido da pessoa, reset privado (#509, #518, #535, #541, #561) | Trilha de vínculo guarda UUIDs (#594); derivados novos acompanham cada implementação |
+| Exclusão de tenant e reset administrativo | `PARCIAL` | `services/tenant_deletion.py` e reset privado por igreja (#561) | Execução em banco/provedor: não verificado |
+| Observabilidade de IA | `PARCIAL` | logs, custo por igreja (#537), filas (#544), outbox/DLQ (#562), alerta `stuck_flow` desligado | Métricas por rota, retenção e metas de serviço |
+| Acessibilidade e performance | `PARCIAL / NÃO VERIFICADO EM CAMPO` | axe WCAG 2.1 A/AA (#559), teclado e foco (#527, #532) | Leitor de tela e celular reais, zoom, métricas de campo; B17 (banco em São Paulo) decidido, não executado |
+| Backup e recuperação | `GATE OPERACIONAL` | runbooks, backup diário na VPS nova registrado em 21/10 | Restauração em alvo isolado; novas tabelas privadas; estado atual: não verificado |
 
 ## Situação do agente no SHA auditado
 
@@ -224,11 +256,15 @@ significa ativa em produção.
 ### Ausente
 
 - checkpointer PostgreSQL conectado ao LangGraph;
-- resumo incremental e recuperação de memória privada;
-- RAG documental com publicação e ACL;
+- (12/11) resumo privado e retomada pelo comando exato já existem, desligados;
+  falta checkpoint durável;
+- (12/11) conhecimento oficial com publicação e busca autorizada existe,
+  desligado; sem embeddings, por regra (dados vivos vêm de ferramentas);
 - plataforma de propostas de ação duráveis e genéricas; o envelope específico
   do relatório não satisfaz D2C;
-- especialistas completos de Agenda, Consolidação, UV e CD;
+- especialistas completos por área (em 12/11 já existem pacotes WhatsApp de
+  agenda, consolidação, UV, CD, Enviar e conhecimento, desligados; a Central
+  e a composição por especialista seguem incompletas);
 - indexação e recuperação automáticas e seguras de novos registros oficiais,
   sem treinamento ou fine-tuning por igreja;
 - política completa de eliminação dos derivados de conversa.
@@ -424,8 +460,9 @@ alunos na Universidade da Vida:
 
 O escopo aprovado para planejamento inclui turmas, dez semanas, aulas 1 a 4,
 Encontro na semana 5, aulas 5 a 8, batismo na semana 10, presenças, papéis,
-acompanhamento e elegibilidade para CD. Nenhum desses contratos constitui hoje
-um módulo completo no código.
+acompanhamento e elegibilidade para CD. Em 12/11 o módulo está na `main`
+(#491–#494, #496, correção #596), com WhatsApp desligado; migrations em PROD
+não verificadas.
 
 ### Capacitação Destino
 
@@ -435,9 +472,9 @@ provisório de seis módulos de dez aulas, níveis opcionais sem nomes inventado
 turmas por módulo/versão, calendário e responsáveis. Admin/pastor coordenam;
 lider_consol consulta somente turma com vínculo atual. Os serviços revalidam
 ator, permissão de tela e vínculo; RLS e FKs compostas isolam igrejas.
-Matrícula, frequência, conclusões, certificação e WhatsApp permanecem nas
-fatias seguintes. Código encadeado e prova local não demonstram integração
-em main, aplicação remota ou operação em produção.
+Atualização de 12/11: matrícula, frequência, conclusão, equivalência,
+certificado e WhatsApp desligado estão na `main` (#495, #497–#501, #511, #595);
+aplicação remota e operação em produção não verificadas.
 
 ## Ordem de execução para a visão completa
 
