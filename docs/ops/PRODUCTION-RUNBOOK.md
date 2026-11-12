@@ -1195,7 +1195,9 @@ $PY -E -s $T rehearse-backup $ARGS
 ```
 
 Esperado: `prepare-layout` com `files` 144; `prepare` imprime `plan_digest`
-e `window_digest` (anotar os dois); `check` com `same_database` e `ddl_free`
+e `window_digest` (anotar os dois; o `window_digest` de referência para o SIM 2
+é o do `prepare` refeito **depois** de gravar o `restore_excluded_expected`,
+abaixo; nesse `prepare`, `restore_excluded_pinned` precisa ser `true`); `check` com `same_database` e `ddl_free`
 `ok` nas duas leituras; `check-bindings` com as duas entradas `open` e
 `unknown_writers` 0; `rehearse-backup` termina com recibo e as 51 migrations
 no clone (o recibo traz `restore_excluded`: quantas entradas do dump o restore
@@ -1226,7 +1228,13 @@ do Git; o `rehearse-backup` funciona sem o campo, é assim que se descobre o
 valor). No modo `run` o campo é **obrigatório**: sem ele, ou com números
 diferentes dos do dump da hora, a janela recusa com
 `window-backup-restore-excluded`, antes de copiar ou restaurar qualquer coisa
-no clone. Editar o `backup.json` muda o `window_digest` (o `plan_digest` não muda):
+no clone. Grave o campo na véspera, logo depois do V9, e refaça `prepare` e
+`rehearse-backup` ali; não edite às 10:00. O `run` e o `a10` recusam com
+`window-backup-restore-excluded` logo no começo, sem diário nem efeito, se o
+campo faltar. Se os números não baterem com o dump da hora, a recusa vem depois
+do dump e **consome a janela** (sistema antigo volta); por isso qualquer
+mudança de schema no sistema antigo entre o V9 e a janela exige refazer o V9.
+Editar o `backup.json` muda o `window_digest` (o `plan_digest` não muda):
 rodar o `prepare` depois de editar e anotar o `window_digest` novo; é esse que
 vale no SIM 2.
 
@@ -1240,7 +1248,7 @@ root com as variáveis acima.
 | Hora | Passo | Duração | Comando que o operador dispara | Se falhar |
 |---|---|---|---|---|
 | 09:30 | V4 lembrado, V7 foto dos outros sistemas | 10 min | bloco da seção 12.0 | Algum outro sistema fora do ar: não abrir a janela. |
-| 10:00 | **SIM 2** — J1 abrir a janela | 5 min | `$PY -E -s $T prepare $ARGS` e conferir que o `plan_digest` é o do V9 e que o `window_digest` é o do `prepare` feito depois de gravar o `restore_excluded_expected`; registrar início UTC, operador, 120 min e SHAs | Digest diferente: parar; algo mudou desde a véspera. |
+| 10:00 | **SIM 2** — J1 abrir a janela | 5 min | `$PY -E -s $T prepare $ARGS` e conferir que o `plan_digest` é o do V9 e que o `window_digest` é o do `prepare` feito depois de gravar o `restore_excluded_expected`; registrar início UTC, operador, 120 min e SHAs | Digest diferente do `prepare` feito depois de gravar o campo: parar; algo mudou desde a véspera. |
 | 10:05 | J2 pausar só o backup da Igreja 12 | 2 min | `mv /etc/cron.d/pastorai-backup /root/pastorai-backup.cron.pausado` | Se não existir, conferir com `ls /etc/cron.d/` e anotar. Nunca parar o serviço `cron`. |
 | 10:07 | **SIM 3** — J3 a J6 (`run`, inclui o ponto de não retorno) | 20–35 min | `$PY -E -s $T run $ARGS --expect-plan-digest <plan> --expect-window-digest <window>` | Saída com `refused`: ler `recovery.state`. Antes da DDL (`contained-pre-ddl`, `backup-window-used`): a equipe decide `resume_legacy` (volta o sistema antigo). Depois da DDL: tudo fica contido (site em manutenção, nada enviado); nada de reiniciar, restaurar ou voltar sem SIM próprio. |
 | 10:40 | anotar `a10_token` do resultado | 1 min | — | Resultado sem `a10_token`: não seguir para a A10. |

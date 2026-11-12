@@ -63,8 +63,15 @@ STDERR_BOUND = 65536
 TOC_ENTRY = re.compile(r'(\d+); \d+ \d+ (.+)')
 TOC_VAULT_EXTENSION = re.compile(r'(?:EXTENSION - supabase_vault|COMMENT - EXTENSION supabase_vault)(?: \S+)?')
 # Any entry whose namespace is the vault schema (TABLE DATA, SEQUENCE SET, ACL, COMMENT, ...). The namespace is the
-# token right after the uppercase DESC words, so ``TABLE public vault_notes`` is NOT matched.
-TOC_VAULT_SCHEMA = re.compile(r'(?:[A-Z]+ )+(?:vault .*|- SCHEMA vault(?: \S+)?)')
+# token right after a DESC from a fixed vocabulary, so ``TABLE public vault_notes`` and ``TABLE DATA SALES vault x``
+# are NOT matched.
+NAMESPACED_KINDS = ('TABLE DATA', 'SEQUENCE SET', 'SEQUENCE OWNED BY', 'SEQUENCE', 'TABLE', 'MATERIALIZED VIEW DATA',
+                    'MATERIALIZED VIEW', 'VIEW', 'FOREIGN TABLE', 'FUNCTION', 'PROCEDURE', 'AGGREGATE', 'TYPE', 'DOMAIN',
+                    'ACL', 'DEFAULT ACL', 'COMMENT', 'SECURITY LABEL', 'FK CONSTRAINT', 'CHECK CONSTRAINT',
+                    'CONSTRAINT', 'INDEX', 'TRIGGER', 'POLICY', 'ROW SECURITY', 'DEFAULT', 'RULE', 'OPERATOR',
+                    'STATISTICS', 'COLLATION', 'CAST')
+TOC_VAULT_SCHEMA = re.compile('(?:' + '|'.join(re.escape(k) for k in sorted(NAMESPACED_KINDS, key=len, reverse=True))
+                              + r') (?:vault .*|- SCHEMA vault(?: \S+)?)')
 EXCLUDED_KEYS = ('event_trigger_names', 'event_triggers', 'vault_extension', 'vault_schema')
 TOC_EVENT_TRIGGER = re.compile(r'EVENT TRIGGER - (\S+) (\S+)')
 TOC_EVENT_COMMENT = re.compile(r'COMMENT - EVENT TRIGGER (\S+)(?: \S+)?')
@@ -114,12 +121,16 @@ class WindowBackupConfig:
         require(all(isinstance(r, str) and ROLE.fullmatch(r) for r in (self.admin_user, self.restore_user,
                                                                          self.migration_user, *self.clone_superusers))
                 and type(self.clone_superusers) is tuple, 'window-backup-roles')
-        pinned = dict(self.restore_excluded_expected)
+        pairs = self.restore_excluded_expected
+        require(type(pairs) is tuple and all(type(p) is tuple and len(p) == 2 and isinstance(p[0], str) for p in pairs),
+                'window-backup-restore-excluded')
+        pinned = dict(pairs)
         require(type(self.restore_excluded_expected) is tuple
                 and (not pinned or (set(pinned) == set(EXCLUDED_KEYS)
                                     and all(type(pinned[k]) is int and 0 <= pinned[k] <= 64
                                             for k in ('event_triggers', 'vault_extension', 'vault_schema'))
                                     and type(pinned['event_trigger_names']) is tuple
+                                    and pinned['event_trigger_names'] == tuple(sorted(set(pinned['event_trigger_names'])))
                                     and all(isinstance(n, str) and ROLE.fullmatch(n)
                                             for n in pinned['event_trigger_names']))),
                 'window-backup-restore-excluded')

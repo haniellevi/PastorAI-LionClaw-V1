@@ -558,3 +558,23 @@ def test_excluded_pin_from_dict_validates_shape():
                 {**good, 'vault_schema': True}, 'x', {**good, 'event_trigger_names': 'a'}):
         with pytest.raises(Refused, match='^window-backup-restore-excluded$'):
             wb.WindowBackupConfig.from_dict({**base, 'restore_excluded_expected': bad})
+
+
+def test_pin_must_be_sorted_unique_and_well_formed_even_when_built_directly():
+    base = dict(docker_binary='/usr/bin/docker', docker_endpoint='unix:///run/docker.sock',
+                docker_config_dir='/state/docker-cli', backup_root='/b', clone_workdir='/c', python='/p/python',
+                dump_image=IMAGE, clone_image=CLONE_IMAGE)
+    good = dict(vault_extension=0, vault_schema=0, event_triggers=2, event_trigger_names=['a', 'b'])
+    wb.WindowBackupConfig.from_dict({**base, 'restore_excluded_expected': good})
+    for names in (['b', 'a'], ['a', 'a']):
+        with pytest.raises(Refused, match='^window-backup-restore-excluded$'):
+            wb.WindowBackupConfig.from_dict({**base, 'restore_excluded_expected': {**good, 'event_trigger_names': names}})
+    for direct in ('x', (1,), (('a',),), ((1, 2),)):
+        with pytest.raises(Refused, match='^window-backup-restore-excluded$'):
+            wb.WindowBackupConfig(**base, restore_excluded_expected=direct).validated()
+
+
+def test_vault_filter_ignores_a_schema_that_merely_looks_like_a_desc_word():
+    lines, removed = wb.filter_restore_list(LISTING + '4030; 0 16600 TABLE DATA SALES vault x postgres\n',
+                                            frozenset({'postgres'}))
+    assert 'TABLE DATA SALES vault x' in '\n'.join(lines) and removed['vault_schema'] == 2

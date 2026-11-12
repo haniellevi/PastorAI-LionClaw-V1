@@ -760,3 +760,13 @@ def test_prepare_layout_never_overwrites_a_different_hold_file(entry):
     assert json.loads(lines[-1]) == {'refused': 'candidate-hold-mismatch'}
     assert Path(entry.world.spec.hold_override).read_text() == 'services: {}\n'
     entry.assert_no_journal_or_effects()
+
+
+def test_run_without_the_pinned_restore_exclusions_refuses_before_any_effect(entry):
+    del entry.backup['restore_excluded_expected']
+    entry.write()
+    d = entry.prepare()  # prepare itself still works (the rehearsal needs it) but says the pin is missing
+    exit_code, lines = entry.execute(d)
+    assert exit_code == 2 and lines == [{'refused': 'window-backup-restore-excluded'}]
+    assert entry.calls == [] and entry.connections == [] and entry.assembly.popen_calls == []
+    entry.assert_no_journal_or_effects()
