@@ -579,7 +579,9 @@ def _local_visitor_expectation(session, context, current_text, message):
     attempt, name = own_visitor_command(current_text)
     if not attempt:
         return False
-    response = 'Não foi possível preparar a indicação. Confira o nome e a próxima reunião da sua célula.'
+    from app.domain.visitor import PAST_MEETING_WHATSAPP_TEXT
+    # B4: o WhatsApp recusa reunião já ocorrida e orienta o caminho do painel.
+    response = f'Não foi possível preparar a indicação. {PAST_MEETING_WHATSAPP_TEXT}'
     if type(context) is PrivilegeContext and name is not None:
         # The snapshot may be bounded. A truncated or changed persisted source
         # cannot be promoted into a different valid nominal command.

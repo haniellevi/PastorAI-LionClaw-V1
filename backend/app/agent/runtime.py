@@ -1791,7 +1791,8 @@ def process_inbound_message(
     # auto-engaja. A mensagem já foi persistida (ingestão) e aparece como não
     # lida no inbox para um humano decidir; só não há auto-resposta. Re-opt-in
     # (voltar a receber) é manual pelo humano hoje — fica como follow-up.
-    if pessoa.optout:
+    # Mesma checagem do envio humano pelo painel (B4).
+    if consent_rules.outbound_blocked_by_optout(pessoa.optout):
         if not fence_secretaria_offer_for_gate():
             return AgentTurnResult(handled=False, reason="conversation_not_found")
         if not stage_tier_a_terminal(handoff=False):
