@@ -17,7 +17,10 @@ from app.deps import CurrentUser
 from app.domain import cell_meetings_schedule
 from app.domain.consolidation import CONNECTION_DEADLINE_HOURS, CONSOLIDATION_ROLES, VALID_VINCULOS, VINCULO_VISITANTE
 from app.domain.hierarchy import is_leader_or_superior
-from app.domain.visitor import VisitorNameError, canonical_visitor_name
+from app.domain.visitor import (
+    CANAL_PAINEL, CANAL_WHATSAPP, VisitorNameError, canonical_visitor_name,
+    visitor_referral_meeting_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +28,23 @@ logger = logging.getLogger(__name__)
 def register_own_visitor_expectation(db: Session, current_user: CurrentUser, *,
                                     reuniao_id: uuid.UUID, nome_visitante: str,
                                     observacao_oracao: str | None = None,
-                                    expected_actor_pessoa_id: uuid.UUID | None = None
+                                    expected_actor_pessoa_id: uuid.UUID | None = None,
+                                    canal: str | None = None,
                                     ) -> CelulaExpectativaVisitante:
     """Create one own expectation; caller owns commit and the proposal ledger.
 
-    Human callers omit the internal expected actor and keep their historical
-    meeting/membership contract, optional note and multiple rows.
+    Human callers (canal ``painel``) omit the internal expected actor and keep
+    their historical meeting/membership contract, optional note and multiple
+    rows. The WhatsApp caller (canal ``whatsapp``) passes the expected actor.
+    An explicit ``canal`` must match the caller kind. Past meetings follow
+    ``visitor_referral_meeting_allowed`` (B4).
     """
     tenant = uuid.UUID(current_user.igreja_id)
+    inferred = CANAL_PAINEL if expected_actor_pessoa_id is None else CANAL_WHATSAPP
+    if canal is None:
+        canal = inferred
+    elif canal != inferred:
+        raise HTTPException(403, "Ação não autorizada")
     if expected_actor_pessoa_id is None:
         meeting = db.execute(select(CelulaReuniao).where(
             CelulaReuniao.id == reuniao_id, CelulaReuniao.igreja_id == tenant,
@@ -55,6 +67,9 @@ def register_own_visitor_expectation(db: Session, current_user: CurrentUser, *,
         if type(nome_visitante) is not str or not 1 <= len(nome_visitante.strip()) <= 200:
             raise HTTPException(422, "Nome de visitante inválido")
         name = nome_visitante.strip()
+        passed = cell_meetings_schedule.meeting_has_passed(data=meeting.data, hora=meeting.hora)
+        if not visitor_referral_meeting_allowed(canal=canal, meeting_passed=passed):
+            raise HTTPException(409, "A reunião já ocorreu")
     else:
         if (type(expected_actor_pessoa_id) is not uuid.UUID or expected_actor_pessoa_id.int == 0
             or type(reuniao_id) is not uuid.UUID or reuniao_id.int == 0
@@ -97,7 +112,8 @@ def register_own_visitor_expectation(db: Session, current_user: CurrentUser, *,
         # waits immediately before adding the expectation. E4 allows equality.
         db.flush()
         now = cell_meetings_schedule.now_in_sao_paulo()
-        if cell_meetings_schedule.meeting_has_passed(data=meeting.data, hora=meeting.hora, now=now):
+        passed = cell_meetings_schedule.meeting_has_passed(data=meeting.data, hora=meeting.hora, now=now)
+        if not visitor_referral_meeting_allowed(canal=canal, meeting_passed=passed):
             raise HTTPException(409, "A reunião já ocorreu")
     expectation = CelulaExpectativaVisitante(
         igreja_id=tenant, reuniao_id=meeting.id, pessoa_id=person_id,

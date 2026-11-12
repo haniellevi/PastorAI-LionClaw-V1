@@ -24,7 +24,6 @@ Lacunas restantes do PRD em 12/11/2026 (uma por linha):
 - RF-49: provisionamento automático da igreja após pagamento confirmado.
 - Decisão 21: encaminhar dúvida sem resposta ao responsável do setor e ao admin.
 - B3: remover da configuração a opção de acesso customizado à inbox.
-- B4: bloquear opt-out no envio humano; visitante em reunião passada só no painel.
 - Memória: checkpoint durável do LangGraph e provisionamento dos logins dedicados.
 - Especialistas completos por área no WhatsApp (Central e demais) e plataforma genérica de propostas.
 - Outbox única também para SLA e broadcast; quiet hours não verificado.
@@ -175,7 +174,7 @@ significa ativa em produção.
 | Conhecimento oficial | `IMPLEMENTADO / GATE OPERACIONAL` | base versionada, API e painel editorial, busca autorizada, exclusão admin e consulta WhatsApp (#513–#517, #524, #525), desligada | Decisão 21 (dúvida → responsável do setor; admin recebe sem responsável/escaladas) definida em 12/11 e não implementada; aceite pastoral |
 | Triagem semântica Jev | `PARCIAL / ATIVAÇÃO BLOQUEADA` | `services/semantic_triage.py`, adaptador tipado e avaliador | Avaliação real, DPA e decisão nominal; envia texto pastoral a terceiro |
 | Dados vivos como ferramentas | `PARCIAL` | catálogo privilegiado (`services/agent_privilege_catalog.py`) e pacotes `*_whatsapp` de agenda, UV, CD, Enviar, conhecimento | Catálogo por especialista completo, com os mesmos serviços do painel em todas as áreas |
-| Consentimento e opt-out (RF-36, RF-37) | `IMPLEMENTADO / PARCIAL` | termo LGPD versionado, aceite multiturno (#593), opt-out global; código E4B sem uso arquivado (#651) | Consentimento por finalidade completo (governança a retomar após a primeira publicação); B4 decidido em 12/11 e não implementado |
+| Consentimento e opt-out (RF-36, RF-37) | `IMPLEMENTADO / PARCIAL` | termo LGPD versionado, aceite multiturno (#593), opt-out global; código E4B sem uso arquivado (#651) | Consentimento por finalidade completo (governança a retomar após a primeira publicação); B4 implementado em código (envio humano bloqueia opt-out; visitante em reunião passada aceito no painel e recusado no WhatsApp), sem release |
 | Propostas e confirmação | `PARCIAL` | propostas duráveis e fechadas usadas pelo turno privilegiado; SIM literal e recibo após commit em agenda, Enviar e relatório | Plataforma genérica para todas as ações sensíveis; produção: não verificado |
 | Notificações proativas e outbox | `PARCIAL` | `services/notification_outbox.py` usado por agenda, eventos, lembretes de relatório e runtime; gates próprios fechados | SLA e broadcast ainda em caminhos próprios; quiet hours: não verificado |
 | Painel de Hoje (RF-18..20) | `IMPLEMENTADO / PARCIAL` | dashboard, fila por responsabilidade, pendências da Central (#528), contagens privadas (#546) | Lacunas de conhecimento por responsável (depende da decisão 21) |
