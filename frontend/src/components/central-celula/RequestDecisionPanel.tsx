@@ -178,7 +178,7 @@ export function RequestDecisionPanel({
         ) : null}
 
         {request.motivo ? (
-          <p className="muted-note" style={{ marginTop: "var(--s2)" }}>
+          <p className="muted-note ds-mt-2">
             <strong>Motivo do líder:</strong> {request.motivo}
           </p>
         ) : null}
@@ -216,7 +216,7 @@ export function RequestDecisionPanel({
           {isAbertura ? "Confirmo que aprovar cria a célula e nomeia o líder imediatamente." : "Confirmo que aprovar executa imediatamente a troca de líder desta célula."}
         </label> : null}
         {mode ? (
-          <div style={{ marginTop: "var(--s3)" }}>
+          <div className="ds-mt-3">
             <DsField
               label={`${mode === "reject" ? "Motivo da rejeição" : "O que ajustar"} (obrigatório)`}
               as="textarea"
@@ -230,7 +230,7 @@ export function RequestDecisionPanel({
               error={fieldError ?? undefined}
               placeholder="Explique para o líder o que precisa ser revisto."
             />
-            <div className="chip-actions" style={{ marginTop: "var(--s3)" }}>
+            <div className="chip-actions ds-mt-3">
               <DsButton
                 variant={mode === "reject" ? "danger" : "primary"}
                 onClick={() => void submitObservacao()}
@@ -252,7 +252,7 @@ export function RequestDecisionPanel({
             </div>
           </div>
         ) : (
-          <div className="chip-actions" style={{ marginTop: "var(--s3)" }}>
+          <div className="chip-actions ds-mt-3">
             <DsButton variant="primary" onClick={() => void approve()} loading={busy === "approve"} disabled={anyBusy || (isNomeacao && (!confirmed || !request.versao_proposta))}>
               <Icon name="check" />
               <span>Aprovar</span>

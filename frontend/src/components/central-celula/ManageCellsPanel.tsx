@@ -332,7 +332,7 @@ export function ManageCellsPanel({
 
   return (
     <div className="central-stack">
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div className="ds-flex ds-justify-end">
         <DsButton variant="primary" onClick={openForm} disabled={!loaded}>
           <Icon name="plus" />
           <span>Nova célula</span>
@@ -380,7 +380,7 @@ export function ManageCellsPanel({
             <Icon name="central-celula" /> Selecionar célula existente
             {cellsLookup.result ? <span className="count">· {cellsLookup.result.total}</span> : null}
           </div>
-          <div className="ops-search" style={{ padding: "var(--s4)", marginBottom: 0 }}>
+          <div className="ops-search ds-p-4 ds-mb-0">
             <label htmlFor="central-cell-search">Buscar célula</label>
             <input type="search" id="central-cell-search" value={query} onChange={(event) => setQuery(event.target.value)} />
           </div>
@@ -408,7 +408,7 @@ export function ManageCellsPanel({
             })}
           </div>
 
-          <div style={{ padding: "var(--s4)" }}><LookupPager result={cellsLookup.result} loading={cellsLookup.loading} onPage={cellsLookup.setPage} /></div>
+          <div className="ds-p-4"><LookupPager result={cellsLookup.result} loading={cellsLookup.loading} onPage={cellsLookup.setPage} /></div>
           {selectedCell ? (
             <>
               <p className="ops-selected-context" role="status">Célula selecionada: <strong>{selectedCell.nome}</strong>. As ações abaixo se aplicam a ela.</p>

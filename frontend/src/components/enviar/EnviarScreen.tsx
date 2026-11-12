@@ -34,6 +34,7 @@ import {
   type MultiplicacaoRegistrada,
   type MultiplicacoesListOut,
 } from "@/lib/multiplicacoes-api";
+import { DsButton } from "@/components/ds/Button";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "Sem data";
@@ -103,7 +104,7 @@ export function EnviarScreen() {
           <h2>Enviar</h2>
           <p>Acompanhe pedidos e registros que fortalecem a próxima geração.</p>
         </div>
-        <div className="actions"><button type="button" className="btn" disabled={loading} onClick={() => { setRequestsReload(n => n + 1); void load(); }}><Icon name="refresh" /> Atualizar</button></div>
+        <div className="actions"><DsButton variant="secondary" disabled={loading} onClick={() => { setRequestsReload(n => n + 1); void load(); }}><Icon name="refresh" size={15} /> Atualizar</DsButton></div>
       </div>
       <div className="info-banner" role="note">
         <Icon name="info" />
@@ -135,20 +136,19 @@ export function EnviarScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             onClick={() => void load()}
             disabled={loading}
           >
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
       {restricted ? (
         <div className="card">
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
+          <div className="empty-state ds-p-6">
             <Icon name="lock" />
             <p>
               <strong>Panorama restrito à Central de Célula.</strong> A
@@ -180,7 +180,7 @@ export function EnviarScreen() {
               ) : null}
             </div>
             {pendentes.length === 0 ? (
-              <div className="empty-state" style={{ padding: "var(--s6)" }}>
+              <div className="empty-state ds-p-6">
                 <Icon name="send" />
                 <p>
                   <strong>Nenhuma multiplicação aguardando decisão.</strong>
@@ -214,7 +214,7 @@ export function EnviarScreen() {
               ) : null}
             </div>
             {registradas.length === 0 ? (
-              <div className="empty-state" style={{ padding: "var(--s6)" }}>
+              <div className="empty-state ds-p-6">
                 <Icon name="check" />
                 <p>
                   <strong>Nenhuma multiplicação registrada ainda.</strong>

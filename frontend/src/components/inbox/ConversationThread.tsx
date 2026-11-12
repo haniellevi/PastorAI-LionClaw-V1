@@ -671,12 +671,12 @@ export function ConversationThread({
         const el = event.currentTarget;
         followLatestRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
       }}>
-        {hasOlderMessages ? <button type="button" className="btn btn-sm" disabled={olderMessagesLoading} onClick={() => {
+        {hasOlderMessages ? <DsButton variant="secondary" disabled={olderMessagesLoading} onClick={() => {
           const el = bodyRef.current;
           if (el) olderScroll.current = { height: el.scrollHeight, top: el.scrollTop };
           followLatestRef.current = false;
           onLoadOlderMessages?.();
-        }}>{olderMessagesLoading ? "Carregando histórico…" : "Carregar mensagens anteriores"}</button> : null}
+        }}>{olderMessagesLoading ? "Carregando histórico…" : "Carregar mensagens anteriores"}</DsButton> : null}
         {messagesLoading && messages.length === 0 ? (
           <p
             className="sub"

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import {
   AdminRequestError,
   AdminSessionExpiredError,
@@ -305,7 +305,7 @@ export function ConsentGovernanceDraftTab({
       </div>
 
       {error ? (
-        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+        <div className="error-banner ds-mb-3" role="alert">
           <span>{error}</span>
         </div>
       ) : null}
@@ -325,20 +325,17 @@ export function ConsentGovernanceDraftTab({
 
       {!state.initialized ? (
         <div className="card card-pad">
-          <h3 style={{ marginTop: 0 }}>Preparar a governança desta igreja</h3>
-          <p className="sub" style={{ color: "var(--muted)" }}>
+          <h3 className="ds-mt-0">Preparar a governança desta igreja</h3>
+          <p className="sub ds-muted">
             A inicialização cria quatro rascunhos vazios e separados por finalidade.
             Nenhum deles terá autoridade operacional.
           </p>
-          <Button
-            variant="primary"
-            size="sm"
+          <DsButton
             loading={busy}
-            loadingText="Iniciando…"
             onClick={() => void initialize()}
           >
-            Iniciar quatro rascunhos
-          </Button>
+            {busy ? "Iniciando…" : "Iniciar quatro rascunhos"}
+          </DsButton>
         </div>
       ) : (
         <>
@@ -358,22 +355,21 @@ export function ConsentGovernanceDraftTab({
                   <h3 id={`purpose-${purpose}`} style={{ margin: 0, fontSize: "1rem" }}>
                     {draft?.purposeLabel || PURPOSE_LABELS[purpose]}
                   </h3>
-                  <p className="sub" style={{ color: "var(--muted)" }}>
+                  <p className="sub ds-muted">
                     Rascunho, não aprovado
                     {draft
                       ? ` · ${completedFields(draft)} de ${DRAFT_FIELDS.length} campos preenchidos`
                       : " · indisponível"}
                   </p>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <DsButton
+                    variant="tertiary"
                     disabled={!draft || busy}
                     aria-controls="governance-draft-editor"
                     aria-expanded={selectedPurpose === purpose}
                     onClick={() => openEditor(purpose)}
                   >
                     Editar rascunho
-                  </Button>
+                  </DsButton>
                 </article>
               );
             })}
@@ -389,8 +385,8 @@ export function ConsentGovernanceDraftTab({
                 void save();
               }}
             >
-              <div style={{ marginBottom: "var(--s4)" }}>
-                <h3 id="governance-editor-title" style={{ margin: 0 }}>
+              <div className="ds-mb-4">
+                <h3 className="ds-m-0" id="governance-editor-title">
                   {selectedDraft.purposeLabel || PURPOSE_LABELS[selectedPurpose]}
                 </h3>
                 <p className="sub" style={{ margin: "var(--s1) 0 0", color: "var(--muted)" }}>
@@ -402,7 +398,7 @@ export function ConsentGovernanceDraftTab({
               {DRAFT_FIELDS.map(({ key, label, help }) => {
                 const helpId = `governance-${selectedPurpose}-${key}-help`;
                 return (
-                  <div className="field" key={key} style={{ marginBottom: "var(--s3)" }}>
+                  <div className="field ds-mb-3" key={key}>
                     <label htmlFor={`governance-${selectedPurpose}-${key}`}>{label}</label>
                     <textarea
                       id={`governance-${selectedPurpose}-${key}`}
@@ -415,7 +411,7 @@ export function ConsentGovernanceDraftTab({
                         setForm((current) => ({ ...current, [key]: event.target.value }))
                       }
                     />
-                    <span id={helpId} className="sub" style={{ color: "var(--muted)" }}>
+                    <span id={helpId} className="sub ds-muted">
                       {help} {form[key].length.toLocaleString("pt-BR")}/
                       {FIELD_MAX_LENGTH.toLocaleString("pt-BR")}
                     </span>
@@ -434,22 +430,19 @@ export function ConsentGovernanceDraftTab({
                 Total: {totalLength.toLocaleString("pt-BR")}/
                 {PAYLOAD_MAX_LENGTH.toLocaleString("pt-BR")} caracteres
               </div>
-              <Button
+              <DsButton
                 type="submit"
-                variant="primary"
-                size="sm"
                 loading={busy}
-                loadingText="Salvando…"
                 disabled={!dirty || totalLength > PAYLOAD_MAX_LENGTH}
               >
-                Salvar rascunho
-              </Button>
+                {busy ? "Salvando…" : "Salvar rascunho"}
+              </DsButton>
             </form>
           ) : null}
         </>
       )}
 
-      <p className="sub" style={{ color: "var(--muted)", marginTop: "var(--s3)" }}>
+      <p className="sub ds-muted ds-mt-3">
         Contrato {state.schemaVersion} · revisão {state.revision}
       </p>
     </section>

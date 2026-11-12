@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { SessionExpiredError } from "@/lib/api";
 import { ApiError, fetchTeamLookup, type TeamLookupMember } from "@/lib/dashboard-api";
 import { answerInvitation, assignConsolidador, canConsolidate, fetchAssignments, type AssignmentTrack } from "@/lib/consolidacao-api";
+import { DsButton } from "@/components/ds/Button";
 
 const labels = { atribuida: "Aguardando aceite", aceita: "Aceito", recusada: "Recusado — coordenação", expirada: "Expirado — coordenação", substituida: "Substituído" };
 
@@ -81,7 +82,7 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
   const candidatesFor = (row: AssignmentTrack) => eligibleMembers.filter(member => row.tiposNecessarios.every(kind => member.tiposFila.includes(kind)));
   const name = (id: string | null) => id === user?.appUserId ? "Você" : (team ?? members).find(member => member.usuarioId === id)?.nome ?? (id ? "Responsável atual" : "Sem responsável efetivo");
   return <section className="card" aria-label="Aceite da fonovisita">
-    <div className="panel-title"><span>Aceite da fonovisita</span><button type="button" className="btn btn-sm" disabled={busy} onClick={() => void load()}>Atualizar convites</button></div>
+    <div className="panel-title"><span>Aceite da fonovisita</span><DsButton variant="secondary" disabled={busy} onClick={() => void load()}>Atualizar convites</DsButton></div>
     <p className="people-meta">O convite vale por 24 horas corridas. O prazo da fonovisita continua o mesmo. Recusa ou expiração volta à coordenação.</p>
     {error ? <p role="alert">{error}</p> : null}
     {notice ? <p role="status">{notice}</p> : null}
@@ -93,18 +94,18 @@ function AssignmentPanelContent({ team, onChanged }: AssignmentPanelProps) {
         <p>{name(row.responsavelId)}</p>
         {row.convite ? <p>{labels[row.convite.status]} · Candidato: {name(row.convite.responsavelId)} · Prazo de aceite: {new Date(row.convite.prazoAceite).toLocaleString("pt-BR")}</p> : <p>Sem convite novo · atribuição anterior preservada</p>}
         {row.convite?.status === "atribuida" && row.convite.responsavelId === user?.appUserId ? <div className="actions">
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void act(row, true)}>Aceitar fonovisita de {row.pessoaNome}</button>
-          <button type="button" className="btn" disabled={busy} onClick={() => void act(row, false)}>Recusar convite</button>
+          <DsButton disabled={busy} onClick={() => void act(row, true)}>Aceitar fonovisita de {row.pessoaNome}</DsButton>
+          <DsButton variant="secondary" disabled={busy} onClick={() => void act(row, false)}>Recusar convite</DsButton>
         </div> : null}
         {coordinator && candidatesFor(row).length > 0 ? <div className="actions">
           <label>Convidar responsável para {row.pessoaNome}<select value={selected[row.id] ?? ""} disabled={busy} onChange={event => setSelected(current => ({ ...current, [row.id]: event.target.value }))}>
             <option value="">Selecione uma pessoa da equipe</option>
             {candidatesFor(row).map(member => <option key={member.usuarioId} value={member.usuarioId}>{member.nome}</option>)}
           </select></label>
-          <button type="button" className="btn btn-sm" disabled={busy || !candidatesFor(row).some(member => member.usuarioId === selected[row.id])} onClick={() => void act(row)}>Registrar convite no painel</button>
+          <DsButton variant="secondary" disabled={busy || !candidatesFor(row).some(member => member.usuarioId === selected[row.id])} onClick={() => void act(row)}>Registrar convite no painel</DsButton>
         </div> : null}
       </div>
     </div>)}</div>
-    {nextCursor ? <button type="button" className="btn" disabled={busy} onClick={() => void load(nextCursor)}>Carregar mais convites</button> : null}
+    {nextCursor ? <DsButton variant="secondary" disabled={busy} onClick={() => void load(nextCursor)}>Carregar mais convites</DsButton> : null}
   </section>;
 }

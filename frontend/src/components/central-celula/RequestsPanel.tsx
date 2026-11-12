@@ -113,7 +113,7 @@ export function RequestsPanel({
         {showSkeleton ? (
           <div className="section-body">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div className="sk-line sk-lg" key={i} style={{ marginBottom: "var(--s3)" }} />
+              <div className="sk-line sk-lg ds-mb-3" key={i} />
             ))}
           </div>
         ) : items.length === 0 ? (
@@ -128,8 +128,8 @@ export function RequestsPanel({
                 onClick={() => setSelectedId(req.id)}
                 aria-pressed={selectedId === req.id}
               >
-                <span style={{ minWidth: 0 }}>
-                  <span className="nm" style={{ display: "block" }}>
+                <span className="ds-min-w-0">
+                  <span className="nm ds-block">
                     {typeLabel(req.tipo)}{req.tipo === "nomear_lider" ? ` · ${req.candidato_nome ?? "Candidato"} → ${req.celula_nome ?? "Célula"}` : ""}
                   </span>
                   {req.created_at ? (

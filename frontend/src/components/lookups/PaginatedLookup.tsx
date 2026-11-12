@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { SessionExpiredError } from "@/lib/api";
 import { useLookupPage, type LookupLoader } from "./useLookupPage";
 import { LookupPager } from "./LookupPager";
+import { DsButton } from "@/components/ds/Button";
 
 export function PaginatedLookup<T extends { id: string }>({
   loadPage, selected, onSelect, label, inputId, getLabel, getDescription, isDisabled,
@@ -21,13 +22,13 @@ export function PaginatedLookup<T extends { id: string }>({
     <label htmlFor={inputId}>{label}</label>
     <input id={inputId} type="search" value={query} onChange={(event) => setQuery(event.target.value)} disabled={disabled} placeholder="Buscar por nome…" />
     {selected ? <p role="status" className="sub">Selecionada: <strong>{getLabel(selected)}</strong></p> : null}
-    {allowClear && selected ? <button type="button" className="btn btn-sm" onClick={() => onSelect(null)} disabled={disabled}>Limpar seleção</button> : null}
-    {lookup.error ? <div role="alert">{lookup.error instanceof Error ? lookup.error.message : "Não foi possível carregar as opções."} <button type="button" className="btn btn-sm" onClick={lookup.retry}>Tentar novamente</button></div> : null}
+    {allowClear && selected ? <DsButton variant="secondary" onClick={() => onSelect(null)} disabled={disabled}>Limpar seleção</DsButton> : null}
+    {lookup.error ? <div role="alert">{lookup.error instanceof Error ? lookup.error.message : "Não foi possível carregar as opções."} <DsButton variant="secondary" onClick={lookup.retry}>Tentar novamente</DsButton></div> : null}
     {lookup.loading ? <p role="status" className="sub">Carregando opções…</p> : <div style={{ maxHeight: 220, overflowY: "auto" }}>
-      {lookup.result?.items.map((item) => <button key={item.id} type="button" className="btn" style={{ display: "block", width: "100%", textAlign: "left", marginTop: 4 }}
+      {lookup.result?.items.map((item) => <DsButton key={item.id} variant="secondary" style={{ display: "block", width: "100%", textAlign: "left", marginTop: 4, paddingBlock: 9 }}
         disabled={disabled || isDisabled?.(item)} aria-pressed={selected?.id === item.id} onClick={() => onSelect(item)}>
         {getLabel(item)}{getDescription?.(item) ? <span className="sub"> · {getDescription(item)}</span> : null}
-      </button>)}
+      </DsButton>)}
       {lookup.result?.items.length === 0 ? <p className="sub">Nenhum resultado encontrado.</p> : null}
     </div>}
     <LookupPager result={lookup.result} loading={lookup.loading} onPage={lookup.setPage} />

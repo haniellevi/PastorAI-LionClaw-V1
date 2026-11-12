@@ -25,7 +25,7 @@ export function LockedScreen({ variant }: { variant: LockedVariant }) {
       <div className="card card-pad admin-unavailable" role="status">
         <div className="panel-title"><Icon name="lock" /> Módulo indisponível</div>
         <p>Turmas, presença e certificação não podem ser registradas nesta área.</p>
-        <a className="btn btn-primary" href="#dashboard" style={{ marginTop: "var(--s4)" }}>Voltar ao Hoje</a>
+        <a className="btn btn-primary ds-mt-4" href="#dashboard">Voltar ao Hoje</a>
       </div>
     </div>
   );

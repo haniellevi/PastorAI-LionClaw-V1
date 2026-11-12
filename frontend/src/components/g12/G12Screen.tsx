@@ -26,6 +26,7 @@ import {
 } from "@/lib/g12-api";
 import { Icon } from "@/lib/icons";
 import { tipoLabel } from "@/lib/contacts-api";
+import { DsButton } from "@/components/ds/Button";
 
 type VTab = "arvore" | "indicadores";
 
@@ -122,10 +123,10 @@ export function G12Screen() {
           <p>Navegue pela descendência e pelos indicadores da liderança.</p>
         </div>
         <div className="actions">
-          <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
-            <Icon name="refresh" />
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
+            <Icon name="refresh" size={15} />
             <span>Atualizar</span>
-          </button>
+          </DsButton>
         </div>
       </div>
 
@@ -133,9 +134,9 @@ export function G12Screen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -177,7 +178,7 @@ export function G12Screen() {
             ))}
           </div>
         ) : !rootNode || !current ? (
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
+          <div className="empty-state ds-p-6">
             <Icon name="g12" />
             <p>
               <strong>Sem descendências para exibir.</strong> Quando houver liderados vinculados
@@ -226,7 +227,7 @@ export function G12Screen() {
             ) : null}
 
             {current.children.length === 0 ? (
-              <div className="empty-state" style={{ padding: "var(--s6)" }}>
+              <div className="empty-state ds-p-6">
                 <Icon name="user" />
                 <p>
                   <strong>Descendência vazia.</strong> {current.id === SYNTHETIC_ROOT ? "Esta pessoa" : current.nome}{" "}

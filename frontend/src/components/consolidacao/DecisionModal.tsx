@@ -20,7 +20,6 @@ import { fetchCellLookupPage, fetchContactLookupPage, type CellLookup, type Cont
 import { fetchContactDetail } from "@/lib/contacts-api";
 import { SessionExpiredError } from "@/lib/api";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import type { CellSummary } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
 import type { DecisionVinculo, LaunchDecisionInput } from "@/lib/consolidacao-api";
@@ -35,6 +34,7 @@ const ORIGENS = [
 ] as const;
 
 import "../contacts/people-ux-v2.css";
+import { DsButton } from "@/components/ds/Button";
 
 export interface DecisionModalProps {
   /** Pessoas elegíveis para lançar a decisão. */
@@ -223,7 +223,7 @@ export function DecisionModal({
           </fieldset>
 
           {vinculo === "celula" && !celulaFlowBlocked ? (
-            <div className={`field${celulaError ? " invalid" : ""}`} style={{ margin: "var(--s4) 0 0" }}>
+            <div className={`field ds-m-0 ds-mt-4${celulaError ? " invalid" : ""}`}>
               <label htmlFor="dec-celula">Célula que participa</label>
               {token ? <PaginatedLookup<CellLookup> loadPage={loadCells} selected={lookupCell} onSelect={setLookupCell} label="Buscar célula" inputId="dec-cell-search" getLabel={cell => cell.nome} getDescription={cell => !cell.ativo ? "Inativa" : !cell.liderId ? "Sem líder" : "Ativa · com líder"} isDisabled={cell => !cell.ativo || !cell.liderId} disabled={busy} onSessionExpired={onSessionExpired} /> : <select
                 id="dec-celula"
@@ -272,15 +272,12 @@ export function DecisionModal({
           </div>
 
           <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            <DsButton variant="secondary" onClick={onClose} disabled={busy}>
               Cancelar
-            </button>
-            <Button
+            </DsButton>
+            <DsButton
               type="submit"
-              variant="primary"
-              size="sm"
               loading={busy}
-              loadingText="Lançando…"
               disabled={!canSubmit}
               aria-disabled={!canSubmit || undefined}
               title={
@@ -289,9 +286,15 @@ export function DecisionModal({
                   : undefined
               }
             >
-              <Icon name="check" />
-              <span>Lançar decisão</span>
-            </Button>
+              {busy ? (
+                <span>Lançando…</span>
+              ) : (
+                <>
+                  <Icon name="check" />
+                  <span>Lançar decisão</span>
+                </>
+              )}
+            </DsButton>
           </div>
         </form>
     </DsDialog>

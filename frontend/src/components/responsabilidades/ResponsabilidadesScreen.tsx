@@ -9,6 +9,7 @@ import { ApiError } from '@/lib/dashboard-api';
 import { fetchContactDetail } from '@/lib/contacts-api';
 import { fetchContactLookupPage, type ContactLookup } from '@/lib/lookup-api';
 import { PaginatedLookup } from '@/components/lookups/PaginatedLookup';
+import { DsButton } from '@/components/ds/Button';
 import { atribuirResponsabilidade, encerrarResponsabilidade, hojeSaoPaulo, listarResponsabilidades, PAGE_SIZE, SETORES, vigencia, type Responsabilidade, type Setor } from '@/lib/responsabilidades-api';
 
 const dateLabel = (date: string) => date.split('-').reverse().join('/');
@@ -111,23 +112,23 @@ export function ResponsabilidadesScreen() {
           {ending && <p>Confirme o fim de {dateLabel(ending.inicio)}{ending.fim ? ` até ${dateLabel(ending.fim)} (exclusivo)` : ' em diante'}. O registro será mantido no histórico.</p>}
           <div className="field"><label htmlFor={ending ? 'encerrar-fim' : 'atribuir-fim'}>Fim {ending ? '(confirmar encerramento)' : '(opcional)'}</label><input id={ending ? 'encerrar-fim' : 'atribuir-fim'} type="date" required={!!ending} min={minEnd} max={ending?.fim ?? undefined} value={fim} onChange={e => setFim(e.target.value)} aria-describedby="vigencia-ajuda responsabilidade-form-error" /></div>
           <p id="responsabilidade-form-error" role={formError ? 'alert' : undefined}>{formError}</p>
-          <div className="responsabilidades-actions"><button className="btn btn-primary" type="submit">{saving ? 'Salvando…' : ending ? 'Confirmar encerramento' : 'Atribuir'}</button><button className="btn" type="button" onClick={close}>Cancelar</button></div>
+          <div className="responsabilidades-actions"><DsButton type="submit">{saving ? 'Salvando…' : ending ? 'Confirmar encerramento' : 'Atribuir'}</DsButton><DsButton variant="secondary" onClick={close}>Cancelar</DsButton></div>
         </fieldset>
       </form>
     </section>}
     <section aria-labelledby="historico-title" aria-busy={loading}>
       <h2 id="historico-title">Vigência e histórico</h2>
       <div className="field"><label htmlFor="filtro-setor">Filtrar por setor</label><select id="filtro-setor" value={setor} disabled={saving} onChange={e => { setSetor(e.target.value as Setor | ''); setOffset(0); }}>{<option value="">Todos os setores</option>}{Object.entries(SETORES).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></div>
-      {loading ? <p role="status">Carregando responsabilidades…</p> : error ? <div role="alert">{error} <button className="btn" onClick={() => setReload(v => v + 1)}>Tentar novamente</button></div> : <>
+      {loading ? <p role="status">Carregando responsabilidades…</p> : error ? <div role="alert">{error} <DsButton variant="secondary" onClick={() => setReload(v => v + 1)}>Tentar novamente</DsButton></div> : <>
         {rows.length === 0 && <p>Nenhuma responsabilidade encontrada neste filtro.</p>}
         {rows.slice(0, PAGE_SIZE).map(row => <article className="card card-pad" key={row.id}>
           <h3>{SETORES[row.setor]}</h3>
           <PessoaNome token={token!} id={row.pessoa_id} onExpired={expireSession} />
           <p>{dateLabel(row.inicio)} → {row.fim ? `${dateLabel(row.fim)} (exclusivo)` : 'Sem fim definido'} · <strong>{vigencia(row, hoje)}</strong></p>
           {row.encerrada_em && <p>Encerramento registrado.</p>}
-          {!row.encerrada_em && (!row.fim || row.fim >= hoje) && <button className="btn" disabled={saving} onClick={() => open(row)}>Encerrar</button>}
+          {!row.encerrada_em && (!row.fim || row.fim >= hoje) && <DsButton variant="secondary" disabled={saving} onClick={() => open(row)}>Encerrar</DsButton>}
         </article>)}
-        <nav className="responsabilidades-actions" aria-label="Paginação do histórico"><button className="btn" disabled={offset === 0 || saving} onClick={() => setOffset(v => Math.max(0, v - PAGE_SIZE))}>Anterior</button><span>Página {offset / PAGE_SIZE + 1}</span><button className="btn" disabled={rows.length <= PAGE_SIZE || saving} onClick={() => setOffset(v => v + PAGE_SIZE)}>Próxima</button></nav>
+        <nav className="responsabilidades-actions" aria-label="Paginação do histórico"><DsButton variant="secondary" disabled={offset === 0 || saving} onClick={() => setOffset(v => Math.max(0, v - PAGE_SIZE))}>Anterior</DsButton><span>Página {offset / PAGE_SIZE + 1}</span><DsButton variant="secondary" disabled={rows.length <= PAGE_SIZE || saving} onClick={() => setOffset(v => v + PAGE_SIZE)}>Próxima</DsButton></nav>
       </>}
     </section>
   </div>;

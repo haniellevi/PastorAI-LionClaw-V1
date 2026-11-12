@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState, type FormEvent } from "react";
 import type { MarcoUV, MatriculaUV, TurmaDetalhe } from "@/lib/uv-api";
+import { DsButton } from "@/components/ds/Button";
 
 type Request = <T>(path: string, method?: string, payload?: unknown) => Promise<T>;
 type Run = (action: () => Promise<void>) => Promise<void>;
@@ -37,7 +38,7 @@ function Formation({ enrollment: m, turma, disabled, coordination, reencontroDis
       }}><fieldset disabled={disabled}><legend>Conclusão da UV de {m.nome}</legend>
         <label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />Confirmo a conclusão da UV desta Pessoa</label>
         <p>A conclusão registra o histórico na Pessoa e a aptidão à próxima CD, sem matrícula automática.</p>
-        <button className="btn btn-primary" disabled={disabled || !ready || !confirmed}>Concluir UV</button>
+        <DsButton type="submit" disabled={disabled || !ready || !confirmed}>Concluir UV</DsButton>
       </fieldset></form>}
   </article>;
 }
@@ -61,7 +62,7 @@ function Milestone({ tipo, base, disabled, request, run, reload, revalidation = 
     <label>Data do {tipo}<input required name="data" type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
     <label><input type="checkbox" checked={prior} onChange={e => setPrior(e.target.checked)} />Anterior à turma</label>
     <label><input type="checkbox" name="confirmado" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />Validei este marco da Pessoa</label>
-    <button className="btn" disabled={disabled || !date || !confirmed}>{revalidation ? "Revalidar" : "Validar"} {tipo}</button>
+    <DsButton type="submit" variant="secondary" disabled={disabled || !date || !confirmed}>{revalidation ? "Revalidar" : "Validar"} {tipo}</DsButton>
   </fieldset></form>;
 }
 
@@ -78,6 +79,6 @@ function Revoke({ base, disabled, request, run, reload }: Actions & { base: stri
     <label>Motivo obrigatório<input required maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} /></label>
     <label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />Confirmo a revogação definitiva desta evidência</label>
     <p>A liderança atual será preservada. Novas nomeações serão bloqueadas.</p>
-    <button className="btn" disabled={disabled || !reason.trim() || !confirmed}>Revogar Reencontro</button>
+    <DsButton type="submit" variant="secondary" disabled={disabled || !reason.trim() || !confirmed}>Revogar Reencontro</DsButton>
   </fieldset></form>;
 }

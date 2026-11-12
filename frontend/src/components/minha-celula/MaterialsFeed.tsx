@@ -17,7 +17,7 @@ export function MaterialsFeed({ materials }: { materials: Material[] }) {
       </div>
 
       {materials.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="empty-state ds-p-6">
           <Icon name="document" />
           <p>
             <strong>Nenhum material publicado.</strong>

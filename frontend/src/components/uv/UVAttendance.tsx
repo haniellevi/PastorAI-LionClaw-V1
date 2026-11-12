@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { MatriculaUV, PresencaRevisao, TurmaDetalhe } from "@/lib/uv-api";
+import { DsButton } from "@/components/ds/Button";
 
 type Props = {
   detail: TurmaDetalhe;
@@ -64,12 +65,12 @@ function StudentAttendance({ detail, busy, request, run, reload, student }: Prop
         <label>Situação<select value={String(presente)} onChange={e => { setPresente(e.target.value === "true"); reset(); }}><option value="true">Presente</option><option value="false">Ausente</option></select></label>
         <label>Modalidade<select aria-label="Modalidade da presença" value={modalidade} onChange={e => { setModalidade(e.target.value as typeof modalidade); reset(); }}><option value="regular">Regular</option><option value="reposicao">Reposição</option></select></label>
         {current ? <label><input type="checkbox" required checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />Confirmo a correção; o registro anterior permanecerá no histórico.</label> : null}
-        <button className="btn btn-primary" disabled={!!current && !confirmed}>{current ? "Salvar correção" : "Registrar presença"}</button>
+        <DsButton type="submit" disabled={!!current && !confirmed}>{current ? "Salvar correção" : "Registrar presença"}</DsButton>
       </fieldset>
     </form>
     {student.conclusao ? <p>UV concluída: chamada disponível somente para consulta.</p> : null}
     {detail.encerrada ? <p>Turma encerrada: chamada disponível para consulta.</p> : !available ? <p>Defina o calendário desta aula para lançar presença.</p> : null}
-    <button className="btn" type="button" disabled={busy} onClick={() => void run(async () => { setHistory(await request<PresencaRevisao[]>(`${path}/historico`)); })}>Consultar histórico da aula {aula}</button>
+    <DsButton variant="secondary" disabled={busy} onClick={() => void run(async () => { setHistory(await request<PresencaRevisao[]>(`${path}/historico`)); })}>Consultar histórico da aula {aula}</DsButton>
     {notice ? <p role="status">{notice}</p> : null}
     {history ? history.length ? <ol>{history.map(h => <li key={h.registro_id}>{h.anterior_id ? "Correção" : "Registro inicial"}: {h.presente ? "Presente" : "Ausente"} · {h.modalidade === "reposicao" ? "Reposição" : "Regular"} · {new Date(h.registrada_em).toLocaleString("pt-BR")} · {h.registrada_por_nome || "Usuário da equipe"}</li>)}</ol> : <p>Nenhum registro nesta aula.</p> : null}
   </article>;

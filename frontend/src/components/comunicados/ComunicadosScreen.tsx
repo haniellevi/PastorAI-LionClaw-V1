@@ -43,6 +43,7 @@ import { fetchContacts, tipoLabel, tipoTone, type Contact } from "@/lib/contacts
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { fetchConnection, type ConnectionStatus } from "@/lib/whatsapp-api";
+import { DsButton } from "@/components/ds/Button";
 
 type Step = "compose" | "segment" | "review";
 type ConnState = ConnectionStatus | "unknown";
@@ -319,13 +320,13 @@ export function ComunicadosScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
-      <div className="grid-2" style={{ alignItems: "start" }}>
+      <div className="grid-2 ds-items-start">
         <div className="card card-pad">
           {externalSendsBlocked ? (
             <div
@@ -380,7 +381,7 @@ export function ComunicadosScreen() {
                   placeholder="Ex.: Convite culto de domingo"
                 />
               </div>
-              <div className="field" style={{ marginBottom: 0 }}>
+              <div className="field ds-mb-0">
                 <label htmlFor="bcMsg">Mensagem</label>
                 <textarea
                   id="bcMsg"
@@ -396,21 +397,19 @@ export function ComunicadosScreen() {
               </div>
               <div className="modal-foot">
                 <span />
-                <button
-                  type="button"
-                  className="btn btn-primary"
+                <DsButton
                   disabled={!composeReady}
                   onClick={() => setStep("segment")}
                 >
                   Avançar
-                </button>
+                </DsButton>
               </div>
             </>
           ) : step === "segment" ? (
             <>
-              {contactsState === "loading" ? <p role="status">Carregando destinatários…</p> : contactsState === "error" ? <div role="alert">Não foi possível confirmar os destinatários. <button type="button" className="btn btn-sm" onClick={() => setContactsAttempt(value => value + 1)}>Tentar novamente</button></div> : null}
+              {contactsState === "loading" ? <p role="status">Carregando destinatários…</p> : contactsState === "error" ? <div role="alert">Não foi possível confirmar os destinatários. <DsButton variant="secondary" onClick={() => setContactsAttempt(value => value + 1)}>Tentar novamente</DsButton></div> : null}
               <div className="field">
-                <label>Segmentos <span className="helper" style={{ fontWeight: 400 }}>· marque um ou mais</span></label>
+                <label>Segmentos <span className="helper ds-regular">· marque um ou mais</span></label>
                 <div className="seg-list">
                   {SEGMENTS.map((seg) => {
                     const count = countSegment(contacts, seg.token);
@@ -522,22 +521,20 @@ export function ComunicadosScreen() {
               ) : null}
 
               <div className="modal-foot">
-                <button type="button" className="btn" onClick={() => setStep("compose")}>
+                <DsButton variant="secondary" onClick={() => setStep("compose")}>
                   Voltar
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
+                </DsButton>
+                <DsButton
                   disabled={!segmentReady}
                   onClick={() => setStep("review")}
                 >
                   Revisar
-                </button>
+                </DsButton>
               </div>
             </>
           ) : (
             <>
-              <h4 style={{ marginBottom: "var(--s4)" }}>Revisão do comunicado</h4>
+              <h4 className="ds-mb-4">Revisão do comunicado</h4>
               <dl className="detail-list">
                 <div>
                   <dt>Título</dt>
@@ -565,7 +562,7 @@ export function ComunicadosScreen() {
                 </div>
               </dl>
 
-              <div className="field" style={{ marginTop: "var(--s3)" }}>
+              <div className="field ds-mt-3">
                 <label>Mensagem</label>
                 <p className="message-preview">{mensagem}</p>
               </div>
@@ -581,22 +578,20 @@ export function ComunicadosScreen() {
               ) : null}
 
               <div className="modal-foot">
-                <button type="button" className="btn" onClick={() => setStep("segment")} disabled={submitting}>
+                <DsButton variant="secondary" onClick={() => setStep("segment")} disabled={submitting}>
                   Voltar
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
+                </DsButton>
+                <DsButton
                   disabled={
                     submitting || !segmentReady ||
                     externalSendsBlocked ||
                     (scheduleOn && !scheduleAvailable)
                   }
-                  aria-busy={submitting || undefined}
+                  loading={submitting}
                   onClick={() => void handleSubmit()}
                 >
                   {submitting ? "Enviando…" : scheduleOn ? "Agendar comunicado" : "Enviar comunicado"}
-                </button>
+                </DsButton>
               </div>
             </>
           )}
@@ -615,8 +610,8 @@ export function ComunicadosScreen() {
                 </div>
               ))}
             </div>
-          ) : historyState === "error" ? <div role="alert">Histórico indisponível. <button type="button" className="btn btn-sm" onClick={() => void load("retry")}>Tentar novamente</button></div> : historyState === "loading" ? <p role="status">Carregando histórico…</p> : history.length === 0 ? (
-            <div className="empty-state" style={{ padding: "var(--s6)" }}>
+          ) : historyState === "error" ? <div role="alert">Histórico indisponível. <DsButton variant="secondary" onClick={() => void load("retry")}>Tentar novamente</DsButton></div> : historyState === "loading" ? <p role="status">Carregando histórico…</p> : history.length === 0 ? (
+            <div className="empty-state ds-p-6">
               <Icon name="broadcast" />
               <p>
                 <strong>Nenhum comunicado ainda.</strong> Crie o primeiro envio

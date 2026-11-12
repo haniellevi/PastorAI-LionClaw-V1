@@ -42,6 +42,7 @@ import { LookupPager } from "@/components/lookups/LookupPager";
 import { CellFormModal } from "./CellFormModal";
 import { AddCellMemberModal } from "./InviteMemberModal";
 import { currentLeaderReadOnlyOption } from "./cell-leadership";
+import { DsButton } from "@/components/ds/Button";
 
 interface Toast {
   kind: "ok" | "err";
@@ -342,9 +343,9 @@ export function CelulasScreen({ initialCellId = null }: { initialCellId?: string
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
+          <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -370,7 +371,7 @@ export function CelulasScreen({ initialCellId = null }: { initialCellId?: string
               </div>
             )) : <p className="ops-state-note" role="status">Visão geral indisponível. Tente novamente para confirmar os indicadores.</p>}
       </div></div>
-      {summaryError ? <div className="error-banner" role="alert"><span>{summaryError}</span><button type="button" className="btn btn-sm" onClick={() => setSummaryNonce((value) => value + 1)}>Tentar novamente</button></div> : null}
+      {summaryError ? <div className="error-banner" role="alert"><span>{summaryError}</span><DsButton variant="secondary" onClick={() => setSummaryNonce((value) => value + 1)}>Tentar novamente</DsButton></div> : null}
       </details>
       </SupportReveal>
 
@@ -398,7 +399,7 @@ export function CelulasScreen({ initialCellId = null }: { initialCellId?: string
             </div>
           ) : error && !loaded ? null : cells.length === 0 && !query ? (
             <div className="card">
-              <div className="empty-state" style={{ padding: "var(--s6)" }}>
+              <div className="empty-state ds-p-6">
                 <Icon name="central-celula" />
                 <p>
                   <strong>Nenhuma célula cadastrada.</strong> A criação é feita na
@@ -407,7 +408,7 @@ export function CelulasScreen({ initialCellId = null }: { initialCellId?: string
               </div>
             </div>
           ) : visibleCells.length === 0 ? (
-            <div className="card card-pad"><p>Nenhuma célula corresponde à busca.</p><button type="button" className="btn" onClick={() => setQuery("")}>Limpar busca</button></div>
+            <div className="card card-pad"><p>Nenhuma célula corresponde à busca.</p><DsButton variant="secondary" onClick={() => setQuery("")}>Limpar busca</DsButton></div>
           ) : (
             <div className="grid-cells">
               {visibleCells.map((c) => {
@@ -462,7 +463,7 @@ export function CelulasScreen({ initialCellId = null }: { initialCellId?: string
         </div>
 
         <div className="dash-side" ref={detailPanel} tabIndex={-1} aria-label="Detalhe da célula selecionada">
-          {selectedId ? <button type="button" className="btn ops-cell-back" onClick={() => {
+          {selectedId ? <DsButton variant="secondary" className="ops-cell-back" onClick={() => {
             latestDetailRequest.current += 1;
             setSelectedId(null);
             setDetail(null);
@@ -471,7 +472,7 @@ export function CelulasScreen({ initialCellId = null }: { initialCellId?: string
               if (selectedTrigger.current?.isConnected) selectedTrigger.current.focus();
               else document.getElementById("cell-search")?.focus();
             });
-          }}><Icon name="chevron-left" /> Voltar à lista de células</button> : null}
+          }}><Icon name="chevron-left" /> Voltar à lista de células</DsButton> : null}
           <CellDetailPanel
             cell={cells.find((c) => c.id === selectedId) ?? (selectedRecord?.id === selectedId ? selectedRecord : detail)}
             detail={detail}
@@ -585,7 +586,7 @@ function CellDetailPanel({
   if (!cell) {
     return (
       <div className="card card-pad">
-        <div className="empty-state" style={{ padding: "var(--s5)" }}>
+        <div className="empty-state ops-empty-compact">
           <Icon name="central-celula" />
           <p>
             <strong>Selecione uma célula</strong> para ver membros, visitantes e alertas.
@@ -619,9 +620,9 @@ function CellDetailPanel({
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error ?? "Não foi possível abrir a célula."}</span>
-          <button type="button" className="btn btn-sm" onClick={onRetry}>
+          <DsButton variant="secondary" onClick={onRetry}>
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       </div>
     );
@@ -661,30 +662,30 @@ function CellDetailPanel({
       {canEdit || canAddMember ? (
         <div className="cell-detail-actions">
           {canEdit ? (
-            <button type="button" className="btn" onClick={onEdit}>
+            <DsButton variant="secondary" onClick={onEdit}>
               <Icon name="document" />
               <span>Editar célula</span>
-            </button>
+            </DsButton>
           ) : null}
           {canAddMember ? (
-            <button type="button" className="btn btn-primary" onClick={onInvite}>
+            <DsButton onClick={onInvite}>
               <Icon name="plus" />
               <span>Adicionar à célula</span>
-            </button>
+            </DsButton>
           ) : null}
         </div>
       ) : null}
 
-      <div className="panel-title" style={{ padding: "0 0 var(--s2)", borderBottom: "none" }}>
+      <div className="panel-title ops-subtitle">
         Membros e visitantes
       </div>
-      {peopleLoading ? <p className="sub" role="status">Carregando Pessoas…</p> : peopleError ? <div role="alert">{peopleError}<button type="button" className="btn btn-sm" onClick={onPeopleRetry}>Tentar novamente</button></div> : membros.length === 0 && visitantes.length === 0 ? (
-        <p className="sub" style={{ color: "var(--muted)" }}>Nenhuma pessoa vinculada ainda.</p>
+      {peopleLoading ? <p className="sub" role="status">Carregando Pessoas…</p> : peopleError ? <div role="alert">{peopleError}<DsButton variant="secondary" onClick={onPeopleRetry}>Tentar novamente</DsButton></div> : membros.length === 0 && visitantes.length === 0 ? (
+        <p className="sub ds-muted">Nenhuma pessoa vinculada ainda.</p>
       ) : (
         <div>
           {membros.map((p) => (
             <div className="list-row" key={p.id}>
-              <div style={{ flex: 1 }}>
+              <div className="ops-row-main">
                 <div className="nm">{p.nome}</div>
                 <div className="sub">{tipoLabel(p.tipo)}</div>
               </div>
@@ -693,7 +694,7 @@ function CellDetailPanel({
           ))}
           {visitantes.map((p) => (
             <div className="list-row" key={p.id}>
-              <div style={{ flex: 1 }}>
+              <div className="ops-row-main">
                 <div className="nm">{p.nome}</div>
                 <div className="sub">Visitante</div>
               </div>
@@ -705,32 +706,29 @@ function CellDetailPanel({
 
       {peoplePager}
       <div
-        className="panel-title"
-        style={{ padding: "var(--s3) 0 var(--s2)", borderBottom: "none", color: detail.alerts.length ? "var(--warn)" : undefined }}
+        className={`panel-title ops-subtitle ops-subtitle--spaced${detail.alerts.length ? " ds-text-warn" : ""}`}
       >
         <Icon name="alert" />
         Alertas
         {detail.alerts.length ? <span className="count">· {detail.alerts.length}</span> : null}
       </div>
       {detail.alerts.length === 0 ? (
-        <p className="sub" style={{ color: "var(--muted)" }}>Nenhum alerta em aberto sobre liderados.</p>
+        <p className="sub ds-muted">Nenhum alerta em aberto sobre liderados.</p>
       ) : (
         <div>
           {detail.alerts.map((a) => (
             <div className="list-row" key={a.id}>
-              <div style={{ flex: 1 }}>
+              <div className="ops-row-main">
                 <div className="nm">{a.gatilho ?? "Alerta"}</div>
                 {a.acaoEsperada ? <div className="sub">{a.acaoEsperada}</div> : null}
               </div>
               {canEdit ? (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
+                <DsButton
                   disabled={busyAlert === a.id}
                   onClick={() => onTreatAlert(a)}
                 >
                   {busyAlert === a.id ? "…" : "Tratar"}
-                </button>
+                </DsButton>
               ) : null}
             </div>
           ))}

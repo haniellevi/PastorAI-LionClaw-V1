@@ -27,7 +27,7 @@ export function NoticesFeed({ notices }: { notices: DiscipleNotice[] }) {
       </div>
 
       {notices.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="empty-state ds-p-6">
           <Icon name="bell" />
           <p>
             <strong>Nenhum aviso publicado.</strong>

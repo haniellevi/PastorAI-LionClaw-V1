@@ -19,7 +19,7 @@ import { Icon } from "@/lib/icons";
 
 function PreflightItems({ items }: { items: OffboardingPreflightItem[] }) {
   return (
-    <ul style={{ margin: "6px 0 0", paddingLeft: "1.1em" }}>
+    <ul className="people-preflight-list">
       {items.map((item, i) => (
         <li key={`${item.tipo}-${item.recurso_id ?? i}`}>
           <strong>{item.rotulo}</strong>

@@ -34,6 +34,7 @@ import {
   type ConnectionInfo,
   type ConnectionStatus,
 } from "@/lib/whatsapp-api";
+import { DsButton } from "@/components/ds/Button";
 
 const POLL_MS = 6_000;
 const QR_TTL_MS = 45_000;
@@ -344,15 +345,14 @@ export function WhatsappScreen() {
           <p>Conecte e acompanhe o canal usado no cuidado e na comunicação da igreja.</p>
         </div>
         <div className="actions">
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             onClick={() => void load("retry")}
             disabled={loading}
           >
-            <Icon name="refresh" />
+            <Icon name="refresh" size={15} />
             <span>Atualizar</span>
-          </button>
+          </DsButton>
         </div>
       </div>
 
@@ -362,14 +362,13 @@ export function WhatsappScreen() {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             onClick={() => void load("retry")}
             disabled={loading}
           >
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -399,7 +398,7 @@ export function WhatsappScreen() {
               <span className="conn-status-dot" style={{ background: meta.dot }} />
               <div>
                 <div style={{ fontWeight: 600 }}>{meta.title}</div>
-                <div className="sub mono" style={{ color: "var(--muted)" }}>
+                <div className="sub mono ds-muted">
                   {info?.numero ?? "Nenhum número pareado"}
                 </div>
               </div>
@@ -409,43 +408,39 @@ export function WhatsappScreen() {
             </div>
 
             <div className="conn-row">
-              <span style={{ color: "var(--muted)" }}>Última sincronização</span>
+              <span className="ds-muted">Última sincronização</span>
               <span className="mono num">{formatSync(info?.ultimaSync ?? null)}</span>
             </div>
             <div className="conn-row">
-              <span style={{ color: "var(--muted)" }}>Privacidade pastoral</span>
+              <span className="ds-muted">Privacidade pastoral</span>
               <span className="pill accent">Só nº oficial registrado</span>
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginTop: "var(--s4)" }}>
+            <div className="ds-flex ds-gap-2 ds-mt-4">
               {isOnline ? (
                 <>
-                  <button
-                    type="button"
-                    className="btn"
+                  <DsButton
+                    variant="secondary"
                     onClick={() => void doConnect("reconnect")}
                     disabled={busy}
                   >
                     {busy ? "Reconectando…" : "Reparear aparelho"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-danger"
+                  </DsButton>
+                  <DsButton
+                    variant="danger"
                     onClick={() => setConfirmDisconnect(true)}
                     disabled={busy}
                   >
-                    <Icon name="logout" />
+                    <Icon name="logout" size={15} />
                     <span>Desconectar</span>
-                  </button>
+                  </DsButton>
                 </>
               ) : (
-                <button
-                  type="button"
-                  className="btn btn-primary"
+                <DsButton
                   onClick={() => void doConnect(primaryAction)}
                   disabled={busy}
                 >
-                  <Icon name="whatsapp" />
+                  <Icon name="whatsapp" size={15} />
                   <span>
                     {busy
                       ? "Conectando…"
@@ -453,7 +448,7 @@ export function WhatsappScreen() {
                         ? "Reconectar"
                         : "Conectar (ler QR code)"}
                   </span>
-                </button>
+                </DsButton>
               )}
             </div>
 
@@ -474,22 +469,20 @@ export function WhatsappScreen() {
                   você parear um número novamente.
                 </span>
                 <span style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-danger"
+                  <DsButton
+                    variant="danger"
                     onClick={() => void doDisconnect()}
                     disabled={busy}
                   >
                     {busy ? "Desconectando…" : "Confirmar desconexão"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
+                  </DsButton>
+                  <DsButton
+                    variant="secondary"
                     onClick={() => setConfirmDisconnect(false)}
                     disabled={busy}
                   >
                     Cancelar
-                  </button>
+                  </DsButton>
                 </span>
               </div>
             ) : null}
@@ -500,7 +493,7 @@ export function WhatsappScreen() {
             <div style={{ fontWeight: 600, marginBottom: 6 }}>
               {isOnline ? "Conexão ativa" : "Parear número"}
             </div>
-            <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s4)" }}>
+            <p className="sub ds-muted ds-mb-4">
               {isOnline
                 ? "O número já está pareado. Para trocar de aparelho, reconecte e leia um novo QR code."
                 : "Abra o WhatsApp do número oficial → Aparelhos conectados → Conectar um aparelho e leia o código."}
@@ -522,7 +515,7 @@ export function WhatsappScreen() {
               />
             )}
 
-            <p className="sub mono" style={{ color: "var(--faint)", marginTop: "var(--s3)" }}>
+            <p className="sub mono ds-muted ds-mt-3">
               {isOnline
                 ? "Pareado"
                 : qrExpired
@@ -537,21 +530,19 @@ export function WhatsappScreen() {
             </p>
 
             {!isOnline && qrExpired ? (
-              <button
-                type="button"
-                className="btn btn-primary"
+              <DsButton
+                className="ds-mt-3"
                 onClick={() => void doConnect("reconnect")}
                 disabled={busy}
-                style={{ marginTop: "var(--s3)" }}
               >
-                <Icon name="refresh" />
+                <Icon name="refresh" size={15} />
                 <span>{busy ? "Gerando…" : "Gerar novo QR"}</span>
-              </button>
+              </DsButton>
             ) : null}
 
             {!isOnline && pairingCode ? (
-              <div style={{ marginTop: "var(--s3)" }}>
-                <div className="sub" style={{ color: "var(--muted)" }}>
+              <div className="ds-mt-3">
+                <div className="sub ds-muted">
                   Código de pareamento
                 </div>
                 <div
@@ -560,7 +551,7 @@ export function WhatsappScreen() {
                 >
                   {pairingCode}
                 </div>
-                <p className="sub" style={{ color: "var(--muted)", marginTop: 4 }}>
+                <p className="sub ds-muted ds-mt-1">
                   No WhatsApp do número oficial: Aparelhos conectados → Conectar com
                   número de telefone.
                 </p>
@@ -580,7 +571,7 @@ export function WhatsappScreen() {
                 <label htmlFor="wa-numero">
                   Não consegue ler o QR? Gere um código pelo número
                 </label>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div className="ds-flex ds-gap-2">
                   <input
                     id="wa-numero"
                     inputMode="numeric"
@@ -590,14 +581,13 @@ export function WhatsappScreen() {
                     disabled={busy}
                     style={{ flex: 1 }}
                   />
-                  <button
-                    type="button"
-                    className="btn"
+                  <DsButton
+                    variant="secondary"
                     onClick={() => void doGenerateCode(numeroInput)}
                     disabled={busy || numeroInput.length < 10}
                   >
                     {busy ? "Gerando…" : "Gerar código"}
-                  </button>
+                  </DsButton>
                 </div>
               </div>
               </details>

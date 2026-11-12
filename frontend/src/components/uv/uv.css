@@ -25,9 +25,11 @@
   min-width: 0;
 }
 .uv-screen legend { margin-bottom: var(--s3); }
-.uv-screen fieldset .btn { align-self: end; }
+.uv-screen fieldset .btn, .uv-screen fieldset .ds-btn { align-self: end; }
 .uv-screen nav { display: flex; flex-wrap: wrap; gap: var(--s2); }
-.uv-screen .btn { min-height: 44px; white-space: normal; }
+.uv-screen .btn, .uv-screen .ds-btn { min-height: 44px; white-space: normal; }
+/* A base .ds-btn não tem padding vertical; o rótulo aqui pode quebrar em várias linhas. */
+.uv-screen .ds-btn { padding-block: var(--s2); }
 .uv-screen ul { overflow-wrap: anywhere; }
 .uv-screen input[type="date"] { font-variant-numeric: tabular-nums; }
 

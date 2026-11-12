@@ -10,7 +10,7 @@ import "@/components/config/administration-ux-v2.css";
 import { useState, type FormEvent } from "react";
 
 import { AgentIdentityConfirmation } from "@/components/profile/AgentIdentityConfirmation";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Field } from "@/components/ui/Field";
 import { changePassword, LoginError, SessionExpiredError, updateMe } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -130,7 +130,7 @@ export function PerfilScreen() {
       <div className="admin-form-stack">
         <form className="card card-pad" onSubmit={saveNome}>
           <h3>Seu nome na conta</h3>
-          <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+          <p className="sub ds-muted ds-mb-3">
             Conta: <strong>{user?.email}</strong>
           </p>
           {nomeError ? (
@@ -147,14 +147,14 @@ export function PerfilScreen() {
               setNomeStatus("idle");
             }}
           />
-          <Button type="submit" variant="primary" loading={nomeStatus === "loading"} loadingText="Salvando…">
-            Salvar nome
-          </Button>
+          <DsButton type="submit" loading={nomeStatus === "loading"}>
+            {nomeStatus === "loading" ? "Salvando…" : "Salvar nome"}
+          </DsButton>
         </form>
 
         <form className="card card-pad" onSubmit={saveChatNome}>
           <h3>Nome no chat do WhatsApp</h3>
-          <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+          <p className="sub ds-muted ds-mb-3">
             Aparece nas suas respostas no WhatsApp (ex.: “Pastor Raniel Levi”). Em
             branco, usa seu nome: <strong>{user?.nome}</strong>.
           </p>
@@ -173,14 +173,14 @@ export function PerfilScreen() {
               setChatStatus("idle");
             }}
           />
-          <Button type="submit" variant="primary" loading={chatStatus === "loading"} loadingText="Salvando…">
-            Salvar
-          </Button>
+          <DsButton type="submit" loading={chatStatus === "loading"}>
+            {chatStatus === "loading" ? "Salvando…" : "Salvar"}
+          </DsButton>
         </form>
 
         <form className="card card-pad" onSubmit={savePw}>
           <h3>Segurança da conta</h3>
-          <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+          <p className="sub ds-muted ds-mb-3">
             Informe a senha atual para confirmar a troca.
           </p>
           {pwError ? (
@@ -210,9 +210,9 @@ export function PerfilScreen() {
             value={nw2}
             onChange={(e) => setNw2(e.target.value)}
           />
-          <Button type="submit" variant="primary" loading={pwStatus === "loading"} loadingText="Alterando…">
-            Alterar senha
-          </Button>
+          <DsButton type="submit" loading={pwStatus === "loading"}>
+            {pwStatus === "loading" ? "Alterando…" : "Alterar senha"}
+          </DsButton>
         </form>
         {token && user ? (
           <AgentIdentityConfirmation

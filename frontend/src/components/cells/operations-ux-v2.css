@@ -234,3 +234,34 @@
   :is(.ops-v2, .ops-dialog) .detail-list > div { flex-direction: column; gap: var(--s1); }
   :is(.ops-v2, .ops-dialog) .detail-list dd { text-align: left; }
 }
+
+/* Classes semânticas que substituem estilos inline das telas de células
+   (mesmos valores; adoção do design system). */
+.ops-pick-list { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r-md); margin-top: 6px; }
+button.ops-pick-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+button.ops-pick-option.ops-pick-option--selected { background: var(--accent-soft); }
+.ops-pick-option-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ops-dialog .sub.ops-help-tight { margin-top: 6px; }
+.ops-dialog .ops-reason-list { margin: 6px 0 0; padding-left: 18px; }
+.ops-v2 .panel-title.ops-subtitle { padding: 0 0 var(--s2); border-bottom: none; }
+.ops-v2 .panel-title.ops-subtitle--spaced { padding: var(--s3) 0 var(--s2); }
+.ops-v2 .list-row > .ops-row-main { flex: 1; }
+.ops-v2 .empty-state.ops-empty-compact { padding: var(--s5); }
+
+/* Ações do detalhe da célula: o nowrap de globals.css só cobre .btn. */
+.ops-v2 .cell-detail-actions .ds-btn { white-space: nowrap; min-width: auto; }

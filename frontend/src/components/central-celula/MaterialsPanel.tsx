@@ -197,7 +197,7 @@ export function MaterialsPanel({
         {showSkeleton ? (
           <div className="section-body">
             {Array.from({ length: 2 }).map((_, i) => (
-              <div className="sk-line sk-lg" key={i} style={{ marginBottom: "var(--s3)" }} />
+              <div className="sk-line sk-lg ds-mb-3" key={i} />
             ))}
           </div>
         ) : items.length === 0 ? (
@@ -211,14 +211,13 @@ export function MaterialsPanel({
                     href={m.url ?? "#"}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="nm"
-                    style={{ display: "block" }}
+                    className="nm ds-block"
                   >
                     {m.titulo}
                   </a>
                   {m.descricao ? <span className="sub">{m.descricao}</span> : null}
                   {m.publicado_em ? (
-                    <span className="notice-time" style={{ display: "block" }}>
+                    <span className="notice-time ds-block">
                       {formatPublishedAt(m.publicado_em)}
                     </span>
                   ) : null}

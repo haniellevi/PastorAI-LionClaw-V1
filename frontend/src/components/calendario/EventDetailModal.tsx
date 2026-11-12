@@ -21,9 +21,9 @@ import "../cells/operations-ux-v2.css";
 import { useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import { formatLongDate, TIPO_LABEL, type EventItem } from "@/lib/events-api";
 import { Icon, type IconKey } from "@/lib/icons";
+import { DsButton } from "@/components/ds/Button";
 
 /** status do evento -> rótulo + variante de .pill. */
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
@@ -103,49 +103,42 @@ export function EventDetailModal({
         canManage ? (
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {canConfirm ? (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={onConfirm}
-                loading={busy}
-                loadingText="Confirmando…"
-              >
-                <Icon name="check" /> Confirmar
-              </Button>
+              <DsButton onClick={onConfirm} loading={busy}>
+                {busy ? (
+                  "Confirmando…"
+                ) : (
+                  <>
+                    <Icon name="check" /> Confirmar
+                  </>
+                )}
+              </DsButton>
             ) : null}
 
             {canEdit ? (
-              <button type="button" className="btn btn-sm" onClick={onEdit} disabled={busy}>
+              <DsButton variant="secondary" onClick={onEdit} disabled={busy}>
                 Editar
-              </button>
+              </DsButton>
             ) : null}
 
             {confirmingDelete ? (
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={onDelete}
-                loading={busy}
-                loadingText="Excluindo…"
-              >
-                Confirmar exclusão
-              </Button>
+              <DsButton variant="danger" onClick={onDelete} loading={busy}>
+                {busy ? "Excluindo…" : "Confirmar exclusão"}
+              </DsButton>
             ) : (
-              <button
-                type="button"
-                className="btn btn-sm btn-danger"
+              <DsButton
+                variant="danger"
                 onClick={() => setConfirmingDelete(true)}
                 disabled={busy}
               >
                 <Icon name="trash" /> Excluir
-              </button>
+              </DsButton>
             )}
           </div>
         ) : undefined
       }
     >
       {error ? (
-        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+        <div className="error-banner ds-mb-3" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
         </div>
@@ -183,7 +176,7 @@ export function EventDetailModal({
         />
 
         {!canManage && event.status === "a_confirmar" ? (
-          <p className="sub" style={{ margin: 0 }}>
+          <p className="sub ds-m-0">
             Este evento ainda será confirmado pela liderança. Você será avisado
             quando estiver definido.
           </p>

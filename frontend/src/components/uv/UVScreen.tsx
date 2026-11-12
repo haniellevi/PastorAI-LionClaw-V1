@@ -9,6 +9,7 @@ import { Dialog } from "@/components/ds/Dialog";
 import { UVFormation } from "./UVFormation";
 import { UVAttendance } from "./UVAttendance";
 import "./uv.css";
+import { DsButton } from "@/components/ds/Button";
 
 const curriculum = [1, 2, 3, 4, null, 5, 6, 7, 8];
 const label = (n: number | null) => n === null ? "Encontro" : `Aula ${n}`;
@@ -80,10 +81,10 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
     {error ? <p role="alert">{error}</p> : null}
     {notice ? <p role="status">{notice}</p> : null}
     {busy ? <p role="status">Carregando…</p> : null}
-    <button type="button" className="btn" disabled={busy} onClick={() => void run(async () => {
+    <DsButton variant="secondary" disabled={busy} onClick={() => void run(async () => {
       setTurmas(await request<Turma[]>());
       if (detail) await loadDetail(detail.id);
-    })}>Atualizar turmas</button>
+    })}>Atualizar turmas</DsButton>
     <form className="card" onSubmit={submit(async () => {
       createKey.current ??= crypto.randomUUID();
       const created = await request<Turma>("", "POST", { id: createKey.current, nome });
@@ -92,9 +93,9 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
     })}>
       <h2>Nova turma</h2>
       <label>Nome da turma<input required maxLength={120} value={nome} disabled={busy} onChange={event => { setNome(event.target.value); createKey.current = null; }} /></label>
-      <button className="btn btn-primary" disabled={busy || !nome.trim()}>Criar turma</button>
+      <DsButton type="submit" disabled={busy || !nome.trim()}>Criar turma</DsButton>
     </form>
-    <nav aria-label="Turmas UV" className="actions">{turmas.map(t => <button type="button" className="btn" key={t.id} disabled={busy} aria-pressed={detail?.id === t.id} onClick={() => void run(() => loadDetail(t.id))}>{t.nome}{t.encerrada ? " · Encerrada" : ""}</button>)}</nav>
+    <nav aria-label="Turmas UV" className="actions">{turmas.map(t => <DsButton variant="secondary" key={t.id} disabled={busy} aria-pressed={detail?.id === t.id} onClick={() => void run(() => loadDetail(t.id))}>{t.nome}{t.encerrada ? " · Encerrada" : ""}</DsButton>)}</nav>
     {!busy && !error && turmas.length === 0 ? <p>Nenhuma turma disponível. Crie uma turma para começar.</p> : null}
     {detail ? <article className="uv-detail">
       <h2>{detail.nome}{detail.encerrada ? " · Encerrada" : ""}</h2>
@@ -106,7 +107,7 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
         <h3>Calendário</h3>
         <fieldset disabled={busy || detail.encerrada}><legend>8 aulas e Encontro, em ordem</legend>
           {curriculum.map((n, i) => <label key={i}>{i + 1}. {label(n)}<input type="date" required value={dates[i]} onChange={e => setDates(current => current.map((value, j) => j === i ? e.target.value : value))} /></label>)}
-          <button className="btn btn-primary">Salvar calendário</button>
+          <DsButton type="submit">Salvar calendário</DsButton>
         </fieldset>
       </form>
       {coordination ? <form className="card" onSubmit={submit(async () => {
@@ -118,14 +119,14 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
         {detail.responsaveis.filter(r => !r.elegivel).map(r => <p key={r.usuario_id} role="status">{r.nome ?? "Responsável anterior"}: acesso indisponível. Remova ou substitua o vínculo.</p>)}
         <fieldset disabled={busy || detail.encerrada}><legend>Usuários ativos e autorizados</legend>
           {options.usuarios.map(u => <label key={u.id}><input type="checkbox" checked={responsibles.includes(u.id)} onChange={e => setResponsibles(current => e.target.checked ? [...current, u.id] : current.filter(id => id !== u.id))} />{u.nome}</label>)}
-          <button className="btn btn-primary">Salvar responsáveis</button>
+          <DsButton type="submit">Salvar responsáveis</DsButton>
         </fieldset>
       </form> : null}
       <div className="card"><h3>Matrículas</h3>
         <p>A matrícula exige decisão registrada e responsável na consolidação. A conexão à célula é acompanhada como pendência.</p>
         <form onSubmit={submit(async () => { setOptions(current => ({ ...current, pessoas: [] })); const choices = await request<UVOpcoes>(`/opcoes?q=${encodeURIComponent(search)}`); setOptions(current => ({ ...current, pessoas: choices.pessoas })); setPerson(""); })}>
           <label>Buscar pessoa elegível<input value={search} maxLength={120} disabled={busy || detail.encerrada} onChange={e => setSearch(e.target.value)} /></label>
-          <button className="btn" disabled={busy || detail.encerrada}>Buscar pessoa</button>
+          <DsButton type="submit" variant="secondary" disabled={busy || detail.encerrada}>Buscar pessoa</DsButton>
         </form>
         <form onSubmit={submit(async () => {
           if (enrollKey.current?.person !== person || enrollKey.current.turma !== detail.id) enrollKey.current = { person, turma: detail.id, id: crypto.randomUUID() };
@@ -133,19 +134,19 @@ function UVPanel({ token, coordination }: { token: string; coordination: boolean
           enrollKey.current = null; await loadDetail(detail.id); setNotice("Matrícula registrada.");
         })}>
           <label>Pessoa<select required value={person} disabled={busy || detail.encerrada} onChange={e => setPerson(e.target.value)}><option value="">Selecione uma pessoa</option>{options.pessoas.filter(p => !detail.matriculas.some(m => m.pessoa_id === p.id)).map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
-          <button className="btn btn-primary" disabled={busy || detail.encerrada || !person}>Matricular pessoa</button>
+          <DsButton type="submit" disabled={busy || detail.encerrada || !person}>Matricular pessoa</DsButton>
         </form>
         {detail.matriculas.length ? <ul>{detail.matriculas.map(m => <li key={m.id}>{m.nome}{m.conexao_celula_pendente ? " · Conexão à célula pendente" : ""}</li>)}</ul> : <p>Nenhuma pessoa matriculada.</p>}
       </div>
       <UVAttendance key={detail.id} detail={detail} busy={busy} request={request} run={run} reload={() => loadDetail(detail.id)} />
       <UVFormation coordination={coordination} key={`formation:${detail.id}`} detail={detail} busy={busy} request={request} run={run} reload={() => loadDetail(detail.id)} />
-      {coordination && !detail.encerrada ? <button type="button" className="btn" disabled={busy} onClick={() => setClosing(true)}>Encerrar turma</button> : null}
+      {coordination && !detail.encerrada ? <DsButton variant="secondary" disabled={busy} onClick={() => setClosing(true)}>Encerrar turma</DsButton> : null}
       <Dialog open={closing} onClose={() => { if (!busy) setClosing(false); }} title="Encerrar turma?" description="A turma ficará disponível para consulta e não aceitará novas matrículas ou alterações.">
-        <button className="btn" disabled={busy} onClick={() => setClosing(false)}>Cancelar</button>
-        <button className="btn btn-primary" disabled={busy} onClick={() => void run(async () => {
+        <DsButton variant="secondary" disabled={busy} onClick={() => setClosing(false)}>Cancelar</DsButton>
+        <DsButton disabled={busy} onClick={() => void run(async () => {
           await request(`/${detail.id}/encerrar`, "POST"); setClosing(false);
           setTurmas(await request<Turma[]>()); await loadDetail(detail.id); setNotice("Turma encerrada.");
-        })}>Confirmar encerramento</button>
+        })}>Confirmar encerramento</DsButton>
       </Dialog>
     </article> : null}
   </section>;

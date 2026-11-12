@@ -6,7 +6,7 @@
  * exibe o empty "Próxima reunião ainda não definida." e desabilita as ações.
  * As ações são Confirmar presença (US-02) e Indicar visitante (US-03).
  */
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Icon } from "@/lib/icons";
 import type { NextMeetingBody } from "@/lib/cells-api";
 import { ConfirmAttendanceButton } from "./ConfirmAttendanceButton";
@@ -58,10 +58,10 @@ export function NextMeetingCard({
               initialConfirmed={meeting.minha_presenca === "confirmou"}
               onToast={onToast}
             />
-            <Button variant="default" onClick={onIndicateVisitor}>
+            <DsButton variant="secondary" onClick={onIndicateVisitor}>
               <Icon name="plus" />
               <span>Indicar visitante</span>
-            </Button>
+            </DsButton>
           </div>
         </div>
       ) : (
@@ -72,14 +72,14 @@ export function NextMeetingCard({
             liderança planejar, ela aparece aqui.
           </p>
           <div className="meeting-actions" aria-hidden="true">
-            <Button variant="default" disabled>
+            <DsButton variant="secondary" disabled>
               <Icon name="user" />
               <span>Confirmar presença</span>
-            </Button>
-            <Button variant="default" disabled>
+            </DsButton>
+            <DsButton variant="secondary" disabled>
               <Icon name="plus" />
               <span>Indicar visitante</span>
-            </Button>
+            </DsButton>
           </div>
         </div>
       )}

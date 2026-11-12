@@ -79,9 +79,9 @@ export function ReportDetailModal({
         )}
 
         {report.observacoes ? (
-          <div className="field" style={{ marginBottom: 0 }}>
+          <div className="field ds-mb-0">
             <label>Observações</label>
-            <p className="sub" style={{ color: "var(--muted)" }}>{report.observacoes}</p>
+            <p className="sub ds-muted">{report.observacoes}</p>
           </div>
         ) : null}
       </div>

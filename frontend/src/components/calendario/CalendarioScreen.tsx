@@ -38,7 +38,6 @@ import { ConfirmEventModal } from "@/components/calendario/ConfirmEventModal";
 import { EventDetailModal } from "@/components/calendario/EventDetailModal";
 import { EventFormModal } from "@/components/calendario/EventFormModal";
 import { Tabs } from "@/components/ds/Tabs";
-import { Button } from "@/components/ui/Button";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError, clearAuthedResponseCache } from "@/lib/dashboard-api";
@@ -64,6 +63,7 @@ import {
   type EventView,
 } from "@/lib/events-api";
 import { Icon } from "@/lib/icons";
+import { DsButton } from "@/components/ds/Button";
 
 interface Toast {
   kind: "ok" | "err";
@@ -524,31 +524,29 @@ export function CalendarioScreen() {
         <div className="actions">
           {isCalendar ? (
             <>
-              <button type="button" className="btn btn-sm" onClick={goToday}>
+              <DsButton variant="secondary" onClick={goToday}>
                 Hoje
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm"
+              </DsButton>
+              <DsButton
+                variant="secondary"
+                className="agenda-nav-btn"
                 onClick={goPrev}
                 aria-label={PREV_LABEL[calendarView ?? "mes"]}
               >
                 <Icon name="chevron-left" />
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm"
+              </DsButton>
+              <DsButton
+                variant="secondary"
+                className="agenda-nav-btn"
                 onClick={goNext}
                 aria-label={NEXT_LABEL[calendarView ?? "mes"]}
               >
                 <Icon name="caret" />
-              </button>
+              </DsButton>
             </>
           ) : null}
           {canManage ? (
-            <button
-              type="button"
-              className="btn btn-primary"
+            <DsButton
               onClick={() => {
                 setFormError(null);
                 setFormDefaultDate(undefined);
@@ -557,7 +555,7 @@ export function CalendarioScreen() {
             >
               <Icon name="plus" />
               <span>Novo evento</span>
-            </button>
+            </DsButton>
           ) : null}
         </div>
       </div>
@@ -575,9 +573,9 @@ export function CalendarioScreen() {
           <div className="error-banner" role="alert">
             <Icon name="alert" />
             <span>{error}</span>
-            <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
+            <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
               Tentar novamente
-            </button>
+            </DsButton>
           </div>
         ) : null}
 
@@ -698,14 +696,14 @@ export function CalendarioScreen() {
                         <p className="sub cal-m-day-empty">Nenhum evento neste dia.</p>
                       )}
                       {canManage ? (
-                        <button
-                          type="button"
-                          className="btn cal-m-new"
+                        <DsButton
+                          variant="secondary"
+                          className="cal-m-new"
                           onClick={() => openCreateForDate(selectedDayCell.iso)}
                         >
                           <Icon name="plus" />
                           <span>Novo evento neste dia</span>
-                        </button>
+                        </DsButton>
                       ) : null}
                     </section>
                   ) : null}
@@ -878,9 +876,7 @@ export function CalendarioScreen() {
                     ) : null}
                   </div>
                   {canManage ? (
-                    <Button
-                      variant="primary"
-                      size="sm"
+                    <DsButton
                       disabled={confirming != null}
                       onClick={() => {
                         setConfirmError(null);
@@ -888,7 +884,7 @@ export function CalendarioScreen() {
                       }}
                     >
                       <Icon name="check" /> Confirmar
-                    </Button>
+                    </DsButton>
                   ) : null}
                 </div>
               );

@@ -114,7 +114,7 @@ export function DiscipuloScreen() {
   }, [load, loadSupport]);
 
   const supportFeedback = (kind: "notices" | "materials" | "history") => supportState[kind] === "error"
-    ? <div role="alert">Esta seção está indisponível. <button type="button" className="btn btn-sm" onClick={() => void loadSupport(kind)}>Tentar novamente</button></div>
+    ? <div role="alert">Esta seção está indisponível. <DsButton variant="secondary" onClick={() => void loadSupport(kind)}>Tentar novamente</DsButton></div>
     : supportState[kind] !== "ready" ? <p role="status">Carregando…</p> : null;
 
   // Gate 9.1: sem timer manual — o DsToast e o dono do ciclo de vida.

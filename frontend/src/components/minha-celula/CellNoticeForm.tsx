@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -103,17 +103,21 @@ export function CellNoticeForm({
           />
         </div>
         <div className="section-actions">
-          <Button
+          <DsButton
             type="submit"
-            variant="default"
-            size="sm"
+            variant="secondary"
             loading={busy}
-            loadingText="Publicando…"
             disabled={!titulo.trim() || !conteudo.trim()}
           >
-            <Icon name="send" />
-            <span>Publicar aviso</span>
-          </Button>
+            {busy ? (
+              <span>Publicando…</span>
+            ) : (
+              <>
+                <Icon name="send" />
+                <span>Publicar aviso</span>
+              </>
+            )}
+          </DsButton>
         </div>
       </form>
     </section>

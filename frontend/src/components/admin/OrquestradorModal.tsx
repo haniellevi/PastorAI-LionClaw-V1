@@ -17,12 +17,12 @@ import "@/components/config/administration-ux-v2.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import {
   AdminSessionExpiredError,
   fetchOrquestrador,
   saveOrquestrador,
 } from "@/lib/admin-api";
+import { DsButton } from "@/components/ds/Button";
 
 export interface OrquestradorModalProps {
   token: string;
@@ -117,19 +117,16 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
       footer={
         loaded ? (
           <>
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            <DsButton variant="secondary" onClick={onClose} disabled={busy}>
               Fechar
-            </button>
-            <Button
+            </DsButton>
+            <DsButton
               type="submit"
               form="orquestrador-form"
-              variant="primary"
-              size="sm"
               loading={busy}
-              loadingText="Salvando…"
             >
-              Salvar modelo
-            </Button>
+              {busy ? "Salvando…" : "Salvar modelo"}
+            </DsButton>
           </>
         ) : undefined
       }
@@ -142,7 +139,7 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
           void save();
         }}
       >
-        <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s2)" }}>
+        <p className="sub ds-muted ds-mb-2">
           Este é o modelo base do agente. Toda igreja aprovada começa com ele;
           depois você pode ajustar por igreja na aba <strong>Agente</strong> da
           página dela.
@@ -166,7 +163,7 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
         {!loaded ? (
           <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
             <span className="spinner" aria-hidden="true" />
-            <div className="sub" style={{ marginTop: "var(--s2)" }}>
+            <div className="sub ds-mt-2">
               Carregando…
             </div>
           </div>

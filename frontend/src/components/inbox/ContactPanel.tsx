@@ -15,7 +15,7 @@ import { PrivateErasureRequests } from "./PrivateErasureRequests";
 import { EditContactModal } from "@/components/contacts/EditContactModal";
 import { Dialog } from "@/components/ds/Dialog";
 import { getFocusable, trapNextIndex } from "@/components/ds/a11y";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { SessionExpiredError } from "@/lib/api";
 import {
   fetchContactDetail,
@@ -308,9 +308,9 @@ export function ContactPanel({
             <Icon name="alert" />
             <span>{error}</span>
           </div>
-          <Button size="sm" onClick={() => void load()}>
+          <DsButton variant="secondary" onClick={() => void load()}>
             Tentar novamente
-          </Button>
+          </DsButton>
         </div>
       ) : detail ? (
         <div className="panel-body">
@@ -334,15 +334,15 @@ export function ContactPanel({
           </div>
 
           {canEdit ? (
-            <Button size="sm" block onClick={() => setEditing(true)}>
+            <DsButton variant="secondary" block onClick={() => setEditing(true)}>
               <Icon name="user" />
               <span>Editar dados</span>
-            </Button>
+            </DsButton>
           ) : null}
 
           {canEdit && token && pessoaId && detail.id === pessoaId && onResetPrivateContent ? <section className="panel-section">
             <h4>Conteúdo privado</h4>
-            <Button size="sm" variant="danger" onClick={onResetPrivateContent}>Excluir conteúdo privado da pessoa</Button>
+            <DsButton variant="danger" onClick={onResetPrivateContent}>Excluir conteúdo privado da pessoa</DsButton>
           </section> : null}
           {canEdit && token ? <PrivateErasureRequests token={token} personId={detail.id} expireSession={expireSession} /> : null}
 
@@ -421,10 +421,10 @@ export function ContactPanel({
           {/* Botão só existe quando a pessoa está em opt-out (e para papéis
               que o backend aceita — admin/pastor). Confirmação via ds/Dialog. */}
           {detail.optout && canReactivate ? (
-            <Button size="sm" block onClick={() => setReactivateOpen(true)}>
+            <DsButton variant="secondary" block onClick={() => setReactivateOpen(true)}>
               <Icon name="chat" />
               <span>Reativar comunicações</span>
-            </Button>
+            </DsButton>
           ) : null}
         </div>
       ) : null}
@@ -441,7 +441,8 @@ export function ContactPanel({
           description={`${detail.nome} voltará a receber mensagens da igreja pelo WhatsApp.`}
           footer={
             <>
-              <Button
+              <DsButton
+                variant="secondary"
                 onClick={() => {
                   setReactivateOpen(false);
                   setReactivateError(null);
@@ -449,15 +450,10 @@ export function ContactPanel({
                 disabled={reactivateBusy}
               >
                 Cancelar
-              </Button>
-              <Button
-                variant="primary"
-                loading={reactivateBusy}
-                loadingText="Reativando…"
-                onClick={() => void handleReactivate()}
-              >
-                Reativar comunicações
-              </Button>
+              </DsButton>
+              <DsButton loading={reactivateBusy} onClick={() => void handleReactivate()}>
+                {reactivateBusy ? "Reativando…" : "Reativar comunicações"}
+              </DsButton>
             </>
           }
         >

@@ -12,7 +12,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { AberturaForm } from "../enviar/AberturaForm";
 import { NomeacaoForm } from "../enviar/NomeacaoForm";
-import { Button } from "@/components/ui/Button";
 import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -24,6 +23,7 @@ import {
 } from "@/lib/cell-requests-api";
 import { formatPublishedAt } from "./format";
 import type { FlashToast } from "./types";
+import { DsButton } from "@/components/ds/Button";
 
 const TYPE_LABELS: Record<string, string> = {
   alterar_dia: "Alterar dia",
@@ -150,25 +150,24 @@ export function MyRequestsList({
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             onClick={() => void load("initial")}
             disabled={loading}
           >
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
       {showSkeleton ? (
         <div className="section-body">
           {Array.from({ length: 2 }).map((_, i) => (
-            <div className="sk-line sk-lg" key={i} style={{ marginBottom: "var(--s3)" }} />
+            <div className="sk-line sk-lg ds-mb-3" key={i} />
           ))}
         </div>
       ) : items.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="empty-state ds-p-6">
           <Icon name="document" />
           <p>
             <strong>Nenhuma solicitação enviada.</strong>
@@ -199,30 +198,37 @@ export function MyRequestsList({
                 {canCancel || canResubmit ? (
                   <div className="req-actions">
                     {canResubmit ? (
-                      <Button
-                        variant="primary"
-                        size="sm"
+                      <DsButton
                         onClick={() => void resubmit(req)}
                         loading={rowBusy && pendingAction === "resubmit"}
-                        loadingText="Reenviando…"
                         disabled={pendingId !== null && !rowBusy}
                       >
-                        <Icon name="refresh" />
-                        <span>Reenviar</span>
-                      </Button>
+                        {rowBusy && pendingAction === "resubmit" ? (
+                          <span>Reenviando…</span>
+                        ) : (
+                          <>
+                            <Icon name="refresh" />
+                            <span>Reenviar</span>
+                          </>
+                        )}
+                      </DsButton>
                     ) : null}
                     {canCancel ? (
-                      <Button
-                        variant="default"
-                        size="sm"
+                      <DsButton
+                        variant="secondary"
                         onClick={() => void cancel(req)}
                         loading={rowBusy && pendingAction === "cancel"}
-                        loadingText="Cancelando…"
                         disabled={pendingId !== null && !rowBusy}
                       >
-                        <Icon name="close" />
-                        <span>Cancelar</span>
-                      </Button>
+                        {rowBusy && pendingAction === "cancel" ? (
+                          <span>Cancelando…</span>
+                        ) : (
+                          <>
+                            <Icon name="close" />
+                            <span>Cancelar</span>
+                          </>
+                        )}
+                      </DsButton>
                     ) : null}
                   </div>
                 ) : null}

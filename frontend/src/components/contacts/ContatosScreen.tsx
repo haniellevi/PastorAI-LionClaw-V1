@@ -38,6 +38,7 @@ import {
   type UpdateContactInput,
 } from "@/lib/contacts-api";
 import { ApiError, fetchCells, type Cell } from "@/lib/dashboard-api";
+import { DsButton } from "@/components/ds/Button";
 import { Icon } from "@/lib/icons";
 
 import { ArchiveContactModal } from "./ArchiveContactModal";
@@ -663,9 +664,9 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       {
         header: "Detalhe",
         cell: (c) => (
-          <button
-            type="button"
-            className="btn btn-sm people-open"
+          <DsButton
+            variant="secondary"
+            className="people-open"
             aria-label={`Abrir pessoa: ${c.nome}`}
             aria-pressed={selected === c.id}
             aria-controls="people-detail"
@@ -673,7 +674,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             onClick={(e) => { e.stopPropagation(); openPerson(c); }}
           >
             Abrir pessoa
-          </button>
+          </DsButton>
         ),
       },
       // FECH-06/REATIVAR-1: só a aba "Arquivadas" ganha a coluna de ação, e
@@ -683,9 +684,8 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             {
               header: "Ações",
               cell: (c: Contact) => (
-                <button
-                  type="button"
-                  className="btn btn-sm"
+                <DsButton
+                  variant="secondary"
                   onClick={(e) => {
                     // Não abrir o painel de detalhe ao clicar na ação da linha.
                     e.stopPropagation();
@@ -694,7 +694,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
                   }}
                 >
                   Reativar
-                </button>
+                </DsButton>
               ),
             } satisfies Column<Contact>,
           ]
@@ -719,9 +719,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
           <p>Encontre o registro e acompanhe o próximo passo.</p>
         </div>
         <div className="actions">
-          <button
-            type="button"
-            className="btn btn-primary"
+          <DsButton
             onClick={() => {
               setFormError(null);
               setShowNew(true);
@@ -729,7 +727,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
           >
             <Icon name="ganhar" />
             <span>Cadastrar pessoa</span>
-          </button>
+          </DsButton>
         </div>
       </div>
 
@@ -737,14 +735,13 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         <div className="error-banner" role="alert">
           <Icon name="alert" />
           <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             onClick={() => void loadPage(currentPage)}
             disabled={loading}
           >
             Tentar novamente
-          </button>
+          </DsButton>
         </div>
       ) : null}
 
@@ -813,24 +810,15 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
                 <nav
                   aria-label="Paginação de contatos"
                   aria-busy={loading}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "var(--s2)",
-                    flexWrap: "wrap",
-                    padding: "var(--s3)",
-                    borderTop: "1px solid var(--border)",
-                  }}
+                  className="people-pagination"
                 >
                   <span className="sub" role="status" aria-live="polite">
                     Mostrando {pageStart}–{pageEnd} de {pagination.total}. Página{" "}
                     {pagination.page} de {totalPages}.
                   </span>
-                  <span style={{ display: "flex", gap: "var(--s2)" }}>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
+                  <span className="ds-flex ds-gap-2">
+                    <DsButton
+                      variant="secondary"
                       disabled={loading || currentPage <= 1}
                       onClick={() => {
                         setSelected(null);
@@ -838,10 +826,9 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
                       }}
                     >
                       Anterior
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
+                    </DsButton>
+                    <DsButton
+                      variant="secondary"
                       disabled={loading || currentPage >= totalPages}
                       onClick={() => {
                         setSelected(null);
@@ -849,7 +836,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
                       }}
                     >
                       Próxima
-                    </button>
+                    </DsButton>
                   </span>
                 </nav>
               ) : null}
@@ -865,9 +852,9 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
           aria-label={selectedContact ? `Detalhes de ${selectedContact.nome}` : "Detalhes da pessoa"}
         >
           {selected ? (
-            <button type="button" className="btn people-back" onClick={returnToList}>
+            <DsButton variant="secondary" className="people-back" onClick={returnToList}>
               Voltar à lista de pessoas
-            </button>
+            </DsButton>
           ) : null}
           {selected && !selectedContact && selectedDetailLoading ? (
             <div className="card card-pad" role="status">
@@ -994,9 +981,8 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         }
         footer={
           <>
-            <button
-              type="button"
-              className="btn"
+            <DsButton
+              variant="secondary"
               onClick={() => {
                 setUnarchiveTarget(null);
                 setUnarchiveError(null);
@@ -1004,15 +990,13 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               disabled={unarchiveBusy}
             >
               Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
+            </DsButton>
+            <DsButton
               onClick={() => void handleUnarchiveConfirm()}
               disabled={unarchiveBusy}
             >
               {unarchiveBusy ? "Reativando…" : "Reativar"}
-            </button>
+            </DsButton>
           </>
         }
       >
@@ -1063,7 +1047,7 @@ function ContactDetail({
   if (!contact) {
     return (
       <div className="card card-pad">
-        <div className="empty-state" style={{ padding: "var(--s5)" }}>
+        <div className="empty-state people-detail-empty">
           <Icon name="user" />
           <p>
             <strong>Selecione um contato</strong> para ver os detalhes e conectá-lo a
@@ -1107,13 +1091,13 @@ function ContactDetail({
       </dl>
 
       {!isArquivada && !contact.celulaId ? (
-        <button type="button" className="btn btn-primary btn-block" onClick={onLink} disabled={busy}>
+        <DsButton block onClick={onLink} disabled={busy}>
           <Icon name="link" /><span>Vincular célula</span>
-        </button>
+        </DsButton>
       ) : canEdit && !isArquivada ? (
-        <button type="button" className="btn btn-primary btn-block" onClick={onEdit} disabled={busy}>
+        <DsButton block onClick={onEdit} disabled={busy}>
           Editar dados
-        </button>
+        </DsButton>
       ) : null}
 
       <details className="people-disclosure">
@@ -1158,13 +1142,13 @@ function ContactDetail({
         <details className="people-disclosure">
           <summary>Mais ações</summary>
           {!contact.celulaId ? (
-            <button type="button" className="btn btn-block" onClick={onEdit} disabled={busy}>
+            <DsButton variant="secondary" block onClick={onEdit} disabled={busy}>
               Editar dados
-            </button>
+            </DsButton>
           ) : null}
-          <button type="button" className="btn btn-danger btn-block" onClick={onArchive} disabled={busy}>
+          <DsButton variant="danger" block onClick={onArchive} disabled={busy}>
             <Icon name="lock" /><span>Arquivar pessoa</span>
-          </button>
+          </DsButton>
         </details>
       ) : null}
     </div>

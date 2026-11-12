@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Dialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { SessionExpiredError } from "@/lib/api";
 import { authedFetch } from "@/lib/dashboard-api";
 
@@ -83,15 +83,15 @@ function Requests({ token, personId, expireSession }: Props) {
   if (!items.length && !error) return null;
   return <section className="panel-section">
     <h4>Pedidos de exclusão</h4>
-    <Button size="sm" onClick={() => void refresh()} disabled={busy}>Atualizar pedidos</Button>
+    <DsButton variant="secondary" onClick={() => void refresh()} disabled={busy}>Atualizar pedidos</DsButton>
     {items.map(row => <div key={row.id}>
       <p>Pedido de {new Date(row.created_at).toLocaleDateString("pt-BR")}: {row.state}.</p>
       <p>Idade: {age(row.idade_segundos)}{row.state === "pendente" ? "" : " desde a decisão"}. Prazo de atendimento: {row.prazo_dias} dias.</p>
       {row.state === "pendente" && row.vencido ? <p><strong className="pill danger" role="status">Prazo vencido</strong></p> : null}
       {row.state === "pendente" ? <>
         <p>Uso da memória suspenso até a decisão. O conteúdo ainda está preservado.</p>
-        <Button size="sm" variant="danger" disabled={busy} onClick={() => setChoice({ id: row.id, approve: true })}>Aprovar exclusão</Button>
-        <Button size="sm" disabled={busy} onClick={() => setChoice({ id: row.id, approve: false })}>Recusar pedido</Button>
+        <DsButton variant="danger" disabled={busy} onClick={() => setChoice({ id: row.id, approve: true })}>Aprovar exclusão</DsButton>
+        <DsButton variant="secondary" disabled={busy} onClick={() => setChoice({ id: row.id, approve: false })}>Recusar pedido</DsButton>
       </> : null}
       {row.state === "recusado" ? <p>Suspensão encerrada. A memória continua sujeita à validação de origem e acesso.</p> : null}
       {row.receipt ? <>
@@ -103,10 +103,10 @@ function Requests({ token, personId, expireSession }: Props) {
     <Dialog open={choice !== null} onClose={() => { if (!busy) { setChoice(null); setError(null); } }}
       title={choice?.approve ? "Aprovar exclusão do conteúdo privado?" : "Recusar pedido de exclusão?"}
       footer={<>
-        <Button disabled={busy} onClick={() => { setChoice(null); setError(null); }}>Cancelar</Button>
-        <Button variant={choice?.approve ? "danger" : "default"} loading={busy} onClick={() => void decide()}>
-          {choice?.approve ? "Confirmar exclusão" : "Confirmar recusa"}
-        </Button>
+        <DsButton variant="secondary" disabled={busy} onClick={() => { setChoice(null); setError(null); }}>Cancelar</DsButton>
+        <DsButton variant={choice?.approve ? "danger" : "secondary"} loading={busy} onClick={() => void decide()}>
+          {busy ? "Carregando…" : choice?.approve ? "Confirmar exclusão" : "Confirmar recusa"}
+        </DsButton>
       </>}>
       <p>{choice?.approve
         ? "Serão excluídas todas as conversas, áudios, transcrições e resumos privados desta pessoa nesta igreja. Esta ação não pode ser desfeita. Cadastro, opt-out e prova de consentimento sem conteúdo são preservados."

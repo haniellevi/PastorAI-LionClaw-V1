@@ -17,10 +17,10 @@ import "@/components/config/administration-ux-v2.css";
 import { useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { isInvalidSetupFee, type AdminIgreja, type UpdateIgrejaInput } from "@/lib/admin-api";
 import type { PlanoOption } from "./CreateIgrejaModal";
+import { DsButton } from "@/components/ds/Button";
 
 const STATUSES = [
   { value: "ativa", label: "Ativa" },
@@ -105,19 +105,16 @@ export function EditIgrejaModal({
       description="Alterações na igreja selecionada. Exclusão fica separada das configurações comuns."
       footer={
         <>
-          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+          <DsButton variant="secondary" onClick={onClose} disabled={busy}>
             Cancelar
-          </button>
-          <Button
+          </DsButton>
+          <DsButton
             type="submit"
             form="edit-igreja-form"
-            variant="primary"
-            size="sm"
             loading={busy}
-            loadingText="Salvando…"
           >
-            Salvar alterações
-          </Button>
+            {busy ? "Salvando…" : "Salvar alterações"}
+          </DsButton>
         </>
       }
     >
@@ -198,12 +195,11 @@ export function EditIgrejaModal({
             gap: "var(--s2)",
           }}
         >
-          <span className="sub" style={{ color: "var(--muted)" }}>
+          <span className="sub ds-muted">
             Excluir apaga a igreja e todos os seus dados.
           </span>
-          <button
-            type="button"
-            className="btn btn-sm btn-danger"
+          <DsButton
+            variant="danger"
             disabled={busy}
             onClick={() => {
               if (
@@ -216,7 +212,7 @@ export function EditIgrejaModal({
             }}
           >
             Excluir igreja
-          </button>
+          </DsButton>
         </div>
         </details>
       </form>

@@ -10,6 +10,7 @@ import { PaginatedLookup } from "@/components/lookups/PaginatedLookup";
 import { fetchCellLookupPage, type CellLookup } from "@/lib/lookup-api";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Icon } from "@/lib/icons";
+import { DsButton } from "@/components/ds/Button";
 import type { Cell } from "@/lib/dashboard-api";
 
 import "./people-ux-v2.css";
@@ -87,7 +88,7 @@ export function LinkCellModal({
         )}
       </div>}
       {selected ? <div role="status"><p>Célula selecionada: {selected.nome}</p><p>Ao confirmar, o acompanhamento será marcado como consolidado.</p></div> : null}
-      <button type="button" className="btn btn-primary" disabled={busy || !selected} onClick={() => { if (selected && !busy) onLink(selected.id); }}>Confirmar vínculo</button>
+      <DsButton disabled={busy || !selected} onClick={() => { if (selected && !busy) onLink(selected.id); }}>Confirmar vínculo</DsButton>
     </DsDialog>
   );
 }

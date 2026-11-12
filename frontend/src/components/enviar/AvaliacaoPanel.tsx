@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { SessionExpiredError } from '@/lib/api';
 import { getAvaliacao, postAvaliacao, type AvaliacaoPessoa, type DecisaoInput } from '@/lib/enviar-api';
+import { DsButton } from '@/components/ds/Button';
 
 export function AvaliacaoPanel({ pessoaId, token, onExpired, onSaved }: {
   pessoaId: string; token: string; onExpired: () => void; onSaved?: () => void | Promise<void>;
@@ -68,7 +69,7 @@ export function AvaliacaoPanel({ pessoaId, token, onExpired, onSaved }: {
           {legacyNeeded && canRecognize ? <label className="check-row"><input type="checkbox" required checked={legado} onChange={e => setLegado(e.target.checked)} /> Reconheço explicitamente a aptidão legada; descrevi o fundamento no motivo.</label> : null}
           <div className="field"><label htmlFor={`${prefix}-motivo`}>Motivo obrigatório</label>
             <textarea id={`${prefix}-motivo`} required maxLength={300} value={motivo} onChange={e => setMotivo(e.target.value)} /></div>
-          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? 'Registrando…' : 'Registrar decisão'}</button>
+          <DsButton type="submit" disabled={busy}>{busy ? 'Registrando…' : 'Registrar decisão'}</DsButton>
         </fieldset>
       </form>}
       <details><summary>Histórico de decisões ({data.avaliacoes.length})</summary>

@@ -89,7 +89,7 @@ export function AttendanceSection({
       ) : null}
 
       {members.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="empty-state ds-p-6">
           <Icon name="team" />
           <p>
             <strong>Nenhum membro na célula ainda.</strong>
@@ -105,7 +105,7 @@ export function AttendanceSection({
                   <span className={`mc-person-avatar tone-${index % 4}`} aria-hidden="true">
                     {label.initials}
                   </span>
-                  <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="grow ds-min-w-0">
                     <div className="nm">{label.primary}</div>
                     {label.secondary ? <div className="sub">{label.secondary}</div> : null}
                   </div>

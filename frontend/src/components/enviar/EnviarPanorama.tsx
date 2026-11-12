@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { SessionExpiredError } from '@/lib/api';
 import { getEnviarPessoas, getEnviarHistorico, type EnviarPessoa, type EnviarHistorico, type EnviarPage } from '@/lib/enviar-api';
+import { DsButton } from '@/components/ds/Button';
 
 type View = 'pendentes' | 'aptos' | 'historico';
 const operation = { nomear_lider: 'Nomeação', abrir_celula: 'Abertura', multiplicacao: 'Multiplicação' };
@@ -34,19 +35,19 @@ export function EnviarPanorama({ token, onExpired, canDecide, reloadToken = 0 }:
     <p>A avaliação de aptidão não nomeia líderes. Legados preservam sua situação; formação pendente exige conferência pastoral.</p>
     <div className="actions" role="group" aria-label="Visualização de Enviar">
       {([['pendentes', 'Pendências de formação'], ['aptos', 'Aptos'], ['historico', 'Histórico']] as const).map(([key, label]) =>
-        <button type="button" className="btn" key={key} aria-pressed={view === key} onClick={() => { setView(key); setPage(1); }}>{label}</button>)}
+        <DsButton variant="secondary" key={key} aria-pressed={view === key} onClick={() => { setView(key); setPage(1); }}>{label}</DsButton>)}
     </div>
     <form role="search" aria-label="Busca de Enviar" onSubmit={event => { event.preventDefault(); setQ(search.trim()); setPage(1); setReload(n => n + 1); }}>
       <label htmlFor="enviar-busca">{view === 'historico' ? 'Buscar por operação ou célula' : 'Buscar pessoa'}</label>
       <input id="enviar-busca" type="search" maxLength={100} value={search} onChange={event => setSearch(event.target.value)} />
-      <button className="btn" type="submit">Buscar</button>
+      <DsButton variant="secondary" type="submit">Buscar</DsButton>
     </form>
     <nav aria-label="Ações de Enviar" className="actions">
       <a href="#enviar" onClick={event => { event.preventDefault(); const target = document.getElementById("enviar-pedidos"); target?.scrollIntoView({ block: "start" }); target?.focus({ preventScroll: true }); }}>Iniciar nomeação ou abertura</a>
       <a href="#minha-celula">Solicitar multiplicação em Minha Célula</a>
       {canDecide ? <a href="#central-celula">Decidir na Central de Célula</a> : null}
     </nav>
-    {loading ? <p role="status">Carregando Enviar…</p> : error ? <div role="alert"><p>{error}</p><button type="button" className="btn" onClick={() => setReload(n => n + 1)}>Repetir consulta</button></div> : data ? <>
+    {loading ? <p role="status">Carregando Enviar…</p> : error ? <div role="alert"><p>{error}</p><DsButton variant="secondary" onClick={() => setReload(n => n + 1)}>Repetir consulta</DsButton></div> : data ? <>
       <p role="status">{data.total} {view === 'historico' ? 'registros' : 'pessoas'} · Página {page}</p>
       {data.items.length === 0 ? <p>{view === 'historico' ? 'Nenhum registro neste filtro.' : 'Nenhuma pessoa neste filtro.'}</p> : <ul className="queue">
         {view === 'historico' ? (data.items as EnviarHistorico[]).map(item => <li className="qitem" key={item.id}><div className="qbody">
@@ -60,8 +61,8 @@ export function EnviarPanorama({ token, onExpired, canDecide, reloadToken = 0 }:
         </div></li>)}
       </ul>}
       <div className="actions" role="group" aria-label="Paginação de Enviar">
-        <button type="button" className="btn" disabled={page === 1} onClick={() => setPage(n => n - 1)}>Página anterior</button>
-        <button type="button" className="btn" disabled={page * data.page_size >= data.total} onClick={() => setPage(n => n + 1)}>Próxima página</button>
+        <DsButton variant="secondary" disabled={page === 1} onClick={() => setPage(n => n - 1)}>Página anterior</DsButton>
+        <DsButton variant="secondary" disabled={page * data.page_size >= data.total} onClick={() => setPage(n => n + 1)}>Próxima página</DsButton>
       </div>
     </> : null}
   </section>;

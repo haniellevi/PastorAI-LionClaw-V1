@@ -159,8 +159,9 @@
   margin: 0 0 6px;
 }
 .administration-ux .admin-overview .platform-guidance { font-size: 16px; line-height: 1.5; margin: 8px 0 4px; }
-.administration-ux .admin-overview .platform-tools { justify-content: flex-end; flex: 0 1 460px; }
-.administration-ux .admin-overview .btn {
+.administration-ux .admin-overview .platform-tools { justify-content: flex-end; flex: 0 1 520px; }
+.administration-ux .admin-overview .btn,
+.administration-ux .admin-overview .ds-btn {
   color: var(--text-on-action);
   background: transparent;
   border-color: color-mix(in srgb, var(--text-on-action) 45%, transparent);
@@ -192,7 +193,8 @@
 .administration-ux .admin-unavailable p { font-size: 16px; max-width: 54ch; }
 @media (hover: hover) and (pointer: fine) {
   .administration-ux :is(.btn, .ds-btn, summary) { transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease; }
-  .administration-ux .admin-overview .btn:hover { background: color-mix(in srgb, var(--text-on-action) 12%, transparent); }
+  .administration-ux .admin-overview .btn:hover,
+  .administration-ux .admin-overview .ds-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--text-on-action) 12%, transparent); text-decoration: none; }
 }
 @media (max-width: 860px) {
   .administration-ux :is(.btn, .ds-btn) { min-height: 44px; }

@@ -6,6 +6,7 @@ import { SessionExpiredError } from '@/lib/api';
 import { ApiError } from '@/lib/dashboard-api';
 import { conhecimento, appendPainel, ESTADOS, PUBLICOS, publicoTexto, type Documento, type Leitura, type Painel, type Recibo, type Trecho, type Versao } from '@/lib/conhecimento-api';
 import './conhecimento.css';
+import { DsButton } from '@/components/ds/Button';
 
 type Editor = { doc?: Documento; versao?: Versao; conteudo: string; origem: string; publicos: string[] };
 type Operacao = { path: string; payload: object; criada?: boolean };
@@ -135,47 +136,47 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
 
   return <div className="screen conhecimento-screen" aria-busy={busy}>
     <div className="screen-head"><div className="titles"><h2>Conhecimento oficial</h2><p>Documentos aprovados pela igreja, com versão e público definidos.</p></div>
-      <button className="btn" disabled={busy || !!retry} onClick={() => { setPainel(null); setLeitura(null); setResultados(null); setEditor(null); setConfirmacao(null); void run(load); }}>Atualizar</button>
+      <DsButton variant="secondary" disabled={busy || !!retry} onClick={() => { setPainel(null); setLeitura(null); setResultados(null); setEditor(null); setConfirmacao(null); void run(load); }}>Atualizar</DsButton>
     </div>
     <p>Conversas e mensagens privadas nunca são convertidas em conhecimento oficial. A revisão é opcional; somente o administrador aprova e publica.</p>
     {erro && <p role="alert">{erro}</p>}
     {aviso && <p role="status">{aviso}</p>}
-    {retry && <section className="card card-pad"><p>O resultado ainda não foi confirmado. Repita a mesma operação com segurança para consultar o recibo.</p><button className="btn" disabled={busy} onClick={() => void mutate(retry)}>Repetir operação</button></section>}
+    {retry && <section className="card card-pad"><p>O resultado ainda não foi confirmado. Repita a mesma operação com segurança para consultar o recibo.</p><DsButton variant="secondary" disabled={busy} onClick={() => void mutate(retry)}>Repetir operação</DsButton></section>}
     <fieldset disabled={busy || !!retry} className="conhecimento-controls">
       <legend className="sr-only">Consulta e edição</legend>
       <form onSubmit={e => { e.preventDefault(); setResultados(null); setLeitura(null); void run(async signal => { setResultados(await conhecimento<Trecho[]>(token, `busca?q=${encodeURIComponent(consulta)}`, undefined, signal)); }); }}>
-        <label htmlFor="conhecimento-busca">Buscar nos documentos publicados</label><div className="conhecimento-actions"><input id="conhecimento-busca" required maxLength={200} value={consulta} onChange={e => setConsulta(e.target.value)} /><button className="btn" type="submit">Buscar</button></div>
+        <label htmlFor="conhecimento-busca">Buscar nos documentos publicados</label><div className="conhecimento-actions"><input id="conhecimento-busca" required maxLength={200} value={consulta} onChange={e => setConsulta(e.target.value)} /><DsButton variant="secondary" type="submit">Buscar</DsButton></div>
       </form>
       {resultados && <section aria-label="Resultados da busca"><h3>Resultados</h3>{resultados.length === 0 && <p role="status">Nenhum trecho autorizado encontrado. Consulte o responsável se faltar informação oficial.</p>}
-        <ul>{resultados.map((r, i) => <li key={i}><button className="btn" onClick={() => openVersion(r.versao_id)}>{r.titulo}</button><p>{r.trecho}</p></li>)}</ul></section>}
-      {painel?.pode_criar && <button className="btn btn-primary" onClick={() => { rememberFocus(); setEditor({ conteudo: '', origem: '', publicos: [] }); setLeitura(null); setConfirmacao(null); }}>Criar rascunho</button>}
-      {pending.map((p, i) => <section key={p.versao_id} className="card card-pad"><h3>Rascunho pendente {i + 1}</h3><p>O rascunho é restrito ao administrador até o envio para revisão. Você pode retomar o envio após voltar ao painel.</p><button className="btn" onClick={() => void mutate({ path: `documentos/${p.documento_id}/enviar-revisao`, payload: { operacao_id: crypto.randomUUID(), versao_id: p.versao_id } })}>Enviar rascunho salvo para revisão</button></section>)}
+        <ul>{resultados.map((r, i) => <li key={i}><DsButton variant="secondary" onClick={() => openVersion(r.versao_id)}>{r.titulo}</DsButton><p>{r.trecho}</p></li>)}</ul></section>}
+      {painel?.pode_criar && <DsButton onClick={() => { rememberFocus(); setEditor({ conteudo: '', origem: '', publicos: [] }); setLeitura(null); setConfirmacao(null); }}>Criar rascunho</DsButton>}
+      {pending.map((p, i) => <section key={p.versao_id} className="card card-pad"><h3>Rascunho pendente {i + 1}</h3><p>O rascunho é restrito ao administrador até o envio para revisão. Você pode retomar o envio após voltar ao painel.</p><DsButton variant="secondary" onClick={() => void mutate({ path: `documentos/${p.documento_id}/enviar-revisao`, payload: { operacao_id: crypto.randomUUID(), versao_id: p.versao_id } })}>Enviar rascunho salvo para revisão</DsButton></section>)}
       {!painel && !erro && <p role="status">Carregando documentos…</p>}
       {painel && <section aria-label="Documentos"><h3>Documentos disponíveis</h3>{painel.documentos.length === 0 && <p>Nenhum documento disponível para seu acesso.</p>}
         {painel.documentos.map(doc => <article key={doc.id} className="card card-pad"><h4>{doc.titulo}</h4><p>{doc.assunto}</p>
           <p>Versão vigente: {(doc.vigente_numero ?? doc.versoes.find(v => v.vigente)?.numero) ? `versão ${doc.vigente_numero ?? doc.versoes.find(v => v.vigente)!.numero}` : 'nenhuma versão disponível para leitura'}</p>
-          {doc.pode_excluir && <button className="btn" onClick={() => { rememberFocus(); setEditor(null); setLeitura(null); setTituloConfirmado(''); setConfirmacao({ doc, versao: doc.versoes[0]!, acao: 'excluir' }); }}>Excluir documento</button>}
+          {doc.pode_excluir && <DsButton variant="secondary" onClick={() => { rememberFocus(); setEditor(null); setLeitura(null); setTituloConfirmado(''); setConfirmacao({ doc, versao: doc.versoes[0]!, acao: 'excluir' }); }}>Excluir documento</DsButton>}
           <details><summary>Versões e histórico</summary><ol>{doc.versoes.map(v => <li key={v.id}>
             <p><strong>Versão {v.numero} · {ESTADOS[v.estado] ?? 'Estado indisponível'}{v.vigente ? ' · Vigente' : ''}</strong></p>
             <p>Público-alvo: {publicoTexto(v.publicos)}</p><p>Criada em {date(v.criada_em)}{v.revisada_em ? ` · Revisão registrada em ${date(v.revisada_em)}` : ''}{v.publicada_em ? ` · Publicada em ${date(v.publicada_em)}` : ''}</p>
-            <div className="conhecimento-actions">{v.pode_ler && <button className="btn" onClick={() => openVersion(v.id)}>Ler versão {v.numero}</button>}
-              {v.acoes.map(a => <button className="btn" key={a} disabled={a === 'publicar' && !v.publicos.length} onClick={() => {
+            <div className="conhecimento-actions">{v.pode_ler && <DsButton variant="secondary" onClick={() => openVersion(v.id)}>Ler versão {v.numero}</DsButton>}
+              {v.acoes.map(a => <DsButton variant="secondary" key={a} disabled={a === 'publicar' && !v.publicos.length} onClick={() => {
                 if (a === 'editar') {
                   if (v.pode_ler) openVersion(v.id, { doc, versao: v });
                   else { rememberFocus(); setLeitura(null); setConfirmacao(null); setEditor({ doc, versao: v, conteudo: '', origem: '', publicos: v.publicos }); }
                 }
                 else { rememberFocus(); setEditor(null); setLeitura(null); setConfirmacao({ doc, versao: v, acao: a }); }
-              }}>{ACTIONS[a]}</button>)}</div>
+              }}>{ACTIONS[a]}</DsButton>)}</div>
             {!v.pode_ler && <p>Conteúdo indisponível. O histórico não concede acesso ao texto retirado.</p>}
           </li>)}</ol></details>
         </article>)}
       </section>}
-      {painel?.tem_mais && <button className="btn" onClick={() => void run(async signal => {
+      {painel?.tem_mais && <DsButton variant="secondary" onClick={() => void run(async signal => {
         const next = await conhecimento<Painel>(token, `documentos?pagina=${(painel.pagina ?? 1) + 1}`, undefined, signal);
         if (active.current) setPainel(previous => appendPainel(previous, next));
-      })}>Carregar mais documentos e versões</button>}
+      })}>Carregar mais documentos e versões</DsButton>}
       {(leitura || editor || confirmacao) && <section ref={detailRef} tabIndex={-1} className="card card-pad conhecimento-detail" aria-label="Documento selecionado">
-        <button className="btn" onClick={closeDetail}>Fechar documento</button>
+        <DsButton variant="secondary" onClick={closeDetail}>Fechar documento</DsButton>
         {leitura && <><h3>{leitura.titulo}</h3><p>{ESTADOS[leitura.estado]}</p><p>Público-alvo: {publicoTexto(leitura.publicos)}</p><p>Origem: {leitura.origem}</p><div className="conhecimento-text">{leitura.conteudo}</div></>}
         {editor && <form onSubmit={save}><h3>{editor.doc ? `Nova versão de ${editor.doc.titulo}` : 'Novo documento'}</h3>
           <p>Novos documentos ficam sob sua responsabilidade. Alterar texto ou público cria uma nova versão que exige aprovação.</p>
@@ -184,10 +185,10 @@ export function PainelConhecimento({ token, onExpired }: { token: string; onExpi
           <label htmlFor="conhecimento-origem">Origem oficial</label><input id="conhecimento-origem" required maxLength={500} value={editor.origem} onChange={e => setEditor({ ...editor, origem: e.target.value })} />
           <label htmlFor="conhecimento-texto">Texto do documento</label><textarea id="conhecimento-texto" required maxLength={100000} rows={12} value={editor.conteudo} onChange={e => setEditor({ ...editor, conteudo: e.target.value })} />
           <fieldset><legend>Público-alvo explícito</legend><p>Selecione quem poderá ler após a publicação. Sem seleção, não é possível publicar.</p>{Object.entries(PUBLICOS).map(([value, label]) => <label key={value} className="conhecimento-check"><input type="checkbox" checked={editor.publicos.includes(value)} onChange={e => setEditor({ ...editor, publicos: e.target.checked ? [...editor.publicos, value] : editor.publicos.filter(p => p !== value) })} />{label}</label>)}</fieldset>
-          <button className="btn btn-primary" type="submit">Salvar rascunho</button></form>}
+          <DsButton type="submit">Salvar rascunho</DsButton></form>}
         {confirmacao && <><h3>{ACTIONS[confirmacao.acao]}</h3>{confirmacao.acao === 'excluir' ? <><p>{confirmacao.doc.titulo}</p><p>Assunto: {confirmacao.doc.assunto}</p><p>{confirmacao.doc.total_versoes ?? confirmacao.doc.versoes.length} {(confirmacao.doc.total_versoes ?? confirmacao.doc.versoes.length) === 1 ? 'versão' : 'versões'}</p><label htmlFor="conhecimento-confirmar-titulo">Digite o título para confirmar</label><input id="conhecimento-confirmar-titulo" value={tituloConfirmado} onChange={e => setTituloConfirmado(e.target.value)} autoComplete="off" /></> : <><p>{confirmacao.doc.titulo} · Versão {confirmacao.versao.numero}</p><p>Público-alvo: {publicoTexto(confirmacao.versao.publicos)}</p></>}
           <p>{confirmacao.acao === 'excluir' ? 'Todas as versões e trechos serão apagados definitivamente, incluindo os índices de busca. O recibo e o histórico de auditoria sem conteúdo serão preservados. Esta ação não pode ser desfeita.' : confirmacao.acao === 'publicar' ? 'Esta aprovação publica o texto para os públicos selecionados e substitui a versão vigente, se houver.' : confirmacao.acao === 'revogar' ? 'O texto deixará de estar disponível para novas leituras e buscas imediatamente.' : confirmacao.acao === 'revisar' ? 'Registra sua revisão deste texto. A publicação depende do administrador.' : 'O pastor responsável poderá ler esta versão. O envio não publica o documento.'}</p>
-          <button className="btn btn-primary" disabled={confirmacao.acao === 'excluir' && tituloConfirmado !== confirmacao.doc.titulo} onClick={confirm}>Confirmar {(ACTIONS[confirmacao.acao] ?? 'operação').toLocaleLowerCase('pt-BR')}</button></>}
+          <DsButton disabled={confirmacao.acao === 'excluir' && tituloConfirmado !== confirmacao.doc.titulo} onClick={confirm}>Confirmar {(ACTIONS[confirmacao.acao] ?? 'operação').toLocaleLowerCase('pt-BR')}</DsButton></>}
       </section>}
     </fieldset>
   </div>;
