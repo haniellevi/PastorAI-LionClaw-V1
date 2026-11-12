@@ -1,4 +1,4 @@
-"""First-transition orchestration over injected ports, up to A9 (never A10).
+"""First-transition orchestration over injected ports, up to A9; A10 only by its own entry.
 
 Sequence (one durable journal, shared with ObservedHostContract):
 
@@ -29,6 +29,11 @@ Sequence (one durable journal, shared with ObservedHostContract):
    observation. Fresh PG quiet checks also guard start and A9 checkpoints, as
    idle TCP pools cannot attribute remote active sessions.
 
+``run()`` never performs A10. When the A10 ports are wired (``assemble`` always does) it also
+journals, BEFORE containment, the legacy gate snapshot and, after quiescence, the pending-work
+baseline that A10 needs (first_transition_a10). A10 is ``a10(token)``: a separate invocation
+with the operator's explicit token, after ``a9-complete``.
+
 Recovery is objective (``recovery()``), never automatic: no undo, no retry of a
 destructive operation, no legacy resume once the DDL marker exists. A
 pre-DDL legacy resume goes through ObservedHostContract.resume_legacy, whose
@@ -51,13 +56,14 @@ import stat
 import subprocess
 import time
 
+from first_transition_a10 import A10_PROCEDURES, A10Step
 from first_transition_adapter import APPLICATION_SHA, EXECUTOR_SHA, ROLES, Plan, digest, validate_clone_receipt
 from first_transition_candidate import (CONSUMERS, CandidatePort, CandidateRunner, CandidateSpec, check_backend_running,
                                         check_held, check_identity, write_candidate_release, write_hold_override)
 from first_transition_database import (LEASES, DatabaseExpectation, LedgerProof, ReadOnlyDatabase, lease_scope,
                                        require_ddl_free, require_quiet, require_same_database, summary)
 from first_transition_host_contract import ObservedHostContract
-from first_transition_host_driver import HostManifest, ObservedHostDriver, PopenRunner, _absolute
+from first_transition_host_driver import ENTRIES, HostManifest, ObservedHostDriver, PopenRunner, _absolute
 from first_transition_host_transport import ObservedHostTransport
 from initial_transition_files import Journal, no_symlink, read_regular
 from initial_transition_ops import Refused, require
@@ -65,7 +71,7 @@ from initial_transition_ops import Refused, require
 CONFIG_SCHEMA = 'igreja12.first-transition-config/1'
 CONFIG_KEYS = frozenset({'schema', 'repo', 'state_dir', 'migration_workdir', 'python', 'docker', 'database',
                          'host', 'candidate', 'package_manifest_sha256', 'timeouts'})
-TIMEOUTS = dict(migration_s=300, observe_s=10, quiescence_interval_s=5, quiescence_budget_s=60)
+TIMEOUTS = dict(migration_s=300, observe_s=10, quiescence_interval_s=5, quiescence_budget_s=60, a10_settle_s=30)
 SHAPE = (51, 43, 8)  # pending, transactional, CONCURRENTLY
 PROCEDURES = {
     'not-started': 'nothing intended: no recovery action',
@@ -84,6 +90,7 @@ PROCEDURES = {
     'candidate-ambiguous': 'stop: no undo; inspect the candidate project read-only, nothing restarted or removed',
     'candidate-failed': 'stop: no undo; consumers stay held, ingress blocked; human decision on the backend',
     'a9-complete': 'hold: backend smoked, consumers held, ingress blocked; A10 needs its own authorization',
+    **A10_PROCEDURES,
 }
 BACKUP_REQUEST_SCHEMA = 'igreja12.first-transition-window-backup-request/1'
 CLONE_FIELDS = ('migrations_verified', 'clone_identity', 'cluster_global_ddl_possible', 'applied', 'final_ledger',
@@ -173,9 +180,10 @@ class MigrationExecutor:
                            timeout=self.timeout)
 
 
-class FirstTransition:
+class FirstTransition(A10Step):
     def __init__(self, *, plan, journal, host, database, expected, backup_proof, executor, layout, candidate,
-                 config_digest, clock=time.monotonic, sleep=time.sleep, timeouts=None):
+                 config_digest, clock=time.monotonic, sleep=time.sleep, timeouts=None, legacy_gates=None,
+                 ingress=None, pending_counts=None):
         for value, kind, code in ((plan, Plan, 'plan'), (journal, Journal, 'journal'),
                                   (host, ObservedHostContract, 'host'), (database, ReadOnlyDatabase, 'database'),
                                   (expected, DatabaseExpectation, 'expectation'),
@@ -194,6 +202,13 @@ class FirstTransition:
         self.plan, self.j, self.host, self.db, self.expected = plan, journal, host, database, expected
         self.backup_proof, self.executor, self.layout, self.candidate = backup_proof, executor, layout, candidate
         self.config_digest, self.clock, self.sleep = config_digest, clock, sleep
+        # A10 ports: legacy gate reader, the two ingress bindings and the pending-work counter.
+        require(legacy_gates is None or callable(legacy_gates), 'transition-a10-ports')
+        require(pending_counts is None or callable(pending_counts), 'transition-a10-ports')
+        require(ingress is None or isinstance(ingress, dict) and set(ingress) == set(ENTRIES)
+                and all(callable(getattr(ingress[e], m, None)) for e in ENTRIES for m in ('observe', 'open', 'block')),
+                'transition-a10-ports')
+        self.legacy_gates, self.ingress, self.pending = legacy_gates, ingress, pending_counts
 
     # -- journal helpers -------------------------------------------------------------------
     def _intent(self, step, **fields):
@@ -225,12 +240,15 @@ class FirstTransition:
         self._init()
         require(self.j.last('observed-host-intent', 'legacy-resume') is None, 'transition-legacy-resume-started')
         require(self.j.last('transition-failed') is None, 'transition-stopped')  # first failure is final
+        require(not self._a10_started(), 'transition-a10-started')  # after A10 only a10() may continue
         try:
             if self.j.last('ddl-marker') is None:
                 self._window_unused()
                 self._baseline()
+                self._gate_snapshot()  # pre-window gate values, while the legacy still runs
                 self.host.contain()
                 self._quiesce()
+                self._pending_baseline()
                 self._backup()
                 self._mark_ddl()
             self._migrate()
@@ -420,6 +438,13 @@ class FirstTransition:
         started = self.j.last('transition-done', 'a9:start-backend')
         require(not self._open('a9:start-backend'), 'candidate-start-ambiguous')
         ids = self.candidate.project_ids(timeout=remaining())
+        recreated = self.j.last('transition-done', 'a10:recreate')
+        if recreated is not None or self._open('a10:recreate'):
+            require(recreated is not None, 'a10-recreate-ambiguous')
+            require(ids == tuple(sorted(recreated['ids'].values())), 'a10-project-changed')
+            declared = self._a10_writers(self.candidate.inspect(ids, timeout=remaining()))
+            remaining()
+            return declared
         if created is not None:
             require(ids == tuple(sorted(created['ids'].values())), 'candidate-project-changed')
         else:
@@ -509,9 +534,12 @@ class FirstTransition:
         self._held(ids, snapshot, started['started'])
         if self.j.last('transition-a9-complete') is None:
             self.j.append('transition-a9-complete', smoke=smoke, consumers='held', ingress_blocked=True,
-                          a10='not-implemented')
+                          a10='separate-authorization')
+        ready = self.j.last('transition-gate-snapshot') is not None
         return dict(status='a9-backend-smoked', smoke=smoke, consumers='held', ingress_blocked=True,
-                    legacy_resume_allowed=False, a10='not-implemented', production_ready=False)
+                    legacy_resume_allowed=False, production_ready=False,
+                    a10='separate-authorization' if ready else 'gate-snapshot-missing',
+                    a10_token=self.a10_token() if ready else None)
 
     # -- recovery --------------------------------------------------------------------------------
     def recovery(self):
@@ -519,7 +547,10 @@ class FirstTransition:
         j = self.j
         open_steps = [e['step'] for e in j.find('transition-intent') if self._open(e['step'])]
         failed = j.last('transition-failed')
-        if j.last('transition-a9-complete') is not None and failed is None:
+        a10 = self._a10_recovery()
+        if a10 is not None:
+            state = a10
+        elif j.last('transition-a9-complete') is not None and failed is None:
             state = 'a9-complete'
         elif j.last('ddl-marker') is not None:
             migrations = [s for s in open_steps if s.startswith('migration:')]
@@ -653,6 +684,10 @@ def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup
     after that request, carrying ``request_digest`` (``digest(request)``), a
     64-hex ``backup_id`` and the restore/clone rehearsal fields; it is called
     once per window and never retried.
+
+    The same ``ingress`` bindings are the A10 openers/blockers (``first_transition_a10``); the
+    driver's read-only ``legacy_gates`` and the database's ``pending_outcomes`` feed the A10
+    snapshot and verification. Wiring them never performs A10.
     """
     require(isinstance(config, FirstTransitionConfig), 'transition-config')
     for value, code in ((connect, 'database'), (secret, 'secret'), (backup_proof, 'backup')):
@@ -680,7 +715,9 @@ def assemble(config, *, plan, journal, connect, secret, ingress, writers, backup
                                        package_manifest_sha256=config.package_manifest_sha256, git=git)
     transition = FirstTransition(plan=plan, journal=journal, host=host, database=database, expected=expected,
                                  backup_proof=backup_proof, executor=executor, layout=layout, candidate=candidate,
-                                 config_digest=config.digest, clock=clock, sleep=sleep, timeouts=dict(config.timeouts))
+                                 config_digest=config.digest, clock=clock, sleep=sleep, timeouts=dict(config.timeouts),
+                                 legacy_gates=driver.legacy_gates, ingress=dict(ingress),
+                                 pending_counts=database.pending_outcomes)
     bind_candidate = getattr(writers, 'bind_candidate', None)
     if bind_candidate is not None:
         require(writers.declared == frozenset(i for _, i in config.manifest.service_ids),

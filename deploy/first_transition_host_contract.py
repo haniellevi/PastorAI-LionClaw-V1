@@ -316,6 +316,20 @@ class ObservedHostContract:
             self.j.append('observed-host-contained', **receipt)
         return receipt
 
+    def legacy_stopped(self):
+        """Post-containment fact for A10: the pinned legacy roles stay stopped (restart=no, exit 0) and
+        the identity/support fingerprint is unchanged. Ingress may be in either state here; the
+        candidate step judges it. Never a resume path and never containment evidence for the DDL."""
+        self._assert_own_journal()
+        require(self.j.last('observed-host-intent', 'legacy-resume') is None, 'observed-host-resume-started')
+        require(self.j.last('observed-host-contained') is not None, 'observed-host-unobserved')
+        data, fingerprint = self._snapshot()
+        for state in data['services'].values():
+            require(state['restart_policy'] == 'no' and not state['running'] and state['exit_code'] == 0,
+                    'observed-host-not-cleanly-contained')
+        return dict(fingerprint=fingerprint, ingress_blocked=data['ingress_blocked'],
+                    ingress_open=data['ingress_open'], evidence='driver-reported', host_verified=False)
+
     def _contain_observe(self):
         data, fingerprint = self._snapshot()
         if self.j.last('observed-host-init') is not None:

@@ -21,9 +21,14 @@ injected runner (``(argv, *, timeout, max_output) -> (rc, stdout)``):
 * ``inspect``: restricted projection (gates by name only, never full Env), bracketed
   by fresh network lookups binding both its full ID and its configured name.
 
-There is no operation to start a consumer, change a gate, open ingress, remove
-or recreate a container: A10 is a separate, not implemented step. Every call is
-preceded by a daemon identity check. A never-started container may expose network
+A10 (first_transition_a10, separately authorized) adds exactly three effects and
+nothing else: ``recreate_restored`` (ONE ``up --no-start --force-recreate`` of the
+four services with the A10 gate file carrying the per-role values captured from
+the legacy before containment, never values from code), ``start_restored`` of one
+created container proven to be this spec's role with exactly those gates, and
+``stop`` (restart=no, then a bounded stop) for A10 containment. No gate is
+changed in place, no ingress is touched here. Every call is preceded by a daemon
+identity check. A never-started container may expose network
 intent without an effective NetworkID; only that held state can use the freshly
 verified name/ID binding. A running backend always requires the effective ID.
 """
@@ -62,6 +67,10 @@ PG_OVERRIDES = ('PGHOST', 'PGHOSTADDR', 'PGPORT', 'PGDATABASE', 'PGSERVICE', 'PG
 DATABASE_TEMPLATE = ('[{{json .Id}},[{{range .Config.Env}}{{if eq (lower (index (split . "=") 0)) '
                      + ' '.join('"' + n.lower() + '"' for n in (*DATABASE_NAMES, *PG_OVERRIDES))
                      + '}}{{json .}},{{end}}{{end}}null]]')
+# Values the application accepts for each gate; anything else in a snapshot refuses (never guessed).
+BOOLEAN_GATES = ('true', 'false')
+BREVO_MODES = ('off', 'canary', 'live')
+A10_GATE_FILE = 'a10-gates.override.yml'
 SAFE_QUERY = frozenset({'sslmode', 'connect_timeout', 'application_name', 'channel_binding', 'gssencmode',
                         'target_session_attrs'})
 
@@ -75,6 +84,45 @@ def check_closed_gates(items, *, code):
         if upper in CLOSED_GATES:
             require(name == upper and upper not in seen and str(value).lower() == CLOSED_GATES[upper], code)
             seen.add(upper)
+
+
+def restore_values(gates):
+    """'NAME=value' items of ONE legacy role -> exact restore map of the four mandatory gates.
+
+    The captured string is kept byte for byte. An absent gate restores to the application's
+    closed default, so a gate that was closed (or absent) before the window is never opened.
+    Unknown, duplicated or unparseable values refuse.
+    """
+    code = 'a10-gate-snapshot-invalid'
+    require(isinstance(gates, (list, tuple)), code)
+    found = {}
+    for item in gates:
+        require(isinstance(item, str) and '=' in item and len(item) <= 512, code)
+        name, value = item.split('=', 1)
+        require(name in CLOSED_GATES and name not in found, code)
+        found[name] = value
+    result = {}
+    for name, closed in CLOSED_GATES.items():
+        value = found.get(name, closed)
+        allowed = BREVO_MODES if name == 'BREVO_SEND_MODE' else BOOLEAN_GATES
+        require(value.lower() in allowed and value == value.strip(), code)
+        result[name] = value
+    return result
+
+
+def gate_is_open(name, value):
+    return value.lower() != CLOSED_GATES[name]
+
+
+def gate_override(restore):
+    """Public A10 Compose file: per-role ``environment`` with the restored gate values only."""
+    require(isinstance(restore, dict) and set(restore) == set(ROLES)
+            and all(isinstance(v, dict) and set(v) == set(CLOSED_GATES) for v in restore.values()),
+            'a10-gate-snapshot-invalid')
+    body = {'services': {role: {'environment': {k: restore[role][k] for k in sorted(CLOSED_GATES)}}
+                         for role in ROLES}}
+    return ('# A10: gates restored from the pre-window legacy snapshot; never edited by hand.\n'
+            + json.dumps(body, sort_keys=True) + '\n')
 
 
 def database_target(value):
@@ -209,6 +257,18 @@ class CandidateSpec:
         # Resolve both selectors: a recycled/ambiguous name cannot stand in for the pinned ID.
         return ('docker', 'network', 'inspect', '--format', NETWORK_TEMPLATE, self.network_id, self.network_name)
 
+    @property
+    def gate_override(self):
+        return str(Path(self.hold_override).parent / A10_GATE_FILE)
+
+    def a10_compose_argv(self):
+        """No hold file: the release restart policy applies; the gate file overrides env_file values."""
+        deploy = self.deploy_dir
+        return ('docker', 'compose', '--project-name', self.project, '--env-file', '/dev/null', '--project-directory', deploy,
+                '--file', deploy + '/docker-compose.yml', '--file', deploy + '/docker-compose.override.yml',
+                '--file', self.gate_override, 'up', '--no-start', '--no-deps', '--no-build', '--force-recreate',
+                '--pull', 'never', *ROLES)
+
     def smoke_argv(self, backend_id):
         return ('docker', 'exec', backend_id, 'python', '-I', '-c', SMOKE_PROBE, str(self.smoke_seconds))
 
@@ -263,6 +323,18 @@ def write_hold_override(spec):
         handle.write(data)
 
 
+def write_gate_override(spec, restore):
+    """Exclusive creation of the public A10 gate file; an existing file must be identical."""
+    path = no_symlink(Path(spec.gate_override))
+    data = gate_override(restore).encode()
+    if os.path.lexists(path):
+        require(stat.S_ISREG(os.lstat(path).st_mode) and path.read_bytes() == data, 'a10-gate-file-mismatch')
+        return
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, 'wb') as handle:
+        handle.write(data)
+
+
 class CandidateRunner(PopenRunner):
     """PopenRunner whose allowlist is exactly the argv this spec's CandidatePort builds."""
 
@@ -271,10 +343,15 @@ class CandidateRunner(PopenRunner):
         super().__init__(**kwargs)
 
     def _allowed(self, argv):
-        if argv in (INFO_ARGV, self.spec.compose_argv(), self.spec.ps_argv(), self.spec.network_argv()):
+        if argv in (INFO_ARGV, self.spec.compose_argv(), self.spec.a10_compose_argv(), self.spec.ps_argv(),
+                    self.spec.network_argv()):
             return True
         if len(argv) == 3 and argv[:2] == ('docker', 'start'):
             return HEX64.fullmatch(argv[2]) is not None
+        if len(argv) == 4 and argv[:3] == ('docker', 'update', '--restart=no'):
+            return HEX64.fullmatch(argv[3]) is not None
+        if len(argv) == 5 and argv[:4] == ('docker', 'stop', '--time', '30'):
+            return HEX64.fullmatch(argv[4]) is not None
         if len(argv) == 8 and HEX64.fullmatch(argv[2]):
             return argv == self.spec.smoke_argv(argv[2])
         return (6 < len(argv) <= 10 and argv[:5] == ('docker', 'inspect', '--type', 'container', '--format')
@@ -418,11 +495,11 @@ class CandidatePort:
                     network_mode=mode, network_names=sorted(n[0] for n in networks),
                     networks=sorted(n[2] for n in networks))
 
-    def _backend(self, backend_id):
+    def _backend(self, backend_id, gates=None):
         """Fresh inspect of the given ID: it must be THIS spec's backend (image, project, name, network, gates)."""
         require(isinstance(backend_id, str) and HEX64.fullmatch(backend_id), 'candidate-ids')
         state = self.inspect((backend_id,))[backend_id]
-        check_identity(self.spec, 'backend', state)
+        check_identity(self.spec, 'backend', state, gates)
         return state
 
     def start_backend(self, backend_id):
@@ -432,8 +509,37 @@ class CandidatePort:
         rc, out = self._run(('docker', 'start', backend_id), 30, LIMITS['effect'])
         require(rc == 0 and out == (backend_id + '\n').encode(), 'candidate-start-receipt')
 
-    def smoke(self, backend_id):
-        check_backend_running(self._backend(backend_id))
+    def recreate_restored(self):
+        """A10: one Compose recreation of the four services with the restored gate file, nothing started."""
+        self._daemon()
+        rc, _ = self._run(self.spec.a10_compose_argv(), 60, LIMITS['compose'])
+        require(rc == 0, 'a10-recreate-failed')
+
+    def start_restored(self, role, ident, gates):
+        """A10: start ONE created container proven to be this spec's ``role`` with exactly ``gates``."""
+        require(role in ROLES and isinstance(ident, str) and HEX64.fullmatch(ident), 'candidate-ids')
+        state = self.inspect((ident,))[ident]
+        check_identity(self.spec, role, state, gates)
+        check_created(state, code='a10-not-created')
+        self._daemon()
+        rc, out = self._run(('docker', 'start', ident), 30, LIMITS['effect'])
+        require(rc == 0 and out == (ident + '\n').encode(), 'a10-start-receipt')
+
+    def stop(self, ident):
+        """A10 containment: restart=no first (no restart on exit), then a bounded stop of one project ID."""
+        require(isinstance(ident, str) and HEX64.fullmatch(ident), 'candidate-ids')
+        require(ident in self.project_ids(), 'a10-stop-scope')
+        for argv in (('docker', 'update', '--restart=no', ident), ('docker', 'stop', '--time', '30', ident)):
+            self._daemon()
+            rc, out = self._run(argv, 45 if argv[1] == 'stop' else 30, LIMITS['effect'])
+            require(rc == 0 and out == (ident + '\n').encode(), 'a10-stop-receipt')
+
+    def smoke(self, backend_id, gates=None):
+        state = self._backend(backend_id, gates)
+        if gates is None:
+            check_backend_running(state)
+        else:
+            check_restored_running(state)
         self._daemon()
         rc, out = self._run(self.spec.smoke_argv(backend_id), self.spec.smoke_seconds + 10, LIMITS['smoke'])
         ok, value = _attempt(_lines, out)
@@ -446,8 +552,9 @@ class CandidatePort:
         return dict(health=200, ready=200, ready_status=result['ready_status'])
 
 
-def check_identity(spec, role, state):
-    """Pinned image/revision, own project/service/name, single network, every gate closed."""
+def check_identity(spec, role, state, gates=None):
+    """Pinned image/revision, own project/service/name, single network; every gate closed (A9) or,
+    for A10 (``gates`` given), exactly the restored values of that role."""
     require(state['image'] == spec.image and state['revision'] == spec.sha, 'candidate-image-mismatch')
     require(state['project'] == spec.project and state['service'] == role
             and state['name'] == spec.names()[role], 'candidate-identity-mismatch')
@@ -456,9 +563,15 @@ def check_identity(spec, role, state):
             and state.get('network_mode') in (spec.network_id, spec.network_name), 'candidate-network-mismatch')
     if state['networks'] != [spec.network_id]:
         require(state['networks'] == [''], 'candidate-network-mismatch')
-        check_held(state, code='candidate-network-mismatch')
-    require(all(state['gates'].get(g, CLOSED_GATES[g]) == CLOSED_GATES[g] for g in MANDATORY_GATES),
-            'candidate-gate-open')
+        if gates is None:
+            check_held(state, code='candidate-network-mismatch')
+        else:
+            check_created(state, code='candidate-network-mismatch')
+    if gates is None:
+        require(all(state['gates'].get(g, CLOSED_GATES[g]) == CLOSED_GATES[g] for g in MANDATORY_GATES),
+                'candidate-gate-open')
+    else:
+        require(state['gates'] == gates, 'a10-gates-differ-from-snapshot')
 
 
 def check_held(state, created=None, *, code='candidate-consumer-not-held'):
@@ -474,3 +587,19 @@ def check_backend_running(state, started=None):
             and state['started'] != ZERO_STARTED and state['restart_policy'] == 'no', 'candidate-backend-not-running')
     if started is not None:
         require(state['started'] == started, 'candidate-backend-restarted')
+
+
+def check_created(state, created=None, *, code='a10-not-created'):
+    """A10 container created by the recreation, never started, release restart policy."""
+    require(state['status'] == 'created' and state['running'] is False and state['restart_count'] == 0
+            and state['started'] == ZERO_STARTED and state['restart_policy'] == 'always', code)
+    if created is not None:
+        require(state['started'] == created['started'] and state['restart_count'] == created['restart_count'], code)
+
+
+def check_restored_running(state, started=None, *, code='a10-not-running'):
+    """Running since its own A10 start receipt, never restarted (no crash loop hidden by the policy)."""
+    require(state['status'] == 'running' and state['running'] is True and state['restart_count'] == 0
+            and state['started'] != ZERO_STARTED and state['restart_policy'] == 'always', code)
+    if started is not None:
+        require(state['started'] == started, 'a10-restarted')

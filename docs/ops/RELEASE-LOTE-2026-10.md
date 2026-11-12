@@ -1,5 +1,25 @@
 # Release em lote, outubro de 2026
 
+## A10 implementada em código e ensaiada só em simulação (12/11/2026)
+
+`first_transition_window.py a10` (módulo `deploy/first_transition_a10.py`) sobe os
+workers depois da A9, com SIM próprio e `--a10-token`. Os gates de cada papel vêm da
+foto dos processos antigos tirada pelo `run` antes da contenção, nunca do código; gate
+fechado ou ausente continua fechado; foto ausente, inválida ou diferente da releitura
+recusa sem efeito. Ordem: recriação parada com os valores da foto, backend (smoke),
+queue, broadcast e cron por último, depois as entradas. Verificação: workers sem
+reinício, gates iguais à foto, antigos parados, entradas abertas e nenhum `gate_fechado`
+ou ativação V3 fechada nova quando o envio estava ligado. Falha contém: entradas
+bloqueadas e os quatro parados com `restart=no`, sem reescrever gates e sem voltar ao
+legado. Sequência da janela e riscos aceitos: seção 12 do
+[runbook de produção](PRODUCTION-RUNBOOK.md). Nada foi executado em ambiente real;
+o registro abaixo de que a A10 dependeria do aceite das 20 conversas é anterior à
+decisão de religar os envios como estavam e precisa da confirmação do Raniel.
+
+Recuperação após a A9: `a10-partial` (repetir o mesmo comando; retoma do diário),
+`a10-complete` (repetir só reverifica), `a10-contained` (parar; decisão nova) e
+`a10-containment-incomplete` (ação humana urgente: bloquear entradas e parar os quatro).
+
 ## Decisão vigente A9 para a primeira transição (30/10/2026)
 
 O dono aprovou preparar quatro candidatos e iniciar somente backend para smoke, com ingresso externo/interno comprovadamente bloqueado. Queue/cron/broadcast permanecem `created`, com StartedAt inicial e restart=no, até a retomada nominal A10. Não chamar `create_and_start` atual nem iniciar consumidores por dependência/Compose. O cron novo com gates fechados também poderia cancelar pendências; parar somente o cron legado não prova preservação na subida. Backend deve ser verificado contra manutenção/agendador no startup. A aprovação atual cobre implementação local em dois blocos e testes exclusivamente simulados, não execução desses comandos ou inventário em ambiente real. Nenhum novo gate é criado nem os existentes são abertos para passar testes.
@@ -31,7 +51,11 @@ with Journal(Path(config.state_dir) / 'journal') as journal:   # mesmo diário e
     #                                                             (r['window_backup_id'], nunca o do A6), nunca automático,
     #                                                             ou correção por nova decisão
     #   candidate-ambiguous / candidate-failed                 -> parar sem desfazer; consumidores held; ingresso bloqueado
-    #   a9-complete                                            -> manter; A10 exige autorização própria
+    #   a9-complete                                            -> manter; A10 exige autorização própria:
+    #                                                             t.a10(t.a10_token()) só após o SIM do dono
+    #   a10-partial                                            -> t.a10(token) de novo (retoma do diário)
+    #   a10-complete                                           -> nada; repetir só reverifica
+    #   a10-contained / a10-containment-incomplete             -> parar; sem legado e sem reabrir
 ```
 
 **Entrada da janela (incremento 2, apenas código local, sem autorização operacional):**

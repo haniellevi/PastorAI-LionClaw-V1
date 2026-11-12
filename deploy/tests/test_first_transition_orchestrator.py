@@ -314,7 +314,7 @@ def test_full_a9_sequence_through_real_ports(world):
     result = transition.run()
     assert result == dict(status='a9-backend-smoked', smoke=dict(health=200, ready=200, ready_status='degraded'),
                           consumers='held', ingress_blocked=True, legacy_resume_allowed=False,
-                          a10='not-implemented', production_ready=False)
+                          a10='gate-snapshot-missing', a10_token=None, production_ready=False)
     j = world.journal
     order = kinds(j)
     marker = order.index('ddl-marker')

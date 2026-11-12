@@ -1,4 +1,8 @@
-"""First-transition entry: prepare/observe, or an explicitly configured run ending at A9.
+"""First-transition entry: prepare/observe, an explicitly configured run ending at A9, or A10.
+
+``a10`` is its own invocation: same inputs and journal as ``run``, plus ``--a10-token`` (printed
+by the A9 result). It brings the three consumers up with the gates captured from the legacy
+before the window (first_transition_a10); the token is a typo/binding guard, NOT authorization.
 
 Expected digests are typo guards, NOT human authorization. Operations require the
 operator's separate nominal approval. Nothing is contacted at import. Secrets are
@@ -60,6 +64,7 @@ CODES = frozenset({
     'window-executor-role', 'window-candidate-database', 'database-libpq-environment',
     'window-backup-image-unpinned', 'window-backup-paths', 'window-backup-timeouts',
     'package-identity-mismatch', 'candidate-layout-not-prepared', 'candidate-hold-mismatch', 'layout-mismatch',
+    'window-a10-token',
 })
 
 
@@ -328,9 +333,11 @@ def _readiness(args, prepared, secret, database, ingress):
         require(binding.observe(binding.scope, timeout=10) in ('open', 'blocked'), 'window-bindings-shape')
 
 
-def run(args, out=print):
+def run(args, out=print, *, a10=False):
     fdb.require_explicit_environment()
     require(args.expect_plan_digest and args.expect_window_digest, 'window-run-prerequisites')
+    token = getattr(args, 'a10_token', None)
+    require(bool(token) == a10 and (not a10 or re.fullmatch('[0-9a-f]{64}', token)), 'window-a10-token')
     prepared = prepare_window(args)
     require(args.expect_plan_digest == prepared.plan.digest, 'window-plan-digest')
     require(args.expect_window_digest == prepared.window_digest, 'window-window-digest')
@@ -359,7 +366,7 @@ def run(args, out=print):
                               ingress=ingress, writers=writers, backup_proof=backup, popen=io.get('popen'),
                               run=io.get('run'), sleep=io.get('sleep') or time.sleep, git=io.get('git'))
         try:
-            result = transition.run()
+            result = transition.a10(token) if a10 else transition.run()
         except BaseException as exc:
             code = 'window-transition-refused' if isinstance(exc, Exception) else 'window-transition-interrupted'
             out(json.dumps(dict(refused=code, recovery=transition.recovery(),
@@ -410,7 +417,7 @@ class _Parser(argparse.ArgumentParser):
 
 def main(argv=None, out=print, *, io=None):
     parser = _Parser(prog='first_transition_window', description='Expected digests are NOT human authorization.')
-    parser.add_argument('mode', choices=('prepare', 'check', 'rehearse-backup', 'check-bindings', 'run'))
+    parser.add_argument('mode', choices=('prepare', 'check', 'rehearse-backup', 'check-bindings', 'run', 'a10'))
     parser.add_argument('--config', required=True)
     parser.add_argument('--env-file')
     parser.add_argument('--env-var', help='Explicit variable in the private file; required for prepare/run.')
@@ -418,6 +425,7 @@ def main(argv=None, out=print, *, io=None):
     parser.add_argument('--bindings-config')
     parser.add_argument('--expect-plan-digest', help='Exact typo guard, NOT human authorization.')
     parser.add_argument('--expect-window-digest', help='Exact typo guard, NOT human authorization.')
+    parser.add_argument('--a10-token', help='Only for a10: token printed by the A9 result, NOT human authorization.')
     try:
         args = parser.parse_args(argv)
         args._io = io or {}
@@ -426,8 +434,8 @@ def main(argv=None, out=print, *, io=None):
             out(json.dumps(dict(plan_digest=p.plan.digest, window_digest=p.window_digest,
                                 assertions_are_authorization=False, production_ready=False), sort_keys=True))
             return 0
-        if args.mode == 'run':
-            return run(args, out)
+        if args.mode in ('run', 'a10'):
+            return run(args, out, a10=args.mode == 'a10')
         if args.mode == 'check-bindings':
             require(args.bindings_config is not None, 'window-bindings-config-missing')
             return check_bindings(args, out)

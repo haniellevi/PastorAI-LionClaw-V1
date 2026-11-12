@@ -1,5 +1,6 @@
 """Window entry composition over synthetic files and IO only, never a real host or DB."""
 import json
+import re
 import ipaddress
 from pathlib import Path
 import sys
@@ -216,7 +217,8 @@ def test_prepare_is_pure_and_run_composes_real_backup_and_controller(entry):
     assert entry.calls == [] and entry.connections == [] and entry.assembly.popen_calls == []
     code, lines = entry.execute(d)
     assert code == 0, lines
-    assert lines[-1]['production_ready'] is False and lines[-1]['a10'] == 'not-implemented'
+    assert lines[-1]['production_ready'] is False and lines[-1]['a10'] == 'separate-authorization'
+    assert re.fullmatch('[0-9a-f]{64}', lines[-1]['a10_token'])
     assert entry.world.migrate.applied == [m.name for m in entry.world.plan.pending]
     assert len(entry.backup_io.migrations) == 51
     assert sum('--no-transaction' in argv for argv, _ in entry.backup_io.migrations) == 8
@@ -706,3 +708,23 @@ def test_candidate_database_roles_and_normalization_to_a9(entry, url):
     entry.world.consumers_held()
     text = entry.journal_text() + json.dumps(lines)
     assert url not in text and SECRET_URL not in text and 'fictional' not in text
+
+
+def test_a10_mode_needs_its_token_and_a_wrong_one_changes_nothing(entry):
+    code, lines = entry.execute()
+    assert code == 0 and re.fullmatch('[0-9a-f]{64}', lines[-1]['a10_token'])
+    d = entry.prepare()
+    digests = ['--expect-plan-digest', d['plan_digest'], '--expect-window-digest', d['window_digest']]
+    before = (list(entry.world.legacy_effects()), list(entry.world.cdocker.effects()))
+    for argv, refused in (([*entry.args('a10'), *digests], 'window-a10-token'),
+                          ([*entry.args('run'), *digests, '--a10-token', lines[-1]['a10_token']], 'window-a10-token'),
+                          ([*entry.args('a10'), *digests, '--a10-token', 'abc'], 'window-a10-token')):
+        out = []
+        assert window.main(argv, out=out.append, io=entry.io) == 2
+        assert json.loads(out[-1]) == {'refused': refused}
+    out = []
+    assert window.main([*entry.args('a10'), *digests, '--a10-token', '0' * 64], out=out.append, io=entry.io) == 2
+    answer = json.loads(out[-1])
+    assert answer['refused'] == 'window-transition-refused' and answer['recovery']['state'] == 'a9-complete'
+    assert (entry.world.legacy_effects(), entry.world.cdocker.effects()) == before
+    entry.world.consumers_held()

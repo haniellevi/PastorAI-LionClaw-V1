@@ -420,3 +420,17 @@ def test_effective_nginx_duplicate_server_alias_refuses(tmp_path, names):
     with pytest.raises(wb.Refused, match='^window-nginx-topology$'):
         ingress.verify_topology()
     assert not ingress.snippet.exists()
+
+
+def test_writers_declare_a10_candidate_tuple_and_refuse_bad_provider_answers(tmp_path):
+    third = '3' * 64
+    binding, _ = _writers(tmp_path, {'postgres': 2},
+                          {LEGACY: [(DB, 5432, '01', 11)], FOREIGN: [(DB, 5432, '01', 21)], third: []})
+    binding.bind_candidate(lambda timeout: (FOREIGN, third))  # A10: IDs with a start receipt
+    assert binding.observe(SCOPE, timeout=5) == 0
+    for answer in ((FOREIGN, FOREIGN), (LEGACY,), ['x'], (FOREIGN,) * 5, ('z' * 64,)):
+        other, _ = _writers(tmp_path / str(len(str(answer))) / answer[0][:1], {'postgres': 1},
+                            {LEGACY: [(DB, 5432, '01', 11)]})
+        other.bind_candidate(lambda timeout, answer=answer: answer)
+        with pytest.raises(Refused, match='^window-writers-candidate$'):
+            other.observe(SCOPE, timeout=5)
