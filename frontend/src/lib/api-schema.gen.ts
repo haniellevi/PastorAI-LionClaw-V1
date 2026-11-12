@@ -1806,6 +1806,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cell-alert-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Cell Alert Rules */
+        get: operations["list_cell_alert_rules_cell_alert_rules_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cell-alert-rules/{tipo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Cell Alert Rule */
+        put: operations["update_cell_alert_rule_cell_alert_rules__tipo__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/cell-central/dashboard": {
         parameters: {
             query?: never;
@@ -2530,6 +2564,30 @@ export interface paths {
         };
         /** Lookup Cells */
         get: operations["lookup_cells_cells_lookup_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cells/me/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Cell Alerts
+         * @description Alertas em aberto das células ATIVAS que o ator lidera diretamente (RF-26).
+         *
+         *     Mesma regra do detalhe para o líder: só o líder direto; superior na cadeia
+         *     não recebe. Pastor/admin consultam pela Central. ``igreja_id`` explícito
+         *     além da RLS.
+         */
+        get: operations["my_cell_alerts_cells_me_alerts_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5575,9 +5633,57 @@ export interface components {
             /** Id */
             id: string;
             /** Pessoaid */
-            pessoaId: string;
+            pessoaId?: string | null;
             /** Tratado */
             tratado: boolean;
+        };
+        /** AlertRuleOut */
+        AlertRuleOut: {
+            /** Ativo */
+            ativo: boolean;
+            /** Atualizadoem */
+            atualizadoEm?: string | null;
+            /** Descricao */
+            descricao: string;
+            /** Parametros */
+            parametros: components["schemas"]["AlertRuleParamOut"][];
+            /** Tipo */
+            tipo: string;
+            /** Titulo */
+            titulo: string;
+        };
+        /** AlertRuleParamOut */
+        AlertRuleParamOut: {
+            /** Maximo */
+            maximo: number;
+            /** Minimo */
+            minimo: number;
+            /** Nome */
+            nome: string;
+            /** Padrao */
+            padrao: number;
+            /** Rotulo */
+            rotulo: string;
+            /** Unidade */
+            unidade: string;
+            /** Valor */
+            valor: number;
+        };
+        /** AlertRuleUpdate */
+        AlertRuleUpdate: {
+            /** Ativo */
+            ativo: boolean;
+            /** Parametros */
+            parametros?: {
+                [key: string]: number;
+            };
+        };
+        /** AlertRulesOut */
+        AlertRulesOut: {
+            /** Processamentoliberado */
+            processamentoLiberado: boolean;
+            /** Regras */
+            regras: components["schemas"]["AlertRuleOut"][];
         };
         /**
          * ApproveRequest
@@ -7876,6 +7982,23 @@ export interface components {
             pendentes: components["schemas"]["MultiplicacaoPendenteOut"][];
             /** Registradas */
             registradas: components["schemas"]["MultiplicacaoRegistradaOut"][];
+        };
+        /** MyCellAlertOut */
+        MyCellAlertOut: {
+            /** Acaoesperada */
+            acaoEsperada?: string | null;
+            /** Celulaid */
+            celulaId: string;
+            /** Celulanome */
+            celulaNome: string;
+            /** Gatilho */
+            gatilho?: string | null;
+            /** Id */
+            id: string;
+            /** Pessoaid */
+            pessoaId?: string | null;
+            /** Pessoanome */
+            pessoaNome?: string | null;
         };
         /** NextMeetingBody */
         NextMeetingBody: {
@@ -13072,6 +13195,74 @@ export interface operations {
             };
         };
     };
+    list_cell_alert_rules_cell_alert_rules_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRulesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_cell_alert_rule_cell_alert_rules__tipo__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                tipo: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertRuleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertRuleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_dashboard_cell_central_dashboard_get: {
         parameters: {
             query?: {
@@ -14367,6 +14558,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_CellLookupOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    my_cell_alerts_cells_me_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyCellAlertOut"][];
                 };
             };
             /** @description Validation Error */

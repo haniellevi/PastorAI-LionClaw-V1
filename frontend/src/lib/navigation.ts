@@ -127,7 +127,10 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
   {
     id: "configuracoes",
     label: "Configurações",
-    items: [{ target: "cadastro-igreja", label: "Cadastro da igreja", icon: "image" }],
+    items: [
+      { target: "cadastro-igreja", label: "Cadastro da igreja", icon: "image" },
+      { target: "alertas-lider", label: "Alertas ao líder", icon: "alert" },
+    ],
   },
   {
     id: "sistema",
@@ -301,6 +304,11 @@ export const SCREEN_META: Record<string, { title: string; crumb: string; info?: 
     title: "Cadastro da igreja",
     crumb: "Configurações",
     info: "Endereço institucional e horários dos cultos publicados pela igreja.",
+  },
+  "alertas-lider": {
+    title: "Alertas ao líder",
+    crumb: "Configurações",
+    info: "Regras que geram alertas para o líder de célula (visitante, consolidação, relatório, prazo e meta).",
   },
   integracoes: {
     title: "Calendário",

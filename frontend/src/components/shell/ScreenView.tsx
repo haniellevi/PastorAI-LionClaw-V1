@@ -28,6 +28,7 @@ import {
   loadGanharScreen,
   loadIdentidadeVisualScreen,
   loadCadastroIgrejaScreen,
+  loadAlertasLiderScreen,
   loadInboxScreen,
   loadIntegracoesScreen,
   loadUVScreen,
@@ -91,6 +92,10 @@ const IdentidadeVisualScreen = dynamic(
 );
 const CadastroIgrejaScreen = dynamic(
   () => loadCadastroIgrejaScreen().then((m) => m.CadastroIgrejaScreen),
+  { loading: ScreenLoading },
+);
+const AlertasLiderScreen = dynamic(
+  () => loadAlertasLiderScreen().then((m) => m.AlertasLiderScreen),
   { loading: ScreenLoading },
 );
 const IntegracoesScreen = dynamic(() => loadIntegracoesScreen().then((m) => m.IntegracoesScreen), {
@@ -247,6 +252,9 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
   }
   if (route === "cadastro-igreja") {
     return <CadastroIgrejaScreen key={identityKey} />;
+  }
+  if (route === "alertas-lider") {
+    return <AlertasLiderScreen key={identityKey} />;
   }
   if (route === "setup") {
     return <SetupChecklistScreen />;

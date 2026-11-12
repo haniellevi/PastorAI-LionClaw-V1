@@ -311,3 +311,16 @@ então publicar os callers. `service_role` não tem grant na tabela
 O backend usa sessão `authenticated` com tenant e autorização revalidada.
 Encerramentos novos exigem `fim >= hoje` em `America/Sao_Paulo`; o primeiro
 dia sem responsabilidade é `fim`. Repetição idêntica preserva o recibo gravado.
+
+## RF-26: regras de alerta ao líder (candidata)
+
+`20261112_160000_celula_alerta_regras.sql` cria `celula_alerta_regras` (uma
+regra por tipo e igreja, `ENABLE`/`FORCE RLS`, grants de coluna para
+`authenticated`) e acrescenta a `cell_alerts` a origem (`regra_tipo`) e a chave
+opaca do fato (`fato_chave`), com índice único por igreja. `pessoa_id` passa a
+aceitar nulo para alertas da célula inteira. Aplicar **antes** do backend que
+expõe `/cell-alert-rules`. Sem backfill: alertas existentes ficam com origem
+nula. O processamento fica desligado por padrão: só roda para igrejas listadas
+em `CELL_ALERT_ENABLED_IGREJA_IDS` e, dentro delas, só regras que o admin
+ligou. Nenhum envio externo. Instalação e avaliação exercitadas em PG17
+sintético; aplicação remota e ativação permanecem **não verificadas**.

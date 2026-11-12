@@ -33,6 +33,7 @@ const SCREEN_MODULES = [
   "@/components/central-celula/CentralCelulaScreen",
   "@/components/comunicados/ComunicadosScreen",
   "@/components/config/AgenteScreen",
+  "@/components/config/AlertasLiderScreen",
   "@/components/config/AssinaturaScreen",
   "@/components/config/CadastroIgrejaScreen",
   "@/components/config/EquipeScreen",
@@ -102,7 +103,7 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(SCREEN_MODULES.every((module) => !staticModules.has(module))).toBe(true);
     expect(screenView).toContain('from "./screen-loaders"');
     expect(screenLoaders).toContain("preloadScreenModule");
-    expect(screenView.match(/loading:\s*ScreenLoading/g)).toHaveLength(29);
+    expect(screenView.match(/loading:\s*ScreenLoading/g)).toHaveLength(30);
     expect(screenView).toContain('role="status"');
     expect(screenView).toContain('aria-live="polite"');
     expect(screenView).toContain('aria-busy="true"');
