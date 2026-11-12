@@ -108,7 +108,8 @@ não presuma disponibilidade ou isolamento de DEV remoto. Stack local opcional:
   Não use `apply_migrations.py` nem wrappers catalog-bound pausados.
 - Revisão independente é obrigatória antes de integrar mudanças de RLS/autenticação
   e antes de aplicar migration em PROD; não bloqueia implementação e testes locais.
-  Governança histórica permanece pausada conforme ROADMAP; não retome por obrigação documental.
+  Governança histórica será retomada e concluída após a primeira publicação, conforme ROADMAP;
+  antes dela, só o exigido para o deploy ser seguro.
 - Use Python 3.13, Node 24 (`.nvmrc`) e `umask 022`; ferramentas opcionais só
   quando disponíveis e úteis, sem instalação obrigatória por tarefa.
 - Registre entrega, testes e limites na descrição da PR; atualize o ROADMAP
