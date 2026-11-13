@@ -1,6 +1,6 @@
 # V3: consolidação pelo WhatsApp
 
-Fatia originalmente autorizada sobre PR435 `342f0ced7af53d2d7e708d99e3b92d54e7a3e22c`. Após o merge #435, a PR #436 foi retargetada para `main@8c6cc3cdb0fda0938edd43dd6988763c79872f8d`; a composição exige CI e nova revisão Sarah. O [histórico: plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v3-consolidacao-whatsapp-plano.md) e a [matriz de QA](QA-PLAN.md) definem o contrato. A validação local no commit de código `db3a4b8f136c6ca9f802b4dd494e806027f485a4` é histórica e não atesta a composição atual.
+Fatia originalmente autorizada sobre PR435 `342f0ced7af53d2d7e708d99e3b92d54e7a3e22c`. Após o merge #435, a PR #436 foi retargetada para `main@8c6cc3cdb0fda0938edd43dd6988763c79872f8d`; a composição exige CI e nova revisão Sarah. O [histórico: plano aprovado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/79dfa5341de4d5d25b3c474072bff2cdb0898930/docs/ops/mvp-v3-consolidacao-whatsapp-plano.md) define o contrato. A [matriz de QA histórica](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/b0fc19f08dd2e9559d80ab20f6938ccfb27205e3/docs/ops/v3-consolidacao-20260928/QA-PLAN.md) mantém os critérios de verificação, inclusive os casos sem teste explícito. A validação local no commit de código `db3a4b8f136c6ca9f802b4dd494e806027f485a4` é histórica e não atesta a composição atual.
 
 ## Domínio e confirmação
 
@@ -115,7 +115,7 @@ ROLLBACK;
 
 No rollback de código, fechar gates e voltar aos binários anteriores, preservando schema e históricos até compensação aprovada. Não remover colunas enquanto houver processo V3.
 
-A migration não cria nem preenche marcos de ativação. O worker registra o corte durável quando observa todos os gates abertos; tarefas anteriores continuam consultáveis e não geram alertas retroativos. A abertura de uma nova época exige um ciclo anterior comprovado com gates fechados, que feche o marcador e cancele a elegibilidade pendente. Um ciclo posterior aberto registra um corte estritamente posterior. O banco rejeita alterações do corte enquanto a época estiver aberta ou sendo fechada e rejeita retrocesso na reabertura.
+A migration não cria nem preenche marcos de ativação. O worker registra o corte durável quando observa todos os gates abertos; tarefas anteriores continuam consultáveis e não geram alertas retroativos. A abertura de uma nova época exige um ciclo anterior comprovado com gates fechados, que feche o marcador e cancele a elegibilidade pendente. Um ciclo posterior aberto registra um corte estritamente posterior. O fechamento preserva `activated_at`. O banco rejeita alterações do corte fora da reabertura e rejeita reabertura com instante igual ou anterior. Sob RLS, a leitura, a inserção e a atualização do marcador exigem o contexto de worker sem `sub` e o escopo da própria igreja. A role `authenticated` não tem permissão de `DELETE` nessa tabela.
 
 Limite causal: se nenhum processo observou uma troca de flag de fechado para aberto, não há prova de uma nova época. Reiniciar ou editar a env não substitui a observação persistida exigida no runbook de ativação. Essa disciplina integra o gate futuro de release, fora desta missão local.
 
