@@ -324,6 +324,12 @@ migrations deste lote é o teste de `migrate.py`. A retomada de
 `new_migration.py` segue na fila da seção 8, item 6. O merge está autorizado
 se os quatro checks obrigatórios passarem no SHA candidato.
 
+O dono aprovou a 3.2 só para o arquivamento dos cinco registros F0 a F4 do
+redesign e o ajuste das duas referências na PR #685. A prova de migrations
+deste lote é o teste de `migrate.py`. A retomada de `new_migration.py` segue
+na fila da seção 8, item 6. O merge está autorizado se os quatro checks
+obrigatórios passarem no SHA candidato.
+
 #### Fase 4 — Ferramenta da virada apontada para a `main`
 
 Justificativa: hoje a virada está travada pela regra de tempo e, mesmo
