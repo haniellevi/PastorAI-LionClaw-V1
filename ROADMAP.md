@@ -297,6 +297,11 @@ a prova de migrations da 3.3 é o teste de `migrate.py`. O merge foi
 autorizado após os quatro checks obrigatórios passarem. A retomada de
 `new_migration.py` fica na fila da seção 8, item 6.
 
+Para o lote dos planos QA da V2a (PR #680), o dono também aprovou a 3.2
+só para essa retirada. A prova de migrations é o teste de `migrate.py`,
+com a retomada de `new_migration.py` na fila da seção 8, item 6. O merge
+está autorizado se os quatro checks obrigatórios passarem no SHA candidato.
+
 #### Fase 4 — Ferramenta da virada apontada para a `main`
 
 Justificativa: hoje a virada está travada pela regra de tempo e, mesmo
