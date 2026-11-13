@@ -128,4 +128,9 @@ não presuma disponibilidade ou isolamento de DEV remoto. Stack local opcional:
   `git worktree remove`, sem `--force`. Preserve o checkout principal e áreas compartilhadas
   ou em uso. Se houver pendência, mantenha a pasta e informe o impedimento.
 - Reutilize áreas adequadas e prefira o diretório próprio de worktrees da ferramenta;
-  evite criar pastas avulsas na raiz do workspace. Não apague branches remotas.
+  evite criar pastas avulsas na raiz do workspace.
+- Na limpeza prevista na tarefa 7.4 do [ROADMAP.md](ROADMAP.md), preserve
+  `main` e `v1.0.0`. Exclua as demais branches e tags remotas apenas com
+  autorização explícita para a lista, após resolver a decisão da segunda
+  cópia do cofre na 7.1. Exija na exclusão o SHA aprovado e verificado no
+  cofre restaurado. Pontas novas ou alteradas voltam à 7.1.
