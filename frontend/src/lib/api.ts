@@ -496,7 +496,7 @@ export async function sendAssistantMessage(
       "Seu acesso não permite usar o assistente. Fale com o administrador da igreja.",
     );
   }
-  if (res.status >= 400 && res.status < 500) {
+  if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
     throw new AssistantError(
       "invalid",
       await detailMessage(res, "Não foi possível enviar esta mensagem."),

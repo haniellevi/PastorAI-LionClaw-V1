@@ -53,6 +53,11 @@ def test_accumulated_roles_union_their_screens() -> None:
     assert {"ganhar", "consolidar", "consol-individual", "g12"} <= allowed
 
 
+def test_role_without_custom_permissions_uses_panel_defaults() -> None:
+    assert "inbox" in allowed_screens_for_roles({}, ["pastor"])
+    assert "inbox" not in allowed_screens_for_roles({"pastor": ["dashboard"]}, ["pastor"])
+
+
 def test_admin_only_screens_stripped_even_with_legacy_role_permissions_grant() -> None:
     """M7B-FIX-ASSISTANT-PERMISSIONS: `pastor` em _ROLE_MAP ainda concede
     "comunicados" (customização de tenant salva antes da regra ADMIN_ONLY) —

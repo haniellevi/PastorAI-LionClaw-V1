@@ -26,16 +26,18 @@ async function mount(canOpen: (tela: string) => boolean = () => true) {
     act(() => root.unmount());
     el.remove();
   };
-  await act(async () =>
+  const render = async (permission: (tela: string) => boolean) => act(async () =>
     root.render(
       <AssistentePainel
         token="sintetico"
         tenantId="igreja-1"
-        canOpenScreen={canOpen}
+        canOpenScreen={permission}
         onExpired={onExpired}
       />,
     ),
   );
+  await render(canOpen);
+  return render;
 }
 
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
@@ -117,7 +119,9 @@ it("serviço indisponível mostra erro e 'Tentar novamente' reenvia sem duplicar
   await mount();
   await openDialog();
   await type("oi");
+  button("Enviar").focus();
   await submit();
+  expect(document.activeElement).toBe(document.querySelector("textarea"));
 
   expect(dialog()!.querySelector('[role="alert"]')!.textContent).toContain("indisponível");
   await act(async () => button("Tentar novamente").click());
@@ -128,6 +132,30 @@ it("serviço indisponível mostra erro e 'Tentar novamente' reenvia sem duplicar
   expect(text).toContain("Agora foi.");
   expect(text.match(/oi/g)?.length).toBeGreaterThan(0);
   expect(dialog()!.querySelectorAll(".assistente-msg--usuario")).toHaveLength(1);
+});
+
+it("remove do histórico um link cuja permissão foi revogada", async () => {
+  mocks.send.mockResolvedValue({ resposta: "Veja o painel.", telasSugeridas: ["dashboard"] });
+  const render = await mount();
+  await openDialog();
+  await type("onde vejo as pendências?");
+  await submit();
+  expect(dialog()!.querySelector('a[href="#dashboard"]')).not.toBeNull();
+
+  await render(() => false);
+  expect(dialog()!.querySelector('a[href="#dashboard"]')).toBeNull();
+  expect(dialog()!.textContent).toContain("Veja o painel.");
+});
+
+it("devolve a pergunta ao campo quando o servidor recusa o texto", async () => {
+  mocks.send.mockRejectedValue(new AssistantError("invalid", "Revise a pergunta."));
+  await mount();
+  await openDialog();
+  await type("Minha pergunta");
+  await submit();
+
+  expect(document.querySelector("textarea")?.value).toBe("Minha pergunta");
+  expect(dialog()!.querySelector(".assistente-msg--usuario")).toBeNull();
 });
 
 it("sem permissão (403) bloqueia o campo e o envio e não oferece repetir", async () => {

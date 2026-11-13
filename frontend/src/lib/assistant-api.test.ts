@@ -47,3 +47,8 @@ it("422 vira erro de validação com a mensagem do servidor", async () => {
     message: "texto obrigatório",
   });
 });
+
+it.each([408, 429])("trata HTTP %i como erro temporário", async (status) => {
+  fetchMock.mockResolvedValue(reply(status, { detail: "x" }));
+  await expect(sendAssistantMessage("t", "i", "oi")).rejects.toMatchObject({ kind: "unavailable" });
+});

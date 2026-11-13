@@ -80,7 +80,7 @@ export function AppShell() {
   // Telas que o assistente pode sugerir: só as que este usuário abre no painel.
   const canOpenScreen = useCallback(
     (target: string) => {
-      if (!user || !(target in SCREEN_META) || LOCKED_SCREENS.has(target)) return false;
+      if (!user || !Object.hasOwn(SCREEN_META, target) || LOCKED_SCREENS.has(target)) return false;
       if (ADMIN_ONLY_SET.has(target)) return false;
       if (OWNER_ONLY.has(target) && !user.isOwner) return false;
       if (target === "pedidos-oracao") return prayerAccess === true;

@@ -52,6 +52,7 @@ export function AssistentePainel({ token, tenantId, canOpenScreen, onExpired }: 
   const controller = useRef<AbortController | null>(null);
   const active = useRef(true);
   const logRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     active.current = true;
@@ -73,12 +74,14 @@ export function AssistentePainel({ token, tenantId, canOpenScreen, onExpired }: 
     if (locked.current || bloqueado) return;
     const limpo = conteudo.trim();
     if (!limpo) return;
+    formRef.current?.querySelector("textarea")?.focus();
     locked.current = true;
     setEnviando(true);
     setFalha(null);
     setUltimo(limpo);
-    if (!repetindo) {
-      setMensagens((atual) => [...atual, { id: nextId.current++, autor: "usuario", texto: limpo }]);
+    const messageId = repetindo ? null : nextId.current++;
+    if (messageId !== null) {
+      setMensagens((atual) => [...atual, { id: messageId, autor: "usuario", texto: limpo }]);
       setTexto("");
     }
     const abort = new AbortController();
@@ -86,13 +89,14 @@ export function AssistentePainel({ token, tenantId, canOpenScreen, onExpired }: 
     try {
       const reply = await sendAssistantMessage(token, tenantId, limpo, abort.signal);
       if (!active.current) return;
+      const replyId = nextId.current++;
       setMensagens((atual) => [
         ...atual,
         {
-          id: nextId.current++,
+          id: replyId,
           autor: "assistente",
           texto: reply.resposta,
-          telas: reply.telasSugeridas.filter(canOpenScreen),
+          telas: [...new Set(reply.telasSugeridas)],
         },
       ]);
     } catch (error) {
@@ -100,6 +104,12 @@ export function AssistentePainel({ token, tenantId, canOpenScreen, onExpired }: 
       if (error instanceof SessionExpiredError) {
         onExpired();
         return;
+      }
+      if (error instanceof AssistantError && error.kind === "invalid") {
+        setTexto((atual) => atual || limpo);
+        if (messageId !== null) {
+          setMensagens((atual) => atual.filter((m) => m.id !== messageId));
+        }
       }
       setFalha(
         error instanceof AssistantError
@@ -140,7 +150,12 @@ export function AssistentePainel({ token, tenantId, canOpenScreen, onExpired }: 
               description="Pergunte como usar o painel. Ele só indica telas que o seu acesso permite."
               className="assistente-dialog"
               footer={
-                <form className="assistente-form" onSubmit={onSubmit} aria-label="Enviar pergunta">
+                <form
+                  ref={formRef}
+                  className="assistente-form"
+                  onSubmit={onSubmit}
+                  aria-label="Enviar pergunta"
+                >
                   <DsField
                     as="textarea"
                     label="Sua pergunta"
@@ -183,29 +198,32 @@ export function AssistentePainel({ token, tenantId, canOpenScreen, onExpired }: 
                     hint="Por exemplo: onde vejo as pendências de hoje?"
                   />
                 ) : null}
-                {mensagens.map((m) => (
-                  <article
-                    key={m.id}
-                    className={`assistente-msg assistente-msg--${m.autor}`}
-                    aria-label={m.autor === "usuario" ? "Você" : "Assistente"}
-                  >
-                    <p className="assistente-msg-autor">
-                      {m.autor === "usuario" ? "Você" : "Assistente"}
-                    </p>
-                    <p className="assistente-msg-texto">{m.texto}</p>
-                    {m.autor === "assistente" && m.telas.length > 0 ? (
-                      <ul className="assistente-telas" aria-label="Telas sugeridas">
-                        {m.telas.map((tela) => (
-                          <li key={tela}>
-                            <a href={`#${tela}`} onClick={() => setOpen(false)}>
-                              {SCREEN_META[tela]?.title ?? tela}
-                            </a>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </article>
-                ))}
+                {mensagens.map((m) => {
+                  const telas = m.autor === "assistente" ? m.telas.filter(canOpenScreen) : [];
+                  return (
+                    <article
+                      key={m.id}
+                      className={`assistente-msg assistente-msg--${m.autor}`}
+                      aria-label={m.autor === "usuario" ? "Você" : "Assistente"}
+                    >
+                      <p className="assistente-msg-autor">
+                        {m.autor === "usuario" ? "Você" : "Assistente"}
+                      </p>
+                      <p className="assistente-msg-texto">{m.texto}</p>
+                      {telas.length > 0 ? (
+                        <ul className="assistente-telas" aria-label="Telas sugeridas">
+                          {telas.map((tela) => (
+                            <li key={tela}>
+                              <a href={`#${tela}`} onClick={() => setOpen(false)}>
+                                {SCREEN_META[tela]?.title ?? tela}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </article>
+                  );
+                })}
                 {enviando ? (
                   <p className="assistente-pensando">O assistente está respondendo…</p>
                 ) : null}
@@ -242,7 +260,7 @@ export function AssistenteLauncher({
   if (!token || !user) return null;
   return (
     <AssistentePainel
-      key={token}
+      key={`${user.churchId}:${user.appUserId}:${token}`}
       token={token}
       tenantId={user.churchId}
       canOpenScreen={canOpenScreen}
