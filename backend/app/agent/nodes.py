@@ -264,7 +264,7 @@ def route_intent(
     # "looks like" a report falls through to onboarding (no false confirmation,
     # no self-registered decision). Defense-in-depth: the tool executor also
     # gates the call.
-    if context.privilege.is_ministerial and looks_like_report(texto):
+    if context.privilege.is_ministerial and message_is_cell_report(texto):
         return ROUTE_REPORT
 
     # Collecting onboarding data beyond the baseline requires the term first.
@@ -272,6 +272,22 @@ def route_intent(
         return ROUTE_CONSENT
 
     return ROUTE_ONBOARDING
+
+
+_QUESTION_CLAUSE = re.compile(r"[^.!?\n;]*\?")
+
+
+def message_is_cell_report(texto: str | None) -> bool:
+    """Gate of the legacy report route (B15).
+
+    A clause that ends in ``?`` is a question, not a report ("Vamos ter 2
+    decisões de batismo no domingo?"), so it cannot supply the keyword + number
+    pair.  Other clauses of the same message still can ("12 presentes, 3
+    visitantes. Tudo certo?").
+    """
+    if not texto:
+        return False
+    return looks_like_report(_QUESTION_CLAUSE.sub(" ", texto))
 
 
 def orchestrator_node(
