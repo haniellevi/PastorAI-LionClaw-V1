@@ -1,9 +1,11 @@
 # Igreja 12 — roteiro único
 
-## Decisões do dono de 12/11/2026 (vigentes)
+## Decisões do dono de 12/11/2026 (registro)
 
-Decididas por Raniel em entrevista; prevalecem sobre trechos anteriores deste
-roteiro e dos registros históricos que digam o contrário.
+O Plano Casa Limpa e as decisões de 13/11 (seção 7) regem a execução. Para a
+virada, valem o alvo A, a autorização por bloco com o agente como operador,
+o limite por migration, a recuperação por estado e os envios fechados ao fim.
+As regras de produto deste registro seguem vigentes onde o plano não as altera.
 
 **Ordem do trabalho:**
 
@@ -84,6 +86,460 @@ exigido para o deploy ser seguro.
 
 **Branches antigas:** triagem em modo leitura; o dono decide o que trazer para
 a `main`. Nenhuma branch remota é apagada.
+
+## Plano Casa Limpa — Igreja 12 (13/11/2026, versão 3.1)
+
+Este plano substitui o "Plano de conclusão (proposto em 12/11/2026)", os
+handoffs de 13/11 (`.dev/handoff/`) e os planos anteriores. O PRD
+(funcionalidades que faltam) volta depois da Fase 9.
+
+Versão 3: refeita depois de duas auditorias do Codex (`gpt-6.1-sol`, esforço
+alto; versões 1 e 2 reprovadas), de uma conferência no código por 11 agentes e
+das decisões do dono colhidas em 13/11 (seção 7). A mudança principal: a
+produção vai para a `main` em **uma parada só**, e o segundo release, que
+estava travado, sai do plano.
+
+### 1. Objetivo e definição de pronto
+
+No fim, cada item precisa estar provado com comando e saída, não declarado:
+
+1. Todo trabalho válido desta pasta está na `main` do GitHub; o que não entrou
+   está no cofre (item 6) e listado por nome na fila do `ROADMAP.md`.
+2. A produção roda o backend e o painel do commit **A** da `main` (definido na
+   tarefa 4.1), com as 130 migrations aplicadas, saudável, com os envios
+   **fechados** por decisão do dono. Commits da `main` posteriores a A são
+   aceitos só se não mudarem o que vai ao ar, provado por dois comandos vazios:
+   `git diff --stat A origin/main -- backend/app backend/migrations backend/Dockerfile backend/.dockerignore backend/requirements.lock backend/scripts/migrate.py deploy/backend-release.sh deploy/check_backend_schema.py deploy/emit_schema_check.py deploy/schema_compatibility.py deploy/release_topology.py deploy/docker-compose.yml`
+   e `git diff --stat A origin/main -- frontend`. Na prova final, conferir os
+   contêineres ativos e o alias de produção da Vercel contra o recibo da virada.
+3. No GitHub só existem a branch `main` e a tag `v1.0.0` (as `refs/pull/*` são
+   do GitHub e não se apagam). No computador: só `main`, sem worktrees,
+   stashes, tags de backup ou referências de arquivo.
+4. A pasta local é um clone limpo da `main` mais uma lista curta e justificada
+   de arquivos locais (tarefa 8.1).
+5. O `ROADMAP.md` tem só as decisões vigentes, o registro curto deste plano e
+   a fila do que vem depois.
+6. Existe um cofre local testado, fora do repositório, com o bundle Git, os
+   arquivos preservados e seus SHAs. O Drive recebe a parte liberada pela
+   triagem. Antes da limpeza, o dono decide sobre uma segunda cópia integral
+   e as entradas retidas na origem têm destino registrado (7.1 e 9.2).
+
+### 2. Estado de partida
+
+Lido em 13/11/2026. Números de Git são recontados na hora de cada fase; não
+usar os números abaixo para apagar nada.
+
+| Tema | Fato | Fonte |
+|---|---|---|
+| Uso do sistema | **ninguém usa hoje**; está em desenvolvimento; os dados do banco de produção são de teste e podem se perder; a configuração (login, igreja, WhatsApp, chaves) deve ser mantida | dono, 13/11 |
+| Outros sistemas na VPS | **em uso real**; a regra de tocar só a Igreja 12 continua inteira | dono, 13/11 |
+| Repositório | `haniellevi/PastorAI-LionClaw-V1`, **público**; "apagar branch ao mesclar" desligado; avisos de segurança desligados; a `main` exige PR, revisão, branch atualizada e 4 checks | `gh`, 13/11 |
+| Exposição no repositório público | nenhuma senha, chave, e-mail, telefone ou CPF nos arquivos conferidos; a credencial do Maestri citada num commit de agosto **nunca foi ao GitHub** (só existe numa branch local) e o dono informou que já foi trocada ou não é mais usada | conferência por padrão, 13/11 |
+| `main` no GitHub | `1e298817`; 4 checks verdes; nenhuma PR aberta | `gh`, 13/11 |
+| Produção: saúde | `/health` e `/ready` ok | consulta pública, 13/11 |
+| Produção: versão e banco | backend legado (registro `07a3f4d9`, de 24/10) e 78 migrations aplicadas (registro de 27/10); leitura viva: **não verificada** (tarefa 1.1) | ROADMAP |
+| Migrations na `main` | 130 ativas e 5 pausadas; 52 pendentes em produção; a 130ª (`20261112_160000_celula_alerta_regras.sql`) altera a tabela `cell_alerts`, inclusive RLS e permissões | Git |
+| Primeira virada (janela A1–A10) | **não executada**. Hoje a ferramenta está fixa no backend `afdfb78d` (129 migrations). O ensaio de 13/11 funcionou, mas o tempo **total** foi 99,4 s e a regra do runbook barra acima de 60 s | handoff de 13/11; runbook §12.6 |
+| O que os 60 s medem | o tempo total (cópia do banco + restore + migrations), não o de cada migration. O corte real é o `statement_timeout` de 2 min da role, que o clone do ensaio **não reproduz**. Quanto dos 99,4 s foi cópia: não verificado (relato fala em cerca de 85 s) | código, 13/11 |
+| Release normal pelo GitHub | nunca rodou; 0 secrets; e **não aceita** a migration 130: o verificador do release ativo recusa migration a mais, o do candidato recusa migration a menos e o pacote de compatibilidade recusa mudança em tabela que já existia | `deploy/backend-release.sh:582-590`, `deploy/check_backend_schema.py:200-217`, `deploy/schema_compatibility.py:99-165` |
+| Backup depois da virada | a virada não cria `/opt/pastorai-current` nem o `.env` dele; o backup diário e o release normal dependem disso; o J9 do runbook só religa o cron, sem testar | `deploy/backup-production.sh:17-35`, runbook §12.2 |
+| Painel | o que está no ar é do SHA `afdfb78d`; o contrato de API da `main` é diferente | Git, runbook |
+| Trabalho pronto fora da `main` | 6 branches, 1 commit cada, já no GitHub, sem PR: inventário `23530956`, dependências `25c6c437`, botão Assistente `5529f7bd`, CSP que bloqueia `8d410766`, corrida de turma `0e039e67`, gatilho B15 `ef3a073f` | Git, `gh` |
+| Referências locais | 229 branches, 24 tags, 2 stashes, 7 worktrees, 57 `refs/archive`, 17 `refs/codex`, `refs/preserve`, `refs/pr670`; 68 branches e 9 tags têm commit que não está em nenhuma referência remota (142 commits); 71 commits soltos, sem referência, o mais novo de 12/11 | Git, 13/11 |
+| Branches remotas | 170 além da `main` | `gh`, 13/11 |
+| Dentro de `.git` | restos que não são do Git: `local-test-envs` (136 MB), `cursor` (35 MB), `local-preservation`, `opencode`, 3 inventários `.txt` | leitura por nome, 13/11 |
+| Fora desta pasta | nenhum outro clone; `~/.codex/worktrees` tem 34 pastas sem código | leitura, 13/11 |
+
+### 3. Regras que valem em todas as fases
+
+1. **Guardar antes de apagar.** Provar no cofre a recuperação do que for
+   apagado definitivamente. Antes da limpeza do Git ou da pasta antiga,
+   resolver a decisão da segunda cópia (7.1).
+2. **Produção só com SIM do dono**, digitado na conversa da sessão que
+   executa. O agente executa; o dono aprova **um bloco por vez**, com a lista
+   de ações e o risco na frente (decisão de 13/11, válida para este plano). O
+   passo sem volta (mudar o banco) tem um SIM só dele. Senhas e códigos de
+   verificação ficam só com o dono.
+3. **A VPS é compartilhada e os vizinhos estão em uso real:** tocar só a
+   Igreja 12; foto dos outros sistemas antes e depois de cada bloco (runbook
+   §12.0); qualquer diferença para tudo. Entre blocos consecutivos, a foto
+   final de um serve de referência inicial para o seguinte.
+4. **Uma PR por vez na `main`**: pequena, checks verdes, branch atualizada,
+   merge com `gh pr merge N --merge --match-head-commit <sha>`.
+5. **Revisão da Sarah** antes de integrar mudança de RLS/autenticação, antes
+   de mudar o caminho que aplica migration em produção e antes de aplicar
+   migration em produção. O mesmo GO pode cobrir a integração e a execução
+   se identificar os SHAs, a role e o procedimento aprovados. Mudança
+   relevante reabre a revisão.
+6. **Sem código novo de produto.** Só entra o que já está feito, mais o que a
+   publicação exigir (tarefa 4.2).
+7. **Segredos** nunca entram em chat, documento, log ou commit. Arquivo de
+   segredo só é copiado de um lugar para outro dentro da VPS, sem ser lido.
+8. **Nunca editar migration.**
+9. **Congelamento da `main`:** do merge da ferramenta (4.6) até o fim da
+   virada (5.5), nenhuma outra PR entra. Se a base de T avançar antes do
+   merge, refixar A e refazer as provas afetadas no novo candidato.
+10. **Sem migration nova** na `main` até o release normal ganhar um caminho
+    para mudança em tabela existente (fila, item 1).
+11. **Cuidado enxuto** (decisão de 13/11): ficam 1 backup antes de mexer no
+    banco, os 4 checks, a revisão de segurança e os envios fechados; saem
+    cópias extras de backup, aviso à equipe, esperas fixas e fotos repetidas
+    dentro do mesmo bloco. Segue-se no mesmo dia, com as provas verdes.
+12. Registre a prova uma vez. O `ROADMAP.md` aponta para o recibo ou manifesto
+    da fase. Depois da última PR (6.6), registre no manifesto datado do cofre.
+
+### 4. Ordem, dependências e por quê
+
+| Fase | Nome | Mexe em produção? | Depende de | Por que nesta posição |
+|---|---|---|---|---|
+| 0 | Cofre | não | — | sem cópia testada, erro de limpeza é perda definitiva |
+| 1 | Leituras | leitura | — | troca registros antigos por fatos de hoje |
+| 2 | Integrar na `main` | não | 0.1–0.6 | o que vai ao ar é a `main` |
+| 3 | Enxugar o repositório | não | 2.1 | tira o peso morto; anda em paralelo e **pausa** no congelamento |
+| 4 | Ferramenta da virada apontada para a `main` | não | 1, 2 | destrava a virada e elimina o segundo release |
+| 5 | Virada (a única parada) | **sim** | 4 | leva banco, backend e painel para a `main` de uma vez |
+| 6 | Depois da virada | **sim** (limpeza) | 5 | remove a ferramenta de uso único e os restos |
+| 7 | Limpeza do Git | não | 6 | a última PR já entrou; nada mais cria branch |
+| 8 | Pasta local nova | não | 7 | troca a pasta por um clone limpo |
+| 9 | Prova final | leitura | 8 | fecha o plano e abre a fila |
+
+Caminho crítico: prova local do cofre → 2 → 4 → 5, com as leituras da Fase 1
+em paralelo. A Fase 3 não segura a virada: o que dela não
+tiver entrado até o congelamento continua depois da Fase 5 (remover documento
+não muda o que está no ar; a prova é o item 2 da seção 1).
+
+Por que uma parada só (e não virada + release, como na versão 2): o release
+normal recusa a migration 130 nos dois sentidos, e as saídas estudadas exigem
+código novo e ensaio próprio. Apontar a virada direto para a `main` troca três
+constantes e os testes da ferramenta, usa o caminho que já foi ensaiado e
+deixa backend e painel no mesmo SHA. O custo: refazer o kit e o ensaio (V8 e
+V9), que já teriam de ser refeitos por causa da regra de tempo.
+
+### 5. Fases e tarefas
+
+Colunas: **SIM** = precisa do "sim" do dono no chat; **Pronto quando** = a
+prova. Quem executa é o agente, salvo quando a linha diz "dono".
+
+#### Fase 0 — Cofre
+
+Justificativa: 142 commits, os stashes, 71 commits soltos e arquivos úteis só
+existem neste disco. O cofre testado é o que permite apagar depois.
+
+| ID | Tarefa | SIM | Pronto quando |
+|---|---|---|---|
+| 0.1 | Criar referências locais para o que não tem nome: cada stash em `refs/backup-stash/N` e cada commit solto (`LC_ALL=C git fsck --unreachable --no-reflogs`) em `refs/backup-solto/<sha>`. Escrita local e reversível | não | contagem de referências criadas = stashes + commits soltos |
+| 0.2 | Bundle: `git bundle create ~/workspace/_backups/igreja12/git-AAAAMMDD.bundle --all` | não | `git bundle verify` ok |
+| 0.3 | Manifesto por nome, SHA e alvo simbólico de cada ref; registrar HEADs à parte. Listar commits fora das refs locais de acompanhamento de `origin` (`git rev-list --all --not --remotes=origin`) | não | refs e HEADs batem com `git bundle list-heads` |
+| 0.4 | Importar o bundle em um bare temporário com `git fetch <bundle> '+refs/*:refs/*'`. Conferir os SHAs, recompor refs simbólicas e a ordem dos stashes pelo manifesto. Verificar o pack complementar se houver objetos preservados fora do bundle | não | 0 diferenças e `git fsck` sem erros; remover o bare após a triagem |
+| 0.5 | Inventariar por nome e tamanho arquivos úteis fora do Git, checkouts órfãos sob a pasta a limpar e restos de `.git` (`local-test-envs`, `cursor`, `local-preservation`, `opencode`, inventários). Se houver alterações locais, preservar separadamente o que está no índice e o que está na pasta de trabalho. Copiar o material permitido com `SHA256SUMS`. Registrar os protegidos, como `.env` reais, chaves e `usuario-dev.md`, como retidos na origem, sem abrir nem copiar | não | `sha256sum -c` da cópia; entradas retidas listadas para 9.2 |
+| 0.6 | Manter o bundle integral e o pack complementar em quarentena local. Para o ZIP, verificar nomes e conteúdo dos arquivos candidatos por padrões de credenciais e dados pessoais, sem registrar valores. Itens com correspondência ou sem triagem possível ficam locais. Qualquer artefato Git candidato a sair exige triagem de todo o seu histórico alcançável, inclusive mensagens e tags | não | manifesto dos itens liberados e dos retidos |
+| 0.7 | Cópia no Google Drive: o agente gera um `.zip` da parte liberada pela 0.6 com `SHA256SUMS`; o dono sobe pelo navegador | dono | dono confirma; hash do zip anotado no manifesto |
+| 0.8 | Logins de DEV em texto (`usuario-dev.md`): o dono passa para um gerenciador de senhas | dono | dono confirma; o arquivo sai na Fase 8 |
+| 0.9 | GitHub: ligar os avisos de segurança, com correções automáticas desligadas. A ativação da exclusão automática fica para depois da 7.4, com autorização na lista desse bloco | **SIM** (muda ajuste do repositório) | avisos ligados |
+
+**Prova local de 13/11/2026.** Em uma restauração independente, `git bundle verify`,
+`git fsck --full` e a comparação por SHA confirmaram 576 referências, 7 HEADs,
+33.339 objetos Git (incluindo o pack complementar) e a ordem dos 2 stashes.
+`sha256sum -c` confirmou 5.238 arquivos copiados e os 9 textos extraídos do ZIP.
+O manifesto está em `~/workspace/_backups/igreja12/20261113-fase0/manifesto/`.
+O bundle integral ficou em quarentena local. A confirmação do ZIP no Drive,
+a migração dos logins e os avisos no GitHub seguem pendentes. A decisão da
+segunda cópia fica na 7.1. O inventário da 9.2 inclui as 146 entradas retidas.
+
+#### Fase 1 — Leituras
+
+Justificativa: a versão do backend, o estado do banco e o que sobrou do
+ensaio na VPS são registros antigos ou não verificados.
+
+| ID | Tarefa | SIM | Pronto quando |
+|---|---|---|---|
+| 1.1 | Acessos do agente: SSH da VPS com a chave do dono, Vercel CLI instalada e logada pelo dono (`vercel whoami`), `gh` como `haniellevi` | **SIM** (bloco de leitura) | os três respondem |
+| 1.2 | Leitura da VPS, só metadados (runbook §12.0 e V1): sobras do ensaio, disco e memória, saúde e vizinhos, SHA do backend, nomes das migrations aplicadas e gates. Na sessão do aplicador, conferir role, permissões relevantes, `statement_timeout` e `lock_timeout`; identificar roles de runtime e proprietários dos objetos afetados. Conferir o alvo de `/opt/pastorai-current`, presença dos arquivos privados, cron do backup, configuração sanitizada do kit, nomes de variáveis de `.env.v2` e include do nginx | mesmo SIM | saída anotada sem segredos; substitui os registros de outubro |
+| 1.3 | Conferir, só leitura, se os 22 achados do relatório de segurança de julho estão tratados na `main` | não | tabela achado → tratado / pendente; pendente grave vira PR na Fase 2; o resto vai para a fila |
+| 1.4 | Lista nominal de prova das referências: para cada branch local e remota, tag e demais referências, uma das provas: (a) ponta ancestral da `main`; (b) `git cherry` sem commit próprio; (c) PR mesclada **com base `main`** e ponta igual ou ancestral do head da PR, ou árvore idêntica; senão (d) veredito da triagem (seção 6) | não | arquivo com uma linha por referência e nenhuma sem prova ou veredito |
+
+#### Fase 2 — Integrar na `main`
+
+Justificativa: o que vai para produção é a `main`. Tudo que está pronto
+entra; o que não entra fica no cofre, listado.
+
+Antes de abrir cada PR: atualizar a branch com a `main`. Se a `main` andar
+depois: `gh pr update-branch N` e esperar os checks do novo head.
+
+| ID | Tarefa | Branch | Risco | Pronto quando |
+|---|---|---|---|---|
+| 2.1 | Publicar o ROADMAP com este plano e as decisões vigentes de 13/11 (seção 7); manter o registro de 12/11 até a 3.4. Alinhar o `AGENTS.md` à D8 e às condições de exclusão da 7.4 | `docs/inventario-conclusao-20261112` | nenhum | PR mesclada |
+| 2.2 | Corrida ao criar turma (`0e039e67`) | `fix/cd-turma-corrida` | baixo | PR mesclada com o teste de banco **executado** no CI |
+| 2.3 | Gatilho de relatório B15 (`ef3a073f`) | `fix/b15-gatilho-relatorio` | baixo | idem, com o E2E executado |
+| 2.4 | Botão Assistente (`5529f7bd`) | `feat/painel-assistente-rf47` | baixo | PR mesclada |
+| 2.5 | CSP que bloqueia (`8d410766`) | `feat/csp-bloqueio` | médio: pode quebrar tela não coberta por teste; conferida na fumaça da 5.5 | PR mesclada |
+| 2.6 | Configuração de dependências (`25c6c437`) com `open-pull-requests-limit: 0` nos 4 ecossistemas (hoje está 3), para o robô não criar branch | `chore/auditoria-deps-dev` | baixo | PR mesclada; `gh pr list` sem PR de robô |
+
+Os scripts de backup externo e o documento da avaliação Jev **não** entram
+(decisão D2): ficam no cofre e na fila.
+
+#### Fase 3 — Enxugar o repositório (arquivos rastreados)
+
+Justificativa: "só o necessário". Cada remoção vai por PR; os checks e a
+busca de referências provam que nada dependia do que saiu. Não toca em
+`backend/migrations`, `backend/scripts/migrate.py`, nos 12 arquivos do pacote
+do backend (item 2 da seção 1) nem na ferramenta da virada (sai na Fase 6).
+
+| ID | Tarefa | SIM | Pronto quando |
+|---|---|---|---|
+| 3.1 | Inventário de todas as pastas rastreadas fora do código (`docs/` por subpasta, `output/`, `tools/`, `supabase/`, scripts da raiz, `backend/scripts/`, `deploy/` de DEV), com veredito por item: MANTER (citado por `AGENTS.md`, `PRODUCT.md`, runbook, `PRD-COVERAGE.md`, CI, teste ou código) ou REMOVER, e para cada REMOVER quem o cita (`git grep` no repositório inteiro) | não | tabela entregue ao dono |
+| 3.2 | Dono aprova a tabela | **SIM único**, com a tabela | aprovado |
+| 3.3 | PRs de remoção por lote; cada uma remove os arquivos **e** ajusta quem os citava. Já decididos (D4 e D6): governança pausada (cerca de 41 scripts e `docs/governance`) e o pipeline de DEV suspenso (`dev-synthetic.yml`, variável `DEV_PIPELINE_ENABLED`, arquivos só de DEV em `deploy/`). Candidatos: `docs/sprints`, `docs/historico`, `docs/Docs20260704_*`, planos antigos, `QA-PLAN*`, `acompanhar.sh` e seu teste, `tools/render_progress.py`, `backend/scripts/apply_migrations.py`, `output/release/a3-final-local` | coberto pela 3.2 | por PR: checks verdes; `git grep` dos caminhos removidos = 0 fora de migrations; `new_migration.py` e `migrate.py` funcionando (teste) |
+| 3.4 | `ROADMAP.md` enxuto, na PR que retira `docs/historico`: mostrar na tabela da 3.2 o que sai; ficam decisões vigentes, este plano e a fila da seção 8 | coberto pela 3.2 | PR mesclada; cada obrigação antiga aparece na fila ou tem decisão de abandono |
+
+#### Fase 4 — Ferramenta da virada apontada para a `main`
+
+Justificativa: hoje a virada está travada pela regra de tempo e, mesmo
+destravada, deixaria a produção 168 commits atrás, com um segundo release que
+o verificador recusa. Esta fase resolve as duas coisas numa PR só.
+
+| ID | Tarefa | SIM | Pronto quando |
+|---|---|---|---|
+| 4.1 | Fixar **A** na ponta da `main` após a Fase 2 e as PRs já integradas da Fase 3. Resolver os achados graves da 1.3 e conferir se o ledger da 1.2 corresponde à linha de base do candidato | não | SHA de A, 4 checks e `synthetic-release` verdes |
+| 4.2 | Preparar a PR **T** sobre A com os ajustes abaixo | não | `git diff A T -- backend frontend` vazio; provas da 4.6 |
+| 4.3 | Na T, documentar J9: registrar Compose efetivo, overrides, arquivo privado e dependências; configurar `/opt/pastorai-current` para A; apontar o backup para o arquivo privado efetivo, com modo 0600 e fora do layout verificado. Rodar uma vez o comando do cron manualmente antes de religá-lo | não para documentar; execução na 5.5 | runbook indica como provar um backup novo com `BACKUP_OK`, `sha256sum -c`, status "verified" e serviços de apoio despausados |
+| 4.4 | Conferir variáveis obrigatórias de A contra os nomes da 1.2, migrations que mexem no timeout e contrato do painel antigo com a API de A. Registrar se a volta do painel é utilizável. Ensaiar o procedimento de fechar os envios da 5.2 com a mesma imagem e atualizar os vínculos se os IDs mudarem | não | resultado das conferências e procedimento no runbook |
+| 4.5 | Sarah revisa RLS e autenticação desde o SHA observado na 1.2 até A, os grants e políticas de `cell_alerts` com as roles efetivas e o caminho de aplicação na T | não | GO por escrito nas condições da regra 5 |
+| 4.6 | Antes do merge, rodar `test_first_transition_window_backup_docker` em ambiente sintético no SHA de T, com as 52 migrations e as medições. Registrar comando, SHA e saída. Mesclar com os 4 checks e o `synthetic-release` verdes; registrar o SHA integrado da ferramenta | não | recibo local do teste executado e checks verdes no candidato |
+
+Ajustes da 4.2 na T:
+
+- **(a)** Apontar o adaptador e o orquestrador para A, com 130 migrations
+  totais, 78 de base e 52 pendentes (44 comuns e 8 concorrentes). Atualizar
+  configuração e testes, incluindo o ensaio Docker da 4.6.
+- **(b–c)** Medir cópia, restore e cada migration. Usar no clone uma role
+  aplicadora com permissões relevantes equivalentes às da 1.2, separada da
+  role de restore. Registrar o `statement_timeout` lido pela conexão que
+  aplica as migrations e conferir RLS e grants com as roles de runtime.
+- **(d)** Atualizar o runbook §12 e o manual para os passos das Fases 4 e 5.
+  Aplicar o limite de 60 s por migration (D9), publicar o painel de A e manter
+  envios fechados. Registrar a dispensa de aviso à equipe e de cópia externa
+  do dump da janela.
+- **(e–f)** Expor na linha de comando a consulta do estado e a retomada
+  pré-marcador (`resume_legacy`) pelo mesmo diário. Ensaiar essas entradas
+  e documentar o que fazer por estado pós-marcador, reaproveitando a retomada
+  da A10. Ensaiar uma rota para falhas de DDL sem depender de repetir o
+  `run`, com a prova de retorno do banco e do serviço se a rota escolhida
+  for restore.
+- **(g)** Antes de A9, comparar o catálogo vivo ao `final_schema_digest` do
+  replay do backup da própria janela, vinculado ao marcador. Recusar
+  divergências no escopo comparado e documentar se as exclusões previstas do
+  restore afetam esse escopo. A A10 revalida o catálogo antes da liberação.
+- **(h)** No V8, transferir e conferir os objetos Git de A e do executor
+  integrado no repositório da VPS.
+
+#### Fase 5 — Virada (a única parada)
+
+Justificativa: leva o banco de 78 para 130 migrations e sobe backend e painel
+de A. É o único passo com ponto sem volta. O sistema fica fora do ar por
+cerca de 45 minutos (reservar 2 horas). Como ninguém usa e os dados são de
+teste, a data é qualquer dia em que o dono disser.
+
+| ID | Bloco | O que acontece | SIM | Pronto quando |
+|---|---|---|---|---|
+| 5.1 | Leitura | V1, V2, V3, V5, V7: aproveitar a 1.2 e atualizar estado, gates, IDs, ledger, deployment ativo da Vercel e foto dos vizinhos | **SIM 1** | saídas anotadas |
+| 5.2 | Preparo e fechamento dos envios | V6: instalar o include do nginx se faltar, com backup, `nginx -t` e reload. Mostrar a fila por tipo e situação e fechar os envios pelo procedimento da 4.4. Conferir os gates e a imagem dos 4 processos. Em V8/V9, preparar o kit, validar banco e vínculos com os IDs resultantes e ensaiar. Fixar `restore_excluded_expected` pelo recibo e rodar `prepare` na configuração final. Repetir o replay se mudar algum insumo que afete a restauração | **SIM do bloco**, com o efeito sobre a fila | 52 aplicadas, ledger 130, maior migration de até 60 s, role e timeout conforme a 4.2; `plan_digest` e `window_digest` finais anotados; vizinhos iguais à foto |
+| 5.3 | Abrir | J1–J2: conferir os digests e que os gates seguem fechados; abrir a janela e pausar só o backup da Igreja 12 | **SIM 2** | registro de início |
+| 5.4 | Mudar o banco (**sem retorno automático**) | J3–J6 `run`: registrar gates, conter a aplicação, registrar a fila no J4, fazer o backup da janela, gravar o marcador, aplicar as 52 migrations e testar o backend de A com envios fechados | **SIM 3**, exclusivo | saída sem `refused`; `window_backup_id` anotado; `sha256sum` do `window.dump` igual a ele |
+| 5.5 | Fechar | J7 (A10), J8 (painel de A pela Vercel; fumaça de leitura: login, Hoje, Conversas, `/gestao`, console sem violação de CSP), J9 (backup da 4.3, com leitura de Supabase/Storage, pull de imagens, pausa dos três serviços de apoio e escrita dos artefatos) e J10 (saúde, ledger, gates, contagem da fila e vizinhos) | **SIM 4 e 5**, dados juntos com a lista de efeitos | recibos anotados; fim do congelamento |
+
+Se algo recusar, seguir o `recovery.state` no runbook §12. Antes do marcador,
+retomar o legado com `resume_legacy` quando o estado permitir. Em
+`a10-partial`, repetir a A10 com o mesmo diário e token para a ferramenta
+conferir o resultado da etapa interrompida. Em falha de DDL ou contenção,
+manter ou completar a contenção, diagnosticar ledger, catálogo e host e
+decidir entre correção adiante e restore do `window.dump` com SIM próprio.
+O restore exige avaliar escritas posteriores ao backup. Em falha do painel,
+usar o deployment da 5.1 se a 4.4 confirmou compatibilidade, ou corrigir
+adiante. Em falha do backup diário, confirmar os serviços despausados e
+corrigir J9 antes de fechar a janela.
+
+#### Fase 6 — Depois da virada
+
+Justificativa: com a produção na `main` e conferida, saem a ferramenta de uso
+único e os restos de versões antigas. Segue no mesmo dia, com a 5.5 verde.
+
+| ID | Tarefa | SIM | Pronto quando |
+|---|---|---|---|
+| 6.1 | PR que remove a ferramenta da virada por inventário nominal (`deploy/first_transition*`, `rehearse_first_transition_*`, exemplo de configuração, testes), **mantendo** `initial_transition_files`, `initial_transition_ops`, `package_backend_release`, `migrate.py`, `release_preflight.py` e a seção **12.0** do runbook (usada por todo release). Na mesma PR: listas do `backend-tests.yml`, `test_production_runbook.py`, o resto do §12 vira registro curto, `BACKEND-RELEASE-MANUAL.md` ajustado | **SIM** | PR mesclada, checks verdes; os dois `git diff` do item 2 da seção 1 vazios |
+| 6.2 | VPS, leitura: imagens, contêineres, releases, tarballs e arquivos do kit da Igreja 12 (`/var/lib/pastorai-first-transition`, `/opt/pastorai-releases`, instalação antiga em `/opt/pastorai-lionclaw`) | **SIM do bloco** | lista anotada |
+| 6.3 | VPS: remover os itens aprovados na lista da 6.2. Preservar o release ativo, Compose e overrides efetivos, rede, volumes, serviços de apoio, os quatro IDs reservados exigidos pelo release, o último backup diário e o `window.dump` com kit e diário necessários à recuperação. Retirar o legado só quando a lista provar que ficou sem dependência | **SIM**, com a lista; vale o mesmo bloco se já cobrir a remoção | saúde, dependências do release e do backup conferidas; vizinhos iguais à foto |
+| 6.4 | Vercel e Supabase, leitura: projetos, aliases e deployments da Igreja 12; existe projeto DEV antigo? | leitura; **SIM** para remover algo | anotado |
+| 6.5 | GitHub: remover variável `DEV_PIPELINE_ENABLED`, environments sem uso (conferir quais são da Vercel), deploy key e caches sem uso | **SIM**, com a lista | checklist preenchida |
+| 6.6 | **Última PR do plano**: registro de conclusão, fila da seção 8 e os critérios das fases 7 a 9 no ROADMAP. Depois dela nada mais é versionado por este plano | não | PR mesclada |
+
+#### Fase 7 — Limpeza do Git
+
+Justificativa: o objetivo final é só a `main`. Vem depois da última PR.
+
+| ID | Tarefa | SIM | Pronto quando |
+|---|---|---|---|
+| 7.1 | Conferir a `main` remota e inventariar branches e tags por nome e SHA. Buscar as pontas que faltam e preservar o que mudou desde a Fase 0. Conferir a restauração dos acréscimos e atualizar o ZIP do Drive se a parte liberada mudou | dono decide sobre a segunda cópia integral antes da limpeza e confirma o ZIP no Drive | cofre final cobre as pontas a excluir; decisão registrada e segunda cópia conferida se adotada |
+| 7.2 | Atualizar a lista da 1.4 contra a `main` final, reaproveitando as provas que continuam válidas | não | lista nominal sem pendência |
+| 7.3 | Para cada worktree do projeto, confirmar a ponta no cofre, conferir arquivos úteis e verificar se há processo, chat ou contêiner usando. Arquivar as gerenciadas pelo Codex no app e remover as demais com `git worktree remove`, sem `--force` | **SIM**, com a lista | `git worktree list` mostra só o checkout principal |
+| 7.4 | Apagar branches remotas diferentes de `main` e tags diferentes de `v1.0.0` somente com o SHA esperado da lista aprovada e do cofre testado. Conferir com `git ls-remote --heads` e `git ls-remote --tags --refs` e exigir o SHA esperado na exclusão. Pontas novas ou alteradas voltam à 7.1 | **SIM único**, com a lista e o ajuste da 0.9 se incluído | sobram `main` e `v1.0.0` |
+
+A decisão sobre a segunda cópia integral segue pendente. Até lá, o material
+em quarentena fica neste computador e o Drive recebe o ZIP liberado da 0.7.
+
+As referências locais (branches, stashes, tags de backup, `refs/archive`,
+`refs/codex`, `refs/backup-*`) não são apagadas uma a uma: saem com a pasta
+antiga na Fase 8, já guardadas no cofre.
+
+#### Fase 8 — Pasta local nova
+
+Justificativa: a forma mais segura de ficar "só com o necessário" é começar
+de um clone limpo, em vez de limpar a pasta atual por dentro. Evita coleta
+agressiva de objetos e sobra escondida em `.git`.
+
+| ID | Tarefa | SIM | Pronto quando |
+|---|---|---|---|
+| 8.1 | Lista do que **fica** fora do Git, item a item e com o motivo: `.env*` locais, `.vercel`, configurações locais do `.claude` e do editor. Dependências são reinstaladas | não | lista no manifesto do cofre |
+| 8.2 | Com os aplicativos sem sessão ativa na pasta: mover a pasta inteira para `~/workspace/_lixeira/igreja12-pasta-antiga-AAAAMMDD/` e clonar a `main` no mesmo caminho. Reinstalar dependências (Python 3.13 e Node 24). Rodar `./test-local.sh` com ambiente sintético antes de recolocar os itens da 8.1 | **SIM** | SHA da `main` remota, teste local verde e só os ignorados previstos pela 8.1 |
+| 8.3 | Arquivar no Codex áreas deste projeto que ficaram fora da lista da 7.3 | dono, se houver | áreas do projeto arquivadas |
+| 8.4 | Conferir no clone as refs esperadas (`main`, acompanhamento de `origin/main` e `v1.0.0`), uma worktree, stashes vazios e `git fsck --full` sem erro. Reaproveitar a saída da 8.2 e os 4 checks do CI do commit final | não | saídas no manifesto |
+
+#### Fase 9 — Prova final e encerramento
+
+| ID | Tarefa | SIM | Pronto quando |
+|---|---|---|---|
+| 9.1 | Conferir os seis itens da seção 1. No manifesto final, referenciar os recibos já produzidos e coletar as verificações que dependem do estado atual | não | provas no manifesto |
+| 9.2 | Apagar a lixeira deste plano após conferir no inventário a destinação dos itens que só ficaram na origem, incluindo arquivos protegidos e checkouts órfãos | **SIM**, com a lista | pasta removida e cofre preservado |
+| 9.3 | Arquivar as sessões antigas do projeto nos aplicativos | **SIM** | feito |
+| 9.4 | Entregar ao dono: o que ficou pronto, o que não foi feito e o primeiro item da fila | não | mensagem final |
+
+### 6. Resultado da triagem de branches (13/11)
+
+Todas as branches e referências sem prova de estar na `main` foram lidas por
+conteúdo, e as 398 referências de branch passaram pelo script de prova.
+
+**Conclusão: não há funcionalidade de produto pronta esperando para entrar,
+e nenhuma parte do PRD ficou parada numa branch antiga.**
+
+| Veredito | Quantos | O que são |
+|---|---|---|
+| Integradas, com prova por comando | 271 referências | ancestral (49), sem commit próprio (68), PR mesclada na `main` (147), árvore idêntica (7) |
+| Integradas por squash, prova pela PR | 40 nomes | ponta anterior ao head de PR mesclada na `main` |
+| Só no cofre (não entram na `main`) | 32 itens | trabalho pausado, planos e auditorias antigos, ferramentas locais, os 2 scripts de backup externo e o documento Jev |
+| Descartadas (a `main` tem igual ou mais novo; ficam no cofre mesmo assim) | 51 itens | inclui 12 "parciais" (só o `ROADMAP.md` diferia) e 8 `*-offline` |
+| Manter | 1 | tag `v1.0.0` |
+
+Trabalho pausado ou inacabado, guardado no cofre e listado na fila (D-inacabados):
+
+| Item | O que é |
+|---|---|
+| `codex/backend-performance-maintenance` (`07a3f4d9`) | registro do backend legado de produção (PR #455, mesclada numa base que não é a `main`); referência até o fim da Fase 6 |
+| PR #619 (`origin/codex/igreja12-native49-local`, `9ce9a5d9`) | controlador de governança A8/C2; cerca de 25 mil linhas |
+| `feat/whatsapp-canary-preparation-v1` | preparação de canário do WhatsApp; 52 arquivos |
+| PR #431 (`ops/dev-espelho-prod-20260927`) | espelho DEV de PROD |
+| `perf/pos-v1-2026-08-31` | melhoria de desempenho em permissão de célula |
+| `origin/wip/antigravity-resgate-2026-07-06` | relatório de segurança de julho (tarefa 1.3) |
+| `codex/maestri-persistence` | 19 commits só locais; registra o incidente da credencial |
+| Demais | testes de backport antigo, ajustes de design, planos, auditorias, configurações de ferramentas |
+
+Não verificado: rascunho `ds-adocao` linha a linha contra a #640; cada uma das
+tags `backup/pre-merge-*` (entram na lista da 1.4).
+
+### 7. Decisões do dono (13/11/2026)
+
+| ID | Decisão | Resposta |
+|---|---|---|
+| D1 | Onde fica o cofre | cofre integral neste computador e ZIP da parte liberada no Google Drive, sem repositório de arquivo no GitHub. Decisão sobre segunda cópia integral pendente antes da limpeza (7.1) |
+| D2 | Scripts de backup externo e documento Jev | ficam no cofre e na fila; não entram agora |
+| D3 | Repositório público ou privado | manter público por agora (privado custaria cerca de 35 mil minutos de CI por mês contra 2 mil grátis; estimativa) |
+| D4 | Governança pausada | sai do repositório; fica no cofre e na fila |
+| D5 | Painel na virada | resolvido pela rota: publica o painel de A |
+| D6 | Pipeline de DEV suspenso | sai do repositório |
+| D7 | Fila de envios ao fechar os gates | aceitar, vendo a contagem antes |
+| D8 | "No final, só a `main`" | confirmado: apagar branches depois de guardar; muda `AGENTS.md` e ROADMAP |
+| D9 | Regra de tempo do ensaio | medir cada migration; barra se alguma passar de 60 s; o total não barra |
+| D10 | Data da virada | qualquer momento, quando o dono disser |
+| D11 | Quem opera | o agente executa, com SIM do dono por bloco |
+| D12 | Trabalhos inacabados | cofre e fila |
+| D13 | Dados de produção | de teste, podem se perder; a configuração é mantida (atualizar o banco atual, não zerar) |
+| D14 | Nível de cuidado | enxuto (regra 11) |
+| D15 | Esperas | seguir no mesmo dia, com as provas verdes |
+| D16 | Envios depois da virada | fechados até o dono mandar religar |
+| D17 | Rota | a mais segura, à escolha do agente: uma parada só, direto para a `main` |
+| D18 | Credencial do Maestri | já trocada ou fora de uso |
+| D19 | Avisos de segurança do GitHub | ligar só os avisos |
+
+### 8. Fora do escopo e fila do que vem depois
+
+Fora deste plano: funcionalidades do PRD, religar envios, ampliar o piloto e
+DEV remoto.
+
+Fila registrada no ROADMAP na última PR:
+
+1. **Release normal pronto para uso** (necessário antes de publicar qualquer
+   coisa nova): secrets e variáveis do GitHub, role de inventário, alvos
+   aprovados e as demais pré-condições do `BACKEND-RELEASE-MANUAL.md`; caminho
+   revisado e ensaiado para migration que altera tabela existente (o
+   verificador de hoje só aceita tabela nova); `deploy/maintenance-profile.json`
+   atualizado.
+2. Lacunas do PRD (A1–A18 e T1–T10 do inventário de 12/11).
+3. Religar envios e retomar o piloto, um efeito por vez, por decisão do dono.
+4. Backup externo cifrado instalado e testado; novas tabelas privadas
+   incluídas no backup.
+5. Reduzir o CI para poder tornar o repositório privado.
+6. Governança a retomar (A8/C2, E4B, D3, D6, D2A, atestações, catálogos, F1/F2)
+   e os trabalhos pausados da seção 6.
+7. Pausa de envios que preserva a fila (T5).
+8. EVT-7 (conciliar antes de reenviar); "G2b" (termo sem definição).
+9. Banco em São Paulo (B17): medição, plano e janela própria.
+10. Aceite pastoral das 20 conversas.
+11. Regra de produto para frases no futuro no gatilho de relatório (B15).
+12. Sinal de "IA não configurada" para o botão Assistente.
+13. Ligar as PRs automáticas de dependências (hoje com limite 0).
+14. Achados pendentes do relatório de segurança de julho (1.3).
+
+### 9. Registro da auditoria
+
+- Codex `gpt-6.1-sol`, esforço alto, só leitura, 13/11: versão 1 **reprovada**
+  (24 achados, 2 críticos); versão 2 **reprovada** (13 dos 24 resolvidos, 11
+  parciais, 15 achados novos, 1 crítico).
+- Conferência no código por 11 agentes em 13/11: 5 conferiram os achados da
+  versão 2 e 3 desenharam rotas para a migration 130, cada uma atacada por um
+  cético. Nenhuma rota foi derrubada; a rota de uma parada só foi a escolhida.
+
+Como a versão 3 trata os achados da versão 2:
+
+| Achado da versão 2 | Na versão 3 |
+|---|---|
+| 1 crítico: as duas rotas do release continuam travadas | o release normal sai do plano; a virada vai direto para a `main` (Fase 4); o caminho do release vira o item 1 da fila |
+| 2: backup sem configuração depois da virada | tarefas 1.2, 4.3 e 5.5 |
+| 3: "timeout explícito" mistura limites | tarefa 4.2 (b), (c) e (d); decisão D9 |
+| 4: dump do ensaio não é o backup da janela | o backup da janela (`window.dump`) é o de recuperação e fica na VPS; cópia externa dispensada porque os dados são de teste (D13) |
+| 5: pré-condições do manual do release | fora do plano; item 1 da fila |
+| 6: comparação final incompleta | item 2 da seção 1, com a lista completa |
+| 7: revisão de conteúdo antes de enviar para fora | tarefa 0.6; sem envio ao GitHub (D1) |
+| 8: restos de `.git` e commits soltos | tarefas 0.1 e 0.5; sem coleta agressiva (Fase 8 usa clone novo) |
+| 9: comando de inventário vazio | tarefa 0.3 |
+| 10: falta `fetch` antes da limpeza | tarefa 7.1 |
+| 11: seção 12.0 do runbook é operacional | tarefa 6.1 mantém a 12.0 |
+| 12: robô de dependências | tarefa 2.6 (limite 0) e 0.9 (só avisos) |
+| 13: dependência circular nas decisões | decisões tomadas em 13/11 (seção 7) |
+| 14: provas depois da última PR | regra 12 e tarefa 9.1 (manifesto do cofre) |
+| 15: prova de pasta igual a clone | Fase 8 (a pasta passa a ser o clone) |
+| Parciais 13, 15, 20, 21, 23 | 8.3 (Codex arquiva), seção 2 ("registro"), 2.6, fila item 4, Fase 8 |
+
+- Codex, rodada 3, sobre a versão 3: **reprovada**, mas com a rota confirmada
+  ("a rota de uma parada só é viável"). 11 achados, todos incorporados na
+  versão 3.1: fechamento dos envios antes da foto dos gates (4.4, 5.2);
+  recuperação antes e depois do marcador (4.2 e, f); comparação do
+  schema final com o do ensaio (4.2 g); teste real do backup com Docker (4.6);
+  objetos Git de A na VPS (4.2 h, 5.2); dependências da instalação antiga
+  (4.3, 6.3); triagem no repositório restaurado (0.6); comando do inventário
+  (0.3); tags remotas (7.4); contagem de stashes (seção 2).
+- Revisão da 3.1 por Codex e Claude Code, em leitura local do commit
+  `5b048a87`. As correções de recuperação, ensaio, fechamento dos envios,
+  backup e limpeza estão nas tarefas acima. A implementação e as provas da
+  ferramenta ficam na T.
 
 ## Estado vigente da consolidação e do piloto (10/11/2026)
 
