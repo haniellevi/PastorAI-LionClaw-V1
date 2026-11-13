@@ -7,17 +7,16 @@ import { fileURLToPath } from "node:url";
 const frontendRoot = fileURLToPath(new URL(".", import.meta.url));
 const nextBin = fileURLToPath(new URL("./node_modules/next/dist/bin/next", import.meta.url));
 const expectedHeaders = {
-  "content-security-policy": "frame-ancestors 'none'",
   "referrer-policy": "strict-origin-when-cross-origin",
   "permissions-policy": "camera=(), geolocation=(), microphone=(self)",
 };
-// A CSP em modo de teste sai do middleware, com nonce novo por documento.
+// A CSP (que bloqueia) sai só do middleware, com nonce novo por documento.
 // O smoke exige nas páginas as diretivas que fecham o painel, um nonce no
 // script-src (sem 'unsafe-inline'), nonces diferentes entre acessos e o mesmo
 // nonce em todas as tags <script> do HTML. Assets e chunks não passam pelo
-// middleware: recebem só os três cabeçalhos fixos.
-const REPORT_ONLY = "content-security-policy-report-only";
-const requiredReportOnlyDirectives = [
+// middleware: recebem só os dois cabeçalhos fixos, sem CSP.
+const CSP = "content-security-policy";
+const requiredCspDirectives = [
   "default-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",
@@ -57,6 +56,7 @@ function request(port, path, host = "app.igreja12.com.br") {
           resolve({
             status: res.statusCode,
             headers: res.headers,
+            cspHeaderCount: res.headersDistinct[CSP]?.length ?? 0,
             body: Buffer.concat(chunks).toString("utf8"),
           });
         });
@@ -76,14 +76,20 @@ function assertFixedHeaders(response, label) {
 
 function assertDocumentHeaders(response, label) {
   assertFixedHeaders(response, label);
-  const reportOnly = response.headers[REPORT_ONLY];
-  assert.equal(typeof reportOnly, "string", `${label}: header ${REPORT_ONLY}`);
-  const directives = reportOnly.split(";").map((part) => part.trim());
-  for (const directive of requiredReportOnlyDirectives) {
-    assert(directives.includes(directive), `${label}: ${REPORT_ONLY} sem ${directive}`);
+  assert.equal(response.cspHeaderCount, 1, `${label}: exatamente um cabeçalho CSP`);
+  assert.equal(
+    response.headers["content-security-policy-report-only"],
+    undefined,
+    `${label}: CSP não pode mais ser Report-Only`,
+  );
+  const csp = response.headers[CSP];
+  assert.equal(typeof csp, "string", `${label}: header ${CSP}`);
+  const directives = csp.split(";").map((part) => part.trim());
+  for (const directive of requiredCspDirectives) {
+    assert(directives.includes(directive), `${label}: ${CSP} sem ${directive}`);
   }
   const scriptSrc = directives.find((directive) => directive.startsWith("script-src "));
-  assert(scriptSrc, `${label}: ${REPORT_ONLY} sem script-src`);
+  assert(scriptSrc, `${label}: ${CSP} sem script-src`);
   const nonce = scriptSrc.match(/'nonce-([^']+)'/)?.[1];
   assert(nonce, `${label}: script-src sem nonce`);
   assert(scriptSrc.includes("'strict-dynamic'"), `${label}: script-src sem 'strict-dynamic'`);
@@ -155,9 +161,21 @@ try {
     scripts += assertDocumentHeaders(surface, host);
   }
 
+  const dottedNotFound = await request(port, "/rota-inexistente.html");
+  assert.equal(dottedNotFound.status, 404, "404 com ponto: status");
+  scripts += assertDocumentHeaders(dottedNotFound, "404 com ponto");
+
+  for (const path of ["/privacidade", "/termos"]) {
+    const legalPage = await request(port, path);
+    assert.equal(legalPage.status, 200, `${path}: status`);
+    scripts += assertDocumentHeaders(legalPage, path);
+  }
+
   const asset = await request(port, "/icon.svg");
   assert.equal(asset.status, 200, "public asset: status");
   assertFixedHeaders(asset, "public asset");
+  assert.equal(asset.headers[CSP], undefined, "public asset: sem CSP (não é documento)");
+  assert.equal(asset.headers["content-security-policy-report-only"], undefined);
 
   const chunkPath = appPage.body.match(
     /(?:src|href)="([^"?]*\/_next\/static\/[^"?]+\.(?:js|css))(?:\?[^" ]*)?"/,
@@ -185,7 +203,7 @@ try {
   }
 
   console.log(
-    `SECURITY_HEADERS_RUNTIME_OK pages=4 nonces=${seenNonces.size} scripts=${scripts} ` +
+    `SECURITY_HEADERS_RUNTIME_OK pages=7 nonces=${seenNonces.size} scripts=${scripts} ` +
       `asset=1 chunk=1 redirect=308 ` +
       `redirect_headers=${redirectHeaderCount === fixedHeaderNames.length ? "presentes" : "fora_da_cobertura"}`,
   );

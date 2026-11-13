@@ -1,7 +1,8 @@
 /**
- * Política de segurança de conteúdo (CSP) do painel, publicada primeiro em
- * modo de teste (`Content-Security-Policy-Report-Only`): o navegador avisa
- * no console o que seria bloqueado, sem bloquear nada.
+ * Política de segurança de conteúdo (CSP) do painel, publicada no cabeçalho
+ * `Content-Security-Policy` (o navegador bloqueia o que a política não
+ * permite). Ela passou antes por um período em modo de teste (Report-Only).
+ * É o único cabeçalho de CSP do painel; inclui `frame-ancestors`.
  *
  * Origens que o painel usa hoje:
  * - scripts, estilos, fontes (@fontsource) e chunks: o próprio painel;

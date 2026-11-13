@@ -2,13 +2,10 @@ import { fileURLToPath } from "node:url";
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
-// A CSP em modo de teste (com nonce por documento) sai do middleware: ver
-// src/middleware.ts e src/lib/csp.mjs.
+// A CSP (com nonce por documento e frame-ancestors) sai só do middleware: ver
+// src/middleware.ts e src/lib/csp.mjs. Não repetir aqui, para o navegador não
+// receber duas políticas. Assets e chunks não são documentos e ficam sem CSP.
 const securityHeaders = [
-  {
-    key: "Content-Security-Policy",
-    value: "frame-ancestors 'none'",
-  },
   {
     key: "Referrer-Policy",
     value: "strict-origin-when-cross-origin",
