@@ -66,8 +66,8 @@ não que o arquivo esteja fora do Git.
 | `docs/ops/PROD-ENV-RUNBOOK.md` | Runbook de ambiente de produção |
 
 **PRD canônico:** `docs/Docs20260611_163530/PRD20260611_163530.md` (RF-01..49, US-01..43,
-RNF-01..25), apontado por `PRODUCT.md`. Os PRDs em `docs/Docs20260704_*` são recortes
-posteriores, menos completos — não usar como checklist do MVP.
+RNF-01..25), apontado por `PRODUCT.md`. Os recortes de julho cobriam partes do
+produto. Use o PRD consolidado de junho como checklist do MVP.
 
 ### 2.2 Stack real na baseline
 
