@@ -4,8 +4,8 @@
 **Commit auditado:** `37e4cd3` (`origin/main`, pós PR#195 / UNIQ-PESSOA-1)
 **PRD usado como checklist:** `docs/Docs20260611_163530/PRD20260611_163530.md` — é o PRD
 consolidado (RF-01..49, US-01..43, RNF-01..25) e a **fonte de verdade de produto**
-apontada por `PRODUCT.md`. Os PRDs em `Docs20260704_*` são recortes posteriores menos
-completos; este é o abrangente.
+apontada por `PRODUCT.md`. Os recortes de julho cobriam partes do produto,
+incluindo o PR2 de Células.
 **Fontes cruzadas:** `SPEC_PROGRESS.md`, `docs/audits/2026-07-18-project-source-of-truth.md`,
 `docs/decisions/2026-07-18-decisoes-fechamento-mvp.md`,
 `docs/security/2026-07-18-sec-baixo-revalidacao.md`, `docs/sprints/*`, e o código em
