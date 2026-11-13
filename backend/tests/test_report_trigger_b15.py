@@ -33,6 +33,8 @@ def test_question_with_keyword_and_digit_is_not_a_report(texto):
     "Tivemos 12 presentes e 3 visitantes. Tudo certo?",
     "Tudo bem? Hoje foram 12 presentes e 3 visitantes",
     "12 presentes.Tudo certo?",
+    "Tivemos 20 visitantes, p.ex. Tudo certo?",
+    "Tivemos 12 presentes. ?",
     "Relatório 10/11 - 12 presentes - 3 visitantes - 1 decisão",
 ])
 def test_report_still_triggers_even_with_a_separate_question(texto):
