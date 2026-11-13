@@ -1,0 +1,64 @@
+# Atualizacoes automaticas de dependencias (semanal, poucas PRs por vez).
+# Cada ecossistema abre no maximo 3 PRs; atualizacoes minor/patch vem agrupadas
+# em uma so PR. Majors chegam separadas. As PRs passam pelos mesmos checks
+# obrigatorios (backend-tests, frontend-ci, e2e-critical, rls-integration).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 3
+    labels: [dependencies]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  # CLI do Supabase (package.json da raiz, usado por tooling-static.yml).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 3
+    labels: [dependencies]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      root-minor-patch:
+        update-types: [minor, patch]
+
+  # Le backend/requirements.txt (faixas). O requirements.lock com hashes
+  # e gerado por uv e NAO e atualizado pelo Dependabot.
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 3
+    labels: [dependencies]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      backend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 3
+    labels: [dependencies]
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
