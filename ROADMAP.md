@@ -85,6 +85,85 @@ exigido para o deploy ser seguro.
 **Branches antigas:** triagem em modo leitura; o dono decide o que trazer para
 a `main`. Nenhuma branch remota é apagada.
 
+## Plano de conclusão (proposto em 12/11/2026)
+
+Proposta da orquestração de conclusão para fechar o PRD, limpar o repositório
+e igualar DEV e PROD à `main`. Os fatos e as provas estão no
+[inventário de 12/11](docs/ops/INVENTARIO-CONCLUSAO-2026-11-12.md); os
+identificadores abaixo (A1, T1, C1…) são os dele. Os pontos marcados
+"decisão" esperam o dono; o resto segue as decisões de 12/11 acima.
+
+**Regras de execução:**
+
+- Enquanto a janela da primeira virada estiver aberta, nada deste plano é
+  mesclado na `main` (cada merge atrasa as PRs da janela e muda o SHA do
+  painel) e nada toca `deploy/first_transition*`, a VPS ou PROD. Trabalho em
+  worktree e PR aberta pode andar.
+- Uma tarefa por worktree e branch. Duas tarefas não tocam o mesmo arquivo:
+  as que tocam ficam na mesma trilha, em série.
+- Integração em série: atualizar a branch logo antes do CI, quatro checks
+  verdes, nenhuma conversa de revisão aberta. RLS, autenticação e migration
+  de PROD só com parecer escrito da Sarah.
+- Uma PR com migration por vez. Ordem das migrations novas: A4, A5, A16, A10,
+  A2, A12, T8; o nome recebe a data do momento da integração.
+- Capacidade nova do agente só com E2E do turno completo, com papel
+  autorizado e recusa.
+
+**Lote 0 — arrumação sem código (pode andar durante a janela):**
+
+- Inventário e este plano na `main` (esta PR; merge depois da janela).
+- Leitura do conteúdo das 27 branches duvidosas e das 12 parciais, para
+  fechar a classe de cada uma.
+- Decisão: destino das 40 branches e das referências que só existem neste
+  computador (enviar ao GitHub como arquivo, ou outro backup) antes de
+  qualquer limpeza local.
+- Decisão, um SIM por item: mover para `_lixeira` os ~440 MB seguros do
+  inventário (seção 4.1) e remover do Git os itens da seção 4.2.
+
+**Lote 1 — correções pequenas e independentes (PRs abertas em paralelo):**
+
+| Tarefa | Arquivos | Cuidado |
+|---|---|---|
+| T1 corrida em `cd.create_turma` e padronização de `uv_matriculas` | `services/cd.py`, `services/uv.py` e os dois testes PG | teste sincronizado no INSERT, pela rota |
+| T2 CSP bloqueando | `frontend/src/middleware.ts`, `lib/csp.mjs`, `next.config.mjs`, E2E de CSP | varrer admin, console e upload antes de bloquear |
+| A11 tela do assistente (RF-47) | `frontend/src/components/shell/*` e componente novo | seguir os padrões do painel |
+| A13 gatilho de relatório (B15) | `agent/nodes.py`, `cell_report_v1a*` | primeiro passo da trilha do agente |
+| T7 auditoria de dependências de desenvolvimento | `.github/workflows/frontend-ci.yml`, `.github/dependabot.yml` | — |
+| A18 e correções de documento (inventário 3.4) | `services/semantic_triage.py`, cobertura do PRD e este roteiro | depois desta PR, por tocar o roteiro |
+
+**Lote 2 — release seguinte (só depois da janela):**
+
+Backend da `main`, a migration `20261112_160000_celula_alerta_regras` e o
+painel, pelo [manual de release](deploy/BACKEND-RELEASE-MANUAL.md). Depende
+do dono: os 4 secrets do environment `backend-production`,
+`BACKEND_DEPLOY_SAFE_BASE_SHA` em commit com a segurança v3, backup e um SIM
+por ação. Decisão (C13): o release fecha o gate de envios e isso cancela as
+pendências da outbox; ou se aceita esse efeito neste release, ou a pausa que
+preserva a fila (T5) entra antes. Prova de pronto: leitura datada de PROD
+(inventário 5.7).
+
+**Lote 3 — lacunas médias, em trilhas que não se cruzam:**
+
+| Trilha (em série dentro dela) | Ordem |
+|---|---|
+| Outbox (`notification_outbox.py` e migration do `purpose`) | T5 se decidido → A4 → A5 com A7 → A16 |
+| Agente (`queue_worker.py` e catálogos) | A13 → A1 → A8 → A9 (decisão C9) |
+| Autenticação (Sarah em todas) | T2 → T3 → T10; A12 em paralelo |
+| Agendador | A10 (decisão C10), depois de A4 |
+| Conhecimento no painel | A2; A3 depois de A1 |
+| Painel e onboarding | A15; A14 só se confirmado (C11) |
+| Operação | T4 (decisão C16), T6, T9, A17 |
+
+**Lote 4 — grandes ou dependentes de decisão:** A6 (broadcast na outbox),
+C1 (D2C), C2 (E4B e consentimento por finalidade), C4 (checkpointer), C5 e C6
+(memória e embeddings), C7 (controlador A8/C2), C8 (atestações e catálogos),
+C12 (RF-49), T8 (tombstones). Nenhum começa sem a decisão correspondente.
+
+**Encerramento:** release de cada lote integrado, com leitura datada de PROD;
+DEV local sintético com as migrations da `main`; worktrees e branches locais
+integradas removidas; relatório final com o que ficou pausado e por quê.
+O plano não cabe em poucos dias: só os lotes 3 e 4 somam dezenas de PRs.
+
 ## Estado vigente da consolidação e do piloto (10/11/2026)
 
 A consolidação está na `main` até `6088efb1`, com os seis workflows desse
