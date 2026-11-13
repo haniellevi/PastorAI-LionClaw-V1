@@ -26,16 +26,17 @@ async function mount(canOpen: (tela: string) => boolean = () => true) {
     act(() => root.unmount());
     el.remove();
   };
-  const render = async (permission: (tela: string) => boolean) => act(async () =>
-    root.render(
-      <AssistentePainel
-        token="sintetico"
-        tenantId="igreja-1"
-        canOpenScreen={permission}
-        onExpired={onExpired}
-      />,
-    ),
-  );
+  const render = async (permission: (tela: string) => boolean) =>
+    act(async () =>
+      root.render(
+        <AssistentePainel
+          token="sintetico"
+          tenantId="igreja-1"
+          canOpenScreen={permission}
+          onExpired={onExpired}
+        />,
+      ),
+    );
   await render(canOpen);
   return render;
 }
