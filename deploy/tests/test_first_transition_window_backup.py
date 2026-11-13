@@ -574,6 +574,45 @@ def test_pin_must_be_sorted_unique_and_well_formed_even_when_built_directly():
             wb.WindowBackupConfig(**base, restore_excluded_expected=direct).validated()
 
 
+# Shape of a real Supabase ``pg_restore -l``: EXTENSION and its COMMENT have an EMPTY owner, so the line ends in
+# a bare space. A filter that demands a non-empty owner keeps supabase_vault and the clone restore aborts.
+EMPTY_OWNER_LISTING = LISTING.replace('EXTENSION - supabase_vault postgres', 'EXTENSION - supabase_vault ').replace(
+    'COMMENT - EXTENSION supabase_vault postgres', 'COMMENT - EXTENSION supabase_vault ').replace(
+    'COMMENT - EVENT TRIGGER issue_pg_net_access supabase_admin', 'COMMENT - EVENT TRIGGER issue_pg_net_access ') + \
+    '4040; 3079 16393 EXTENSION - pg_stat_statements \n4041; 0 0 COMMENT - EXTENSION pg_stat_statements \n' + \
+    '4042; 0 0 COMMENT - SCHEMA vault \n'
+
+
+def test_filter_removes_vault_extension_and_comment_with_an_empty_owner():
+    assert 'EXTENSION - supabase_vault \n' in EMPTY_OWNER_LISTING  # the trailing space really is there
+    lines, removed = wb.filter_restore_list(EMPTY_OWNER_LISTING, frozenset({'postgres'}))
+    text = '\n'.join(lines)
+    assert 'supabase_vault' not in text and 'COMMENT - EVENT TRIGGER issue_pg_net_access' not in text
+    assert removed == dict(vault_extension=2, vault_schema=3, event_triggers=2,
+                           event_trigger_names=['issue_pg_net_access'])
+    # Other extensions with an empty owner stay, and so does everything outside vault.
+    assert '4040; 3079 16393 EXTENSION - pg_stat_statements ' in lines
+    assert '4041; 0 0 COMMENT - EXTENSION pg_stat_statements ' in lines
+    assert len(lines) == len(EMPTY_OWNER_LISTING.splitlines()) - 7 and 'SCHEMA vault' not in text
+    for lookalike in ('4050; 3079 16700 EXTENSION - supabase_vault_extra ',
+                      '4051; 0 0 COMMENT - EXTENSION supabase_vaults '):
+        kept, _ = wb.filter_restore_list(EMPTY_OWNER_LISTING + lookalike + '\n', frozenset({'postgres'}))
+        assert lookalike in kept
+
+
+def test_restore_with_empty_owner_listing_drops_vault_from_the_clone_list(plan, tmp_path):
+    host, expected = Host(plan), expectation(plan)
+    host.listing = EMPTY_OWNER_LISTING
+    receipt = provider(plan, tmp_path, host, expected,
+                       restore_excluded_expected=(('event_trigger_names', ('issue_pg_net_access',)),
+                                                  ('event_triggers', 2), ('vault_extension', 2),
+                                                  ('vault_schema', 3)))(request(plan, expected))
+    text = host.copied[wb.CLONE_LIST].decode()
+    assert 'supabase_vault' not in text and 'SCHEMA vault' not in text and 'EXTENSION - pg_stat_statements ' in text
+    assert receipt['clone_rehearsal']['restore_excluded'] == dict(vault_extension=2, vault_schema=3, event_triggers=2,
+                                                                       event_trigger_names=['issue_pg_net_access'])
+
+
 def test_vault_filter_ignores_a_schema_that_merely_looks_like_a_desc_word():
     lines, removed = wb.filter_restore_list(LISTING + '4030; 0 16600 TABLE DATA SALES vault x postgres\n',
                                             frozenset({'postgres'}))
