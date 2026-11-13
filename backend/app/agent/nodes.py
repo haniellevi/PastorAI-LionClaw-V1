@@ -274,7 +274,25 @@ def route_intent(
     return ROUTE_ONBOARDING
 
 
-_QUESTION_CLAUSE = re.compile(r"[^.!?\n;]*\?")
+_REPORT_PUNCTUATION = re.compile(
+    r"(?i:\bp\.[ \t]*ex\.)|(?<=\d)\.(?=\d)"
+    r"|(?P<end>[!?](?:[ \t]*[!?])*|[;\r\n]|\.(?![ \t]*[.!?]))"
+)
+
+
+def _report_statements(texto: str) -> str:
+    # Keep a separator where a question was removed so numbers and labels
+    # on either side cannot form a new report field.
+    start = 0
+    statements = []
+    for match in _REPORT_PUNCTUATION.finditer(texto):
+        end = match.group("end")
+        if end is None:  # Period inside a number or abbreviation.
+            continue
+        statements.append("|" if "?" in end else texto[start:match.end()])
+        start = match.end()
+    statements.append(texto[start:])
+    return "".join(statements)
 
 
 def message_is_cell_report(texto: str | None) -> bool:
@@ -287,7 +305,7 @@ def message_is_cell_report(texto: str | None) -> bool:
     """
     if not texto:
         return False
-    return looks_like_report(_QUESTION_CLAUSE.sub(" ", texto))
+    return looks_like_report(_report_statements(texto))
 
 
 def orchestrator_node(
@@ -440,7 +458,7 @@ def report_capture_node(
     """
     _trusted(state, runtime)
     texto = state.get("texto") or ""
-    report = parse_cell_report(texto)
+    report = parse_cell_report(_report_statements(texto))
 
     resumo = {
         "presentes": report.presentes,

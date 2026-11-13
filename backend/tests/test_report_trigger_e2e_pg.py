@@ -20,6 +20,7 @@ _QUESTIONS = (
     "Vamos ter 2 decisões de batismo no domingo? Preciso confirmar os nomes",
     "Quantos presentes 20 pessoas cabem no salão?",
     "Será que teremos 30 visitantes no sábado?",
+    "Quanto foi a oferta de R$ 1.234,50?",
 )
 
 
@@ -37,16 +38,20 @@ def test_leader_question_with_keyword_and_digit_is_not_captured_as_report(b15_tu
     assert _count(b15_turn, CelulaReuniao) == 0
 
 
-def test_leader_report_with_separate_question_is_still_captured(b15_turn):
+@pytest.mark.parametrize(("texto", "expected"), [
+    ("12 presentes, 3 visitantes, 1 decisão. Tudo certo?", (12, 3, 1)),
+    ("Tivemos 12 presentes. Serão 30 visitantes?", (12, None, None)),
+])
+def test_leader_report_with_separate_question_is_still_captured(b15_turn, texto, expected):
     evolution = _run(
         b15_turn, b15_turn.leader_conversation, _LEADER_PHONE, "B15-Q-REPORT",
-        "12 presentes, 3 visitantes, 1 decisão. Tudo certo?",
+        texto,
     )
 
     events = _report_events(b15_turn, b15_turn.leader_conversation)
     assert len(events) == 1
     resumo = events[0]["relatorio"]
-    assert (resumo["presentes"], resumo["visitantes"], resumo["decisoes"]) == (12, 3, 1)
+    assert (resumo["presentes"], resumo["visitantes"], resumo["decisoes"]) == expected
     assert len(evolution.calls) == 1
     assert "confirmação humana" in evolution.calls[0][2]
     assert _outbound(b15_turn, b15_turn.leader_conversation) == [evolution.calls[0][2]]

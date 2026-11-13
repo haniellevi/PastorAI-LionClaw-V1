@@ -17,6 +17,10 @@ from app.agent.nodes import message_is_cell_report
     "Será que teremos 30 visitantes no sábado?",
     "o relatório tem que ter 12 presentes?",
     "Posso contar 3 visitantes no relatório?",
+    "Quanto foi a oferta de R$ 1.234,50?",
+    "O salão comporta 20 visitantes, p.ex.?",
+    "O salão comporta 20 visitantes, p. ex.?",
+    "Serão 20 visitantes! ?",
 ])
 def test_question_with_keyword_and_digit_is_not_a_report(texto):
     assert not message_is_cell_report(texto)
@@ -28,6 +32,7 @@ def test_question_with_keyword_and_digit_is_not_a_report(texto):
     "celula hoje 7 presentes 1 visitante oferta 30",
     "Tivemos 12 presentes e 3 visitantes. Tudo certo?",
     "Tudo bem? Hoje foram 12 presentes e 3 visitantes",
+    "12 presentes.Tudo certo?",
     "Relatório 10/11 - 12 presentes - 3 visitantes - 1 decisão",
 ])
 def test_report_still_triggers_even_with_a_separate_question(texto):
