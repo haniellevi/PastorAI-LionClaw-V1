@@ -129,6 +129,8 @@ let alertRules = initialAlertRules();
 let leaderAlerts = initialLeaderAlerts();
 let identityChallengeConsumed = false;
 let whatsapp = { numero: null, status: "offline", ultimaSync: null };
+// RF-47: assistente do painel. Modos: "ok" | "forbidden" (403) | "unavailable" (503).
+let assistantMode = "ok";
 // Opt-in, loopback-only synthetic inbox for visual UX verification.
 const defaultUxFixture = process.env.M09_UX_FIXTURE === "1";
 let uxFixture = defaultUxFixture;
@@ -190,6 +192,7 @@ function resetState() {
   leaderAlerts = initialLeaderAlerts();
   identityChallengeConsumed = false;
   whatsapp = { numero: null, status: "offline", ultimaSync: null };
+  assistantMode = "ok";
   resetUxInbox();
 }
 
@@ -295,6 +298,12 @@ const server = createServer(async (request, response) => {
     performanceMode = options?.performance === true;
     queueSize = Math.min(2000, Math.max(1, Number(options?.queueSize ?? 1)));
     sendJson(response, 200, { status: "reset" });
+    return;
+  }
+  if (method === "POST" && pathname === "/__e2e/assistant") {
+    const options = await readBody(request);
+    assistantMode = ["forbidden", "unavailable"].includes(options?.mode) ? options.mode : "ok";
+    sendJson(response, 200, { status: "assistant-mode", mode: assistantMode });
     return;
   }
   if (method === "POST" && pathname === "/__e2e/ux-inbox") {
@@ -592,6 +601,30 @@ const server = createServer(async (request, response) => {
       });
       record.status = 200;
       sendJson(response, 200, rule);
+      return;
+    }
+    if (method === "POST" && pathname === "/assistant/message") {
+      // Sintético: sem LLM. Espelha o contrato real (403 para outra igreja).
+      if (assistantMode === "forbidden" || body?.tenantId !== profile.churchId) {
+        record.status = 403;
+        sendJson(response, 403, { detail: "tenant não corresponde ao usuário autenticado" });
+        return;
+      }
+      if (assistantMode === "unavailable") {
+        record.status = 503;
+        sendJson(response, 503, { detail: "serviço indisponível" });
+        return;
+      }
+      const texto = String(body?.texto ?? "").toLowerCase();
+      // "permissoes" é só do admin na superfície /gestao: o painel deve ocultá-la.
+      const telasSugeridas = texto.includes("pend") ? ["dashboard", "permissoes"] : [];
+      record.status = 200;
+      sendJson(response, 200, {
+        resposta: telasSugeridas.length
+          ? "Posso te ajudar com isso. Telas sugeridas para o seu acesso: dashboard, permissoes."
+          : "Posso te ajudar a navegar no painel. Me diga o que você precisa fazer.",
+        telasSugeridas,
+      });
       return;
     }
     if (method === "GET" && pathname === "/cells/me/alerts") {

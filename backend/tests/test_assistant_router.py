@@ -8,10 +8,13 @@ The session is an in-memory fake; no DB or network is touched.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.db.models import AppUser, LlmCredential, RolePermission, UserRole
 from app.db.session import get_db
+from app.services import assistant
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
@@ -169,3 +172,41 @@ def test_assistant_papeis_cannot_widen_access(app) -> None:
     telas = resp.json()["telasSugeridas"]
     assert "permissoes" not in telas
     assert "gerentes" not in telas
+
+
+def test_assistant_closed_gate_uses_navigation_even_with_valid_credential(app, monkeypatch) -> None:
+    monkeypatch.setattr(
+        assistant, "get_settings", lambda: SimpleNamespace(external_sends_enabled=False)
+    )
+    monkeypatch.setattr(assistant, "_phrase_with_llm", lambda *args: "Resposta simulada")
+    client = _client(
+        app,
+        FakeAssistantSession(
+            app_user=make_app_user(),
+            roles=["pastor"],
+            role_permissions=[("pastor", "inbox")],
+            credential=LlmCredential(validado=True, ativo=True, modelo="synthetic"),
+        ),
+    )
+    response = client.post(
+        "/assistant/message",
+        json={"tenantId": _TENANT, "texto": "onde vejo as conversas?"},
+        headers=_AUTH,
+    )
+    assert response.status_code == 200
+    assert response.json()["telasSugeridas"] == ["inbox"]
+    assert "inbox" in response.json()["resposta"]
+
+
+def test_assistant_does_not_suggest_subscription_to_admin_without_ownership(app) -> None:
+    client = _client(
+        app, FakeAssistantSession(app_user=make_app_user(dono_id=None), roles=["admin"])
+    )
+    response = client.post(
+        "/assistant/message",
+        json={"tenantId": _TENANT, "texto": "como vejo a assinatura?"},
+        headers=_AUTH,
+    )
+    assert response.status_code == 200
+    assert "assinatura" not in response.json()["telasSugeridas"]
+    assert "assinatura" not in response.json()["resposta"]

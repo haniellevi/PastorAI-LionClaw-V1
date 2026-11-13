@@ -28,6 +28,7 @@ from app.db.models import AgentConfig, LlmCredential, RolePermission
 from app.domain.assistant import allowed_screens_for_roles, suggest_screens
 from app.services.crypto import SecretDecryptionError, decrypt_secret
 from app.services.llm import LLMClient, LLMError
+from app.services.outbound_guard import external_sends_allowed
 
 logger = logging.getLogger("pastorai.assistant")
 
@@ -118,6 +119,7 @@ def answer_panel_message(
     igreja_id: str | uuid.UUID,
     roles: list[str],
     texto: str,
+    is_owner: bool = False,
 ) -> AssistantResult:
     """Produce the panel assistant reply + role-filtered screen suggestions.
 
@@ -130,7 +132,12 @@ def answer_panel_message(
 
     role_map = _role_permission_map(session, igreja_uuid)
     allowed = allowed_screens_for_roles(role_map, roles)
+    if not is_owner:
+        allowed.discard("assinatura")
     telas = suggest_screens(texto, allowed)
+
+    if not external_sends_allowed(settings):
+        return AssistantResult(resposta=_fallback_reply(telas), telas_sugeridas=telas)
 
     cred = _active_credential(session, igreja_uuid)
     if cred is None:

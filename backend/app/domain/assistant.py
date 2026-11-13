@@ -15,8 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.domain.conversations import INBOX_ROLES
-from app.domain.permissions import ADMIN_ONLY, CENTRAL_ONLY, CENTRAL_ROLE, INBOX_SCREEN
+from app.domain.permissions import ADMIN_ONLY, screens_for_role
 
 # admin holds implicit access to every screen (mirrors deps.require_role).
 ADMIN_ROLE = "admin"
@@ -92,33 +91,17 @@ def allowed_screens_for_roles(
     if a legacy `role_permissions` row still grants one (mirrors
     `can_access_screen`, checked before the matrix, not after).
 
-    `CENTRAL_ONLY` (ex.: `relatorios`) segue a mesma regra e só é liberada ao
-    `pastor`: o assistente não pode apontar uma tela cujo endpoint responderia
-    403 (REPORT-SOT-1). O filtro é POR PAPEL, antes da união — mesmo ponto de
-    aplicação de `screens_for_role`. Olhar só o ator deixaria a concessão de um
-    papel não-Central passar por carona: com `{pastor: [inbox],
-    operador: [relatorios]}`, o usuário pastor+operador herdaria `relatorios`
-    do operador mesmo com a concessão do pastor removida.
+    Use the panel defaults when a role has no custom matrix, and apply
+    each role's restrictions before combining the results.
     """
     role_set = set(roles)
     if ADMIN_ROLE in role_set:
         return set(KNOWN_SCREENS) - LOCKED_SCREENS
 
+    matrix = {role: set(telas) for role, telas in role_to_screens.items()}
     allowed: set[str] = set()
     for role in role_set:
-        is_central = role == CENTRAL_ROLE
-        for tela in role_to_screens.get(role, ()):
-            if tela not in KNOWN_SCREENS:
-                continue
-            # Só o papel `pastor` contribui com uma tela Central-only.
-            if not is_central and tela in CENTRAL_ONLY:
-                continue
-            if tela in {"universidade-vida", "capacitacao"} and role not in {"pastor", "lider_consol"}:
-                continue
-            # B3: Conversas só para os papéis fixos da inbox.
-            if tela == INBOX_SCREEN and role not in INBOX_ROLES:
-                continue
-            allowed.add(tela)
+        allowed.update(screens_for_role(role, matrix) & KNOWN_SCREENS)
     # dashboard is available to any authenticated panel user (delta-010).
     allowed.add("dashboard")
     return allowed - LOCKED_SCREENS - ADMIN_ONLY
