@@ -20,18 +20,16 @@ describe("Next security headers", () => {
     const headers = Object.fromEntries(route.headers.map(({ key, value }) => [key, value]));
 
     expect(headers).toEqual({
-      "Content-Security-Policy": "frame-ancestors 'none'",
       "Referrer-Policy": "strict-origin-when-cross-origin",
       "Permissions-Policy": "camera=(), geolocation=(), microphone=(self)",
     });
   });
 
-  it("keeps the full CSP in report-only mode, never blocking yet", async () => {
+  it("leaves the CSP to the middleware, so documents never get two policies", async () => {
     const [route] = await configuredHeaders();
-    const enforced = route.headers.find(({ key }) => key === "Content-Security-Policy");
+    const keys = route.headers.map(({ key }) => key.toLowerCase());
 
-    // O cabeçalho que bloqueia continua só com frame-ancestors. A política
-    // completa, com nonce por documento, sai do middleware (src/middleware.ts).
-    expect(enforced?.value).toBe("frame-ancestors 'none'");
+    // A política (com nonce e frame-ancestors) sai só de src/middleware.ts.
+    expect(keys.filter((key) => key.startsWith("content-security-policy"))).toEqual([]);
   });
 });

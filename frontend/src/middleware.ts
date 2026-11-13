@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { buildContentSecurityPolicy, generateNonce } from "./lib/csp.mjs";
 
-const CSP_HEADER = "content-security-policy-report-only";
+const CSP_HEADER = "content-security-policy";
 const PUBLIC_LEGAL_PATHS = new Set(["/privacidade", "/termos"]);
 
 /**
@@ -21,9 +21,10 @@ const PUBLIC_LEGAL_PATHS = new Set(["/privacidade", "/termos"]);
  * vão para `NEXT_PUBLIC_API_URL` (independe do host).
  */
 export function middleware(req: NextRequest) {
-  // CSP em modo de teste com nonce novo por documento. O Next lê o nonce do
+  // CSP que bloqueia, com nonce novo por documento. O Next lê o nonce do
   // header do request e o aplica nos scripts que injeta; a response leva o
-  // mesmo header para o navegador. Ver src/lib/csp.mjs.
+  // mesmo header para o navegador. É o único cabeçalho de CSP do painel
+  // (inclui frame-ancestors). Ver src/lib/csp.mjs.
   const policy = buildContentSecurityPolicy({
     apiUrl: process.env.NEXT_PUBLIC_API_URL,
     dev: process.env.NODE_ENV === "development",

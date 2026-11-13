@@ -36,7 +36,7 @@ export interface BrowserSafety {
   consoleErrors: string[];
   pageErrors: string[];
   externalRequests: string[];
-  /** Violações da CSP, inclusive do modo de teste (Report-Only). */
+  /** Violações da CSP (disposição "enforce" quando a política bloqueia). */
   cspViolations: string[];
 }
 
@@ -74,8 +74,8 @@ export async function armBrowserSafety(page: Page): Promise<BrowserSafety> {
     cspViolations: [],
   };
 
-  // A CSP ainda está em modo de teste (não bloqueia); este gate faz qualquer
-  // fluxo E2E que a violaria falhar antes de a política passar a bloquear.
+  // A CSP bloqueia (cabeçalho Content-Security-Policy); este gate faz qualquer
+  // fluxo E2E que a violar falhar, em vez de quebrar a tela só em produção.
   await page.exposeFunction("__e2eCspViolation", (violation: string) => {
     safety.cspViolations.push(violation);
   });
