@@ -292,6 +292,11 @@ do backend (item 2 da seção 1) nem na ferramenta da virada (sai na Fase 6).
 | 3.3 | PRs de remoção por lote; cada uma remove os arquivos **e** ajusta quem os citava. Já decididos (D4 e D6): governança pausada (cerca de 41 scripts e `docs/governance`) e o pipeline de DEV suspenso (`dev-synthetic.yml`, variável `DEV_PIPELINE_ENABLED`, arquivos só de DEV em `deploy/`). Candidatos: `docs/sprints`, `docs/historico`, `docs/Docs20260704_*`, planos antigos, `QA-PLAN*`, `acompanhar.sh` e seu teste, `tools/render_progress.py`, `backend/scripts/apply_migrations.py`, `output/release/a3-final-local` | coberto pela 3.2 | por PR: checks verdes; `git grep` dos caminhos removidos = 0 fora de migrations; `new_migration.py` e `migrate.py` funcionando (teste) |
 | 3.4 | `ROADMAP.md` enxuto, na PR que retira `docs/historico`: mostrar na tabela da 3.2 o que sai; ficam decisões vigentes, este plano e a fila da seção 8 | coberto pela 3.2 | PR mesclada; cada obrigação antiga aparece na fila ou tem decisão de abandono |
 
+O dono aprovou a 3.2 somente para o lote documental da PR #679. Para essa PR,
+a prova de migrations da 3.3 é o teste de `migrate.py`. O merge foi
+autorizado após os quatro checks obrigatórios passarem. A retomada de
+`new_migration.py` fica na fila da seção 8, item 6.
+
 #### Fase 4 — Ferramenta da virada apontada para a `main`
 
 Justificativa: hoje a virada está travada pela regra de tempo e, mesmo
@@ -488,7 +493,10 @@ Fila registrada no ROADMAP na última PR:
    incluídas no backup.
 5. Reduzir o CI para poder tornar o repositório privado.
 6. Governança a retomar (A8/C2, E4B, D3, D6, D2A, atestações, catálogos, F1/F2)
-   e os trabalhos pausados da seção 6.
+   e os trabalhos pausados da seção 6. Retomar o gerador legado
+   `new_migration.py` com revisão do contrato de autoria e reconciliação
+   do catálogo. Na base da PR #679, faltam 58 SQLs e quatro hashes do
+   prefixo histórico divergem.
 7. Pausa de envios que preserva a fila (T5).
 8. EVT-7 (conciliar antes de reenviar); "G2b" (termo sem definição).
 9. Banco em São Paulo (B17): medição, plano e janela própria.
