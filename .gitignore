@@ -64,7 +64,7 @@ pastorai-deploy.tar
 /docs/ops/acompanhamento/mod/.claude-plugin/types/
 /docs/ops/acompanhamento/mod/tsconfig.json
 
-# Acompanhamento: arquivos gerados por ./acompanhar.sh (tarefas.json segue versionado).
+# Artefatos locais do acompanhamento aposentado.
 /docs/ops/acompanhamento/dados.js
 /docs/ops/acompanhamento/github.json
 
