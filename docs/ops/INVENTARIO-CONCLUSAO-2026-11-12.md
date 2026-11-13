@@ -323,7 +323,8 @@ remover do Git exige PR, CI verde e SIM.
 | `.git/cursor` | 35 MB | cache de editor de 07/10 |
 | `output/release` (parte ignorada) | ~3,5 MB | evidência do lote e da primeira virada; a sessão da janela pode usar |
 | ~35 scripts de governança de migrations em `backend/scripts/` | ~1 MB, rastreados | sem uso em teste, CI ou app; citados em `docs/governance` e `docs/decisions`. `new_migration.py` e `migrate.py` ficam |
-| `docs/Docs20260704_173116` e `docs/Docs20260704_173658` | 248 KB, rastreados | PRD antigo sem referência; candidato a `docs/historico` |
+| `docs/Docs20260704_173116` | 208.541 bytes, rastreados | Recorte antigo do PRD e anexos, candidatos à limpeza |
+| Discovery do PR2 de Células (04/07) | 13.827 bytes | Planejamento encerrado na [PR #99](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/99). A [decisão de Células](../design/CELULAS-DECISOES-FINAIS.md#35--ocorrência--reunião-resolve-45--estrutural) e o [contrato de UX](../design/CONTRATO-UX-CELULAS-CENTRAL.md) preservam a reunião materializada e os fluxos de presença e expectativa nominal. A migration do PR2 e os testes `test_cell_meetings.py` e `test_celulas_pr2_models.py` registram autorização, dia da semana, estados de presença e unicidade com hora nula. O original é recuperável pelo blob Git `2b5bf51c1083e24bde05abf8ec8ebe4dd4e8deb8` em `a510ea9d`. |
 | `.maestro`, `.maestri`, `.devin` | < 100 KB cada | configurações locais de ferramentas; não abertas |
 
 ### 4.4 Manter
