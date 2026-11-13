@@ -121,7 +121,7 @@ Plano de preparação aprovado só para leitura. `[OK-DONO]` marca etapa que exi
 2. **Gates confirmados (nomes só, sem valores exibidos):** `ALLOW_REAL_SENDS=true` (inclusive no broadcast), `BREVO_SEND_MODE=live`, `BROADCAST_ASYNC_ENABLED=false`, `ASAAS_BILLING_ENABLED` **ausente** do `.env`. Fatos vivos adicionais: backend/queue/cron foram **recriados em 31/10 12:53 UTC** com a mesma imagem `pastorai-backend:latest` — **origem conhecida: o operador atualizou a senha do banco no `.env`** (mesma imagem); digest do inventário A5 precisa de revalidação na véspera da janela.
 3. **Painel decidido:** manter o deployment de produção atual `pastorai-frontend-prod` (main `afdfb78d`, mesmo pin do backend); frontend da main atual só muda `vercel.json`. **Sem nova publicação.** Smoke do painel depois do backend novo em A9. Projeto `pastorai-frontend` (legado) descartado.
 4. **Acesso de escrita:** só na janela, com o dono presente — `MIGRATION_DATABASE_URL` com role dona, só no ambiente da sessão, descartada + **troca de senha ao final**. Correção de registro: `<ops-user>` tem hoje `sudo NOPASSWD` total (o plano anterior dizia sem sudo).
-5. **DEV/Vercel reconfirmados:** `dev-synthetic.yml` disabled_manually, `DEV_PIPELINE_ENABLED=false`, Vercel prod sem vínculo Git, nenhuma publicação de produção depois de `afdfb78d` (27/10).
+5. **DEV/Vercel reconfirmados:** workflow de publicação DEV em `disabled_manually`, `DEV_PIPELINE_ENABLED=false`, Vercel prod sem vínculo Git, nenhuma publicação de produção depois de `afdfb78d` (27/10).
 
 **Restam abertas (não bloqueiam plano; exigem provisão/execução só na janela):** canal de escrita à VPS na janela (sudo NOPASSWD existe; usar com comando nominal e dono por perto), credencial de banco dona descartável, revalidação de drift do inventário na véspera (containers recriados em 31/10).
 
@@ -782,9 +782,9 @@ contenção/gates, janela com SHAs e contingência, e retorno nominal do piloto.
 Consultas GitHub confirmaram #597–#601 abertas, sem merge e com os seis workflows
 verdes nos respectivos heads. Publicação/revisão externa estão autorizadas;
 VPS, produção, merge/deploy e novos ensaios físicos permanecem fora do escopo.
-Na integração, além do frontend automático na main, `dev-synthetic.yml` pode
-promover para DEV após CI se `DEV_PIPELINE_ENABLED` estiver habilitado (estado
-não verificado); isso precisa ser tratado antes de autorizar merge.
+Na avaliação da época, além do frontend automático na main, o workflow de publicação DEV
+podia promover após o CI se `DEV_PIPELINE_ENABLED` estivesse habilitado. A decisão de merge
+precisava considerar esse efeito, cujo estado ainda não tinha sido verificado.
 
 **Pacote aprovado: 18/18 integradas; 0 pendentes.** Autorização nominal recebida: “pacote aprovado para integração”, cobrindo #577–#594 e possível frontend automático Vercel. Os checks dos SHAs originais são históricos; cada head atualizado exige quatro checks e Vercel novamente. Dependentes serão direcionadas à main após integrar os pais. Backend, banco, restart e gates exigem autorização separada. Sem bypass, force push ou remoção de branches.
 
