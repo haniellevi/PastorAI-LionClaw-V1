@@ -92,6 +92,32 @@ describe("nonce dos scripts", () => {
   });
 });
 
+describe("política completa de produção", () => {
+  it("é a política que passa a bloquear (sem eval, sem script inline)", () => {
+    const policy = buildContentSecurityPolicy({
+      apiUrl: "https://api.example.test",
+      nonce: "abc123+/=",
+    });
+
+    expect(policy.split("; ")).toEqual([
+      "default-src 'self'",
+      "script-src 'self' 'nonce-abc123+/=' 'strict-dynamic'",
+      "style-src 'self' 'unsafe-inline'",
+      "style-src-elem 'self' 'nonce-abc123+/='",
+      "style-src-attr 'unsafe-inline'",
+      "img-src 'self' data: blob: https: https://api.example.test",
+      "media-src 'self' blob: https: https://api.example.test",
+      "font-src 'self' data:",
+      "connect-src 'self' https://api.example.test",
+      "frame-src 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
+    ]);
+  });
+});
+
 describe("apiOrigin", () => {
   it("usa a API local quando a variável não existe, como o painel", () => {
     expect(apiOrigin(undefined)).toBe("http://localhost:8000");

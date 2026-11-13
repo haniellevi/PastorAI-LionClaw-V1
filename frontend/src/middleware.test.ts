@@ -32,7 +32,7 @@ describe("middleware — documentos legais públicos", () => {
 });
 
 describe("middleware — CSP com nonce", () => {
-  const HEADER = "content-security-policy-report-only";
+  const HEADER = "content-security-policy";
 
   function nonceOf(policy: string | null) {
     return policy?.match(/'nonce-([^']+)'/)?.[1];
@@ -53,6 +53,13 @@ describe("middleware — CSP com nonce", () => {
     expect(response.headers.get("x-middleware-override-headers")).toContain(HEADER);
     expect(toBrowser).toContain("'strict-dynamic'");
     expect(toBrowser).not.toContain("'unsafe-inline' 'strict-dynamic'");
+  });
+
+  it("bloqueia (não usa Report-Only) e traz frame-ancestors na própria política", () => {
+    const response = middleware(request("app.igreja12.com.br", "/"));
+
+    expect(response.headers.get("content-security-policy-report-only")).toBeNull();
+    expect(response.headers.get(HEADER)).toContain("frame-ancestors 'none'");
   });
 
   it("gera um nonce novo a cada documento", () => {
