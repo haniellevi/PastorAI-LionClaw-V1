@@ -264,7 +264,7 @@ def route_intent(
     # "looks like" a report falls through to onboarding (no false confirmation,
     # no self-registered decision). Defense-in-depth: the tool executor also
     # gates the call.
-    if context.privilege.is_ministerial and looks_like_report(texto):
+    if context.privilege.is_ministerial and message_is_cell_report(texto):
         return ROUTE_REPORT
 
     # Collecting onboarding data beyond the baseline requires the term first.
@@ -272,6 +272,40 @@ def route_intent(
         return ROUTE_CONSENT
 
     return ROUTE_ONBOARDING
+
+
+_REPORT_PUNCTUATION = re.compile(
+    r"(?i:\bp\.[ \t]*ex)(?:\.(?=[ \t]*[!?]))?|(?<=\d)\.(?=\d)"
+    r"|(?P<end>[!?](?:[ \t]*[!?])*|[;\r\n]|\.(?![.!?]))"
+)
+
+
+def _report_statements(texto: str) -> str:
+    # Keep a separator where a question was removed so numbers and labels
+    # on either side cannot form a new report field.
+    start = 0
+    statements = []
+    for match in _REPORT_PUNCTUATION.finditer(texto):
+        end = match.group("end")
+        if end is None:  # Period inside a number or abbreviation.
+            continue
+        statements.append("|" if "?" in end else texto[start:match.end()])
+        start = match.end()
+    statements.append(texto[start:])
+    return "".join(statements)
+
+
+def message_is_cell_report(texto: str | None) -> bool:
+    """Gate of the legacy report route (B15).
+
+    A clause that ends in ``?`` is a question, not a report ("Vamos ter 2
+    decisões de batismo no domingo?"), so it cannot supply the keyword + number
+    pair.  Other clauses of the same message still can ("12 presentes, 3
+    visitantes. Tudo certo?").
+    """
+    if not texto:
+        return False
+    return looks_like_report(_report_statements(texto))
 
 
 def orchestrator_node(
@@ -424,7 +458,7 @@ def report_capture_node(
     """
     _trusted(state, runtime)
     texto = state.get("texto") or ""
-    report = parse_cell_report(texto)
+    report = parse_cell_report(_report_statements(texto))
 
     resumo = {
         "presentes": report.presentes,
