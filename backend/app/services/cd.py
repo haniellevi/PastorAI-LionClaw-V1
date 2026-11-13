@@ -114,10 +114,12 @@ def create_turma(db,user,payload):
         raise HTTPException(409,'Módulo e versão do currículo divergentes')
     try:
         with db.begin_nested():
-            db.execute(text('''insert into cd_turmas(id,igreja_id,curriculo_id,modulo_id,nome,criada_por)
-                values(:id,:t,:c,:m,:n,:u) on conflict(id) do nothing'''),
-                dict(id=payload.id,t=t,c=payload.curriculo_id,m=payload.modulo_id,n=payload.nome,u=uid))
-            if not rows(db, 'select id from cd_turmas where igreja_id=:t and id=:id',t=t,id=payload.id):
+            # No conflict target: the (igreja_id,id) and (igreja_id,id,modulo_id)
+            # unique indexes also arbitrate a concurrent identical request.
+            inserted=db.execute(text('''insert into cd_turmas(id,igreja_id,curriculo_id,modulo_id,nome,criada_por)
+                values(:id,:t,:c,:m,:n,:u) on conflict do nothing returning id'''),
+                dict(id=payload.id,t=t,c=payload.curriculo_id,m=payload.modulo_id,n=payload.nome,u=uid)).scalar_one_or_none()
+            if inserted is None and not rows(db, 'select id from cd_turmas where igreja_id=:t and id=:id',t=t,id=payload.id):
                 raise HTTPException(409,'Identificador de turma indisponível')
             result=turma(db,t,payload.id,True)
             if (result['curriculo_id'],result['modulo_id'],result['nome'])!=(payload.curriculo_id,payload.modulo_id,payload.nome):
