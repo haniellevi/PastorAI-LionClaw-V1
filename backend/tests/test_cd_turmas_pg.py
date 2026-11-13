@@ -290,6 +290,44 @@ def test_concurrent_curriculum_same_key(database,seeded):
         assert {(r[1],r[2]) for r in counts}=={(6,60)}
 
 
+def test_concurrent_turma_same_key(database,seeded):
+    # Identical idempotent requests through the real router must converge even
+    # when both reach the turma INSERT together: the second one hits the
+    # unique(igreja_id,id[,modulo_id]) indexes, not only the primary key.
+    v=seeded; pairs=16; hits=[]; lock=Lock(); state={'barrier':Barrier(2,timeout=10)}
+    insert=re.compile(r'insert\s+into\s+(public\.)?cd_turmas\b',re.I)
+    def meet(conn,cursor,statement,parameters,context,executemany):
+        if insert.search(statement):
+            with lock: hits.append(1)
+            state['barrier'].wait()
+    with scoped(database,v['t']) as s: c=curriculum(s,v); s.commit()
+    app=FastAPI(); app.include_router(router)
+    def db():
+        with scoped(database,v['t']) as s: yield s
+    app.dependency_overrides[get_db]=db
+    app.dependency_overrides[get_current_user]=lambda:principal(v)
+    def attempt(payload):
+        try: return TestClient(app,raise_server_exceptions=True).post('/cd/turmas',json=payload)
+        except Exception: state['barrier'].abort(); raise
+    payloads=[dict(id=str(uuid4()),nome=f'Turma sintética {i}',curriculo_id=str(c['id']),modulo_id=str(c['modulos'][0]['id'])) for i in range(pairs)]
+    pool=ThreadPoolExecutor(max_workers=2); event.listen(database,'before_cursor_execute',meet)
+    try:
+        for p in payloads:
+            state['barrier']=Barrier(2,timeout=10)
+            a=pool.submit(attempt,p); b=pool.submit(attempt,p); a,b=a.result(timeout=30),b.result(timeout=30)
+            assert (a.status_code,b.status_code)==(200,200),(a.status_code,b.status_code,a.text,b.text)
+            assert a.json()==b.json()
+    finally:
+        state['barrier'].abort(); event.remove(database,'before_cursor_execute',meet); pool.shutdown(wait=True)
+    assert len(hits)==2*pairs # coordination really ran at the INSERT
+    with scoped(database,v['t']) as s:
+        turmas=s.execute(text('select id::text,nome from cd_turmas')).all()
+    assert sorted(turmas)==sorted((p['id'],p['nome']) for p in payloads)
+    # Same id with different content still conflicts (real conflict keeps 409).
+    with TestClient(app) as client:
+        assert client.post('/cd/turmas',json=dict(payloads[0],nome='Outro nome')).status_code==409
+
+
 def test_concurrent_close_calendar_serialized(database,seeded):
     v=seeded
     with scoped(database,v['t']) as s:

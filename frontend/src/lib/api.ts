@@ -439,3 +439,86 @@ export async function changePassword(
   if (res.ok) return;
   throw new LoginError("invalid", await detailMessage(res, "Não foi possível alterar a senha."));
 }
+
+export type AssistantErrorKind =
+  | "forbidden" // 403: o servidor não permite este uso
+  | "unavailable" // rede, tempo esgotado ou erro 5xx do serviço
+  | "invalid"; // 4xx de validação (texto vazio ou longo demais)
+
+export class AssistantError extends Error {
+  readonly kind: AssistantErrorKind;
+  constructor(kind: AssistantErrorKind, message: string) {
+    super(message);
+    this.name = "AssistantError";
+    this.kind = kind;
+  }
+}
+
+export interface AssistantReply {
+  resposta: string;
+  telasSugeridas: string[];
+}
+
+// A resposta pode passar por modelo de IA da igreja; prazo maior que o padrão.
+const ASSISTANT_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Pergunta ao assistente do sistema (RF-47). A igreja (`tenantId`) vem da
+ * sessão; quem autoriza e filtra as telas sugeridas é o servidor.
+ */
+export async function sendAssistantMessage(
+  token: string,
+  tenantId: string,
+  texto: string,
+  signal?: AbortSignal,
+): Promise<AssistantReply> {
+  let res: Response;
+  try {
+    res = await fetchWithDeadline(
+      `${API_BASE}/assistant/message`,
+      {
+        method: "POST",
+        cache: "no-store",
+        signal,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tenantId, texto }),
+      },
+      ASSISTANT_REQUEST_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new AssistantError("unavailable", "Não foi possível conectar. Tente novamente.");
+  }
+  if (res.status === 401) throw new SessionExpiredError();
+  if (res.status === 403) {
+    throw new AssistantError(
+      "forbidden",
+      "Seu acesso não permite usar o assistente. Fale com o administrador da igreja.",
+    );
+  }
+  if (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429) {
+    throw new AssistantError(
+      "invalid",
+      await detailMessage(res, "Não foi possível enviar esta mensagem."),
+    );
+  }
+  if (!res.ok) {
+    throw new AssistantError(
+      "unavailable",
+      "O assistente está indisponível agora. Tente novamente em instantes.",
+    );
+  }
+  const body: unknown = await res.json().catch(() => null);
+  if (
+    !isRecord(body) ||
+    typeof body.resposta !== "string" ||
+    !Array.isArray(body.telasSugeridas) ||
+    !body.telasSugeridas.every((tela) => typeof tela === "string")
+  ) {
+    throw new AssistantError(
+      "unavailable",
+      "O assistente está indisponível agora. Tente novamente em instantes.",
+    );
+  }
+  return { resposta: body.resposta, telasSugeridas: body.telasSugeridas };
+}

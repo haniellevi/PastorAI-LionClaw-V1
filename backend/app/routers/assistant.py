@@ -92,6 +92,7 @@ def assistant_message(
         igreja_id=current_user.igreja_id,
         roles=effective_roles,
         texto=payload.texto,
+        is_owner=current_user.is_owner,
     )
 
     logger.info(

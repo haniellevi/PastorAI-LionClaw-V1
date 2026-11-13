@@ -22,6 +22,7 @@ import { JourneyStepper } from "./JourneyStepper";
 import { preloadScreenModule } from "./screen-loaders";
 import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
+import { AssistenteLauncher } from "@/components/assistente/AssistenteLauncher";
 import { usePrayerAccess } from "@/components/prayer/usePrayerAccess";
 import { Topbar } from "./Topbar";
 import { useDrawerA11y } from "./useDrawerA11y";
@@ -75,6 +76,18 @@ export function AppShell() {
   const resolvedRoute = allowed ? route : "dashboard";
   const resolvedParam = allowed ? param : null;
   const mainRef = useRouteMainFocus(resolvedRoute);
+
+  // Telas que o assistente pode sugerir: só as que este usuário abre no painel.
+  const canOpenScreen = useCallback(
+    (target: string) => {
+      if (!user || !Object.hasOwn(SCREEN_META, target) || LOCKED_SCREENS.has(target)) return false;
+      if (ADMIN_ONLY_SET.has(target)) return false;
+      if (OWNER_ONLY.has(target) && !user.isOwner) return false;
+      if (target === "pedidos-oracao") return prayerAccess === true;
+      return ALWAYS_ALLOWED.has(target) || canSee(target, user.roles, matrix);
+    },
+    [user, matrix, prayerAccess],
+  );
 
   const warmRoute = useCallback(
     (target: string) => {
@@ -181,6 +194,7 @@ export function AppShell() {
           route={resolvedBase}
           menuOpen={mobileOpen}
           onMenuToggle={() => setMobileOpen((v) => !v)}
+          action={<AssistenteLauncher canOpenScreen={canOpenScreen} />}
         />
         <JourneyStepper />
         <ScreenView route={resolvedBase} param={resolvedParam} />

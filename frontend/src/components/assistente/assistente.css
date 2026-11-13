@@ -1,0 +1,103 @@
+.assistente-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+}
+/* Só no desktop: no celular vale a sheet de largura total do ds.css. */
+@media (min-width: 861px) {
+  .assistente-dialog {
+    width: min(560px, calc(100% - var(--s6)));
+  }
+}
+.assistente-log {
+  display: grid;
+  gap: var(--s3);
+  max-height: min(48dvh, 420px);
+  min-height: 120px;
+  overflow-y: auto;
+  align-content: start;
+  margin-bottom: var(--s3);
+}
+.assistente-msg {
+  display: grid;
+  gap: var(--s1);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  overflow-wrap: anywhere;
+}
+.assistente-msg--usuario {
+  background: var(--selection-soft);
+  justify-self: end;
+  max-width: 92%;
+}
+.assistente-msg--assistente {
+  background: var(--surface-panel);
+  justify-self: start;
+  max-width: 92%;
+}
+.assistente-msg-autor {
+  margin: 0;
+  font: var(--type-meta);
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+.assistente-msg-texto {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.assistente-telas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.assistente-telas a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--border-emphasis);
+  border-radius: var(--radius-pill);
+  color: var(--action-primary);
+  font: var(--type-label);
+  text-decoration: none;
+}
+.assistente-telas a:hover {
+  background: var(--selection-soft);
+}
+.assistente-pensando {
+  margin: 0;
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.assistente-form {
+  flex: 1 1 100%;
+  display: grid;
+  gap: var(--s3);
+  justify-items: end;
+}
+.assistente-form .ds-field {
+  justify-self: stretch;
+}
+@media (max-width: 860px) {
+  .assistente-trigger-text {
+    display: none;
+  }
+  .assistente-trigger {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+  }
+}
+/* Slot de ação da topbar (shell): fica colado nos papéis, à direita. */
+.tb-action {
+  margin-left: auto;
+  flex: none;
+}
+.tb-action + .who {
+  margin-left: 0;
+}
