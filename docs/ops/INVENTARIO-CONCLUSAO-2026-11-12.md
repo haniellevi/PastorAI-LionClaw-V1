@@ -310,7 +310,7 @@ remover do Git exige PR, CI verde e SIM.
 
 | Caminho | Estado | Ajuste necessário |
 |---|---|---|
-| `acompanhar.sh` | rastreado | remover junto `backend/tests/test_acompanhar_script.py`, que roda no CI |
+| Entrada do acompanhamento antigo | arquivada | O script aposentado e seu teste estão no [histórico do Git](https://github.com/haniellevi/PastorAI-LionClaw-V1/tree/16be7829e429671bbbef643afc6f45b92c9a48e1). O planejamento atual fica no ROADMAP. |
 | `tools/render_progress.py` | rastreado | o ROADMAP manda rodá-lo; só sai se o painel local for encerrado e o ROADMAP editado |
 | `backend/scripts/apply_migrations.py` | rastreado | proibido pelo AGENTS, mas citado em `docs/ai/AI-BOOTSTRAP.md` e na cobertura |
 | `output/painel` | ignorado | saída do `render_progress.py`; ajustar o ROADMAP |

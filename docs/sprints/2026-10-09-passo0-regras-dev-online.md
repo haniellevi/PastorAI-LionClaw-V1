@@ -19,9 +19,9 @@
   substituído pelo plano consolidado de 09/10: sequência única, critérios de
   aceite, limites de validação e apêndice das propostas retiradas. É a única
   fonte técnica versionada; o plano anterior deste PR ficou no histórico do Git.
-- Acompanhamento visual em [`docs/ops/acompanhamento/` arquivado](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/acompanhamento/README.md):
-  `tarefas.json` (registro), painel estático (`painel.html`) e `./acompanhar.sh`.
-  Procedimento curto registrado em `AGENTS.md`.
+- O [acompanhamento visual da época](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/acompanhamento/README.md)
+  usava `tarefas.json` como registro, um painel estático (`painel.html`) e um
+  comando hoje aposentado. O planejamento atual fica no [ROADMAP](../../ROADMAP.md).
 - Mod do Claude Code ([arquivo histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/acompanhamento/mod/hooks/register.js), comandos `/plano` e
   `/plano-faixa`): pipeline e barras de progresso dentro do Claude Code, lendo
   `dados.js`. Não carrega com `disableAllHooks` ligado.
@@ -34,10 +34,10 @@
   primeira extração de domínio é só a validação do visitante (F1).
 - `npm audit --omit=dev` aprovado não significa ausência de vulnerabilidades no
   grafo completo; a triagem das altas restantes é tarefa separada (S4).
-- O painel só mostra o que está em `tarefas.json` e na última leitura do GitHub
-  (`github.json`, gerado e local); não há percentual de esforço nem prazo.
-- `dados.js` e `github.json` não são versionados: em checkout novo,
-  `./acompanhar.sh offline` gera o painel com aviso de falta de dados do GitHub.
+- O painel da época mostrava `tarefas.json` e a última leitura do GitHub
+  (`github.json`, gerado localmente). O painel não mostrava percentual de esforço nem prazo.
+- `dados.js` e `github.json` ficavam fora do Git. Em um checkout novo, o
+  modo offline gerava o painel com um aviso quando faltavam dados do GitHub.
 
 ## Pendente / próximo passo
 - Integração do #463 (dependências) pelo proprietário. Depois, atualizar a base
