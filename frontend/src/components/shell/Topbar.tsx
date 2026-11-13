@@ -4,6 +4,8 @@
  * Topbar do app shell: título/crumb da rota ativa e chips de papéis
  * (papéis detectados no cadastro — união acumulada).
  */
+import type { ReactNode } from "react";
+
 import { InfoTip } from "@/components/ui/InfoTip";
 import { RoleBadgeList } from "@/components/ui/RoleBadge";
 import { DiamondMark } from "@/components/brand/DiamondMark";
@@ -23,6 +25,8 @@ interface TopbarProps {
   menuButton?: boolean;
   /** Estado do drawer (aria-expanded do hambúrguer — Gate 6.1). */
   menuOpen?: boolean;
+  /** Ação extra à direita, antes dos papéis (ex.: assistente do sistema). */
+  action?: ReactNode;
 }
 
 export function Topbar({
@@ -31,6 +35,7 @@ export function Topbar({
   onMenuToggle,
   menuButton = false,
   menuOpen = false,
+  action,
 }: TopbarProps) {
   const meta = SCREEN_META[route] ?? { title: "Igreja 12", crumb: "" };
   const group = groupLabelForScreen(route);
@@ -66,6 +71,7 @@ export function Topbar({
           {meta.info ? <InfoTip text={meta.info} /> : null}
         </div>
       </div>
+      {action ? <div className="tb-action">{action}</div> : null}
       <div className="who" title="Papéis detectados no seu cadastro">
         <RoleBadgeList roles={user.roles} />
       </div>
