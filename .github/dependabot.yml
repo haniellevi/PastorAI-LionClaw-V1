@@ -1,7 +1,5 @@
-# Atualizacoes automaticas de dependencias (semanal, poucas PRs por vez).
-# Cada ecossistema abre no maximo 3 PRs; atualizacoes minor/patch vem agrupadas
-# em uma so PR. Majors chegam separadas. As PRs passam pelos mesmos checks
-# obrigatorios (backend-tests, frontend-ci, e2e-critical, rls-integration).
+# PRs automaticas de versao pausadas durante o Plano Casa Limpa (tarefa 2.6).
+# Agenda e grupos ficam configurados para a retomada.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -10,7 +8,7 @@ updates:
       interval: weekly
       day: monday
       timezone: America/Sao_Paulo
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels: [dependencies]
     commit-message:
       prefix: "chore(deps)"
@@ -25,7 +23,7 @@ updates:
       interval: weekly
       day: monday
       timezone: America/Sao_Paulo
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels: [dependencies]
     commit-message:
       prefix: "chore(deps)"
@@ -41,7 +39,7 @@ updates:
       interval: weekly
       day: monday
       timezone: America/Sao_Paulo
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels: [dependencies]
     commit-message:
       prefix: "chore(deps)"
@@ -55,7 +53,7 @@ updates:
       interval: weekly
       day: monday
       timezone: America/Sao_Paulo
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels: [dependencies]
     commit-message:
       prefix: "chore(ci)"
