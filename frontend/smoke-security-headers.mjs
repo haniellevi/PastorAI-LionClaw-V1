@@ -56,6 +56,7 @@ function request(port, path, host = "app.igreja12.com.br") {
           resolve({
             status: res.statusCode,
             headers: res.headers,
+            cspHeaderCount: res.headersDistinct[CSP]?.length ?? 0,
             body: Buffer.concat(chunks).toString("utf8"),
           });
         });
@@ -75,6 +76,7 @@ function assertFixedHeaders(response, label) {
 
 function assertDocumentHeaders(response, label) {
   assertFixedHeaders(response, label);
+  assert.equal(response.cspHeaderCount, 1, `${label}: exatamente um cabeçalho CSP`);
   assert.equal(
     response.headers["content-security-policy-report-only"],
     undefined,
@@ -159,10 +161,21 @@ try {
     scripts += assertDocumentHeaders(surface, host);
   }
 
+  const dottedNotFound = await request(port, "/rota-inexistente.html");
+  assert.equal(dottedNotFound.status, 404, "404 com ponto: status");
+  scripts += assertDocumentHeaders(dottedNotFound, "404 com ponto");
+
+  for (const path of ["/privacidade", "/termos"]) {
+    const legalPage = await request(port, path);
+    assert.equal(legalPage.status, 200, `${path}: status`);
+    scripts += assertDocumentHeaders(legalPage, path);
+  }
+
   const asset = await request(port, "/icon.svg");
   assert.equal(asset.status, 200, "public asset: status");
   assertFixedHeaders(asset, "public asset");
   assert.equal(asset.headers[CSP], undefined, "public asset: sem CSP (não é documento)");
+  assert.equal(asset.headers["content-security-policy-report-only"], undefined);
 
   const chunkPath = appPage.body.match(
     /(?:src|href)="([^"?]*\/_next\/static\/[^"?]+\.(?:js|css))(?:\?[^" ]*)?"/,
@@ -190,7 +203,7 @@ try {
   }
 
   console.log(
-    `SECURITY_HEADERS_RUNTIME_OK pages=4 nonces=${seenNonces.size} scripts=${scripts} ` +
+    `SECURITY_HEADERS_RUNTIME_OK pages=7 nonces=${seenNonces.size} scripts=${scripts} ` +
       `asset=1 chunk=1 redirect=308 ` +
       `redirect_headers=${redirectHeaderCount === fixedHeaderNames.length ? "presentes" : "fora_da_cobertura"}`,
   );

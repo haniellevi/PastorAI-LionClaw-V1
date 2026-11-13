@@ -4,6 +4,22 @@ import { buildContentSecurityPolicy, generateNonce } from "./lib/csp.mjs";
 
 const CSP_HEADER = "content-security-policy";
 const PUBLIC_LEGAL_PATHS = new Set(["/privacidade", "/termos"]);
+const PUBLIC_ASSET_PATHS = new Set([
+  "/apple-touch-icon.png",
+  "/favicon.ico",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-maskable-512.png",
+  "/icon-maskable.svg",
+  "/icon.svg",
+  "/manifest.webmanifest",
+  "/brand/assinatura-horizontal.svg",
+  "/brand/diamante-compacta.svg",
+  "/brand/diamante-mono.svg",
+  "/brand/diamante-silhueta-16.svg",
+  "/brand/diamante-simbolo-128.png",
+  "/brand/diamante-simbolo.svg",
+]);
 
 /**
  * Roteia as três superfícies por subdomínio (mesmo deployment):
@@ -21,6 +37,9 @@ const PUBLIC_LEGAL_PATHS = new Set(["/privacidade", "/termos"]);
  * vão para `NEXT_PUBLIC_API_URL` (independe do host).
  */
 export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+  if (PUBLIC_ASSET_PATHS.has(pathname)) return NextResponse.next();
+
   // CSP que bloqueia, com nonce novo por documento. O Next lê o nonce do
   // header do request e o aplica nos scripts que injeta; a response leva o
   // mesmo header para o navegador. É o único cabeçalho de CSP do painel
@@ -42,7 +61,6 @@ export function middleware(req: NextRequest) {
 
   const rawHost = req.headers.get("host") ?? "";
   const host = (rawHost.split(":")[0] ?? "").toLowerCase();
-  const { pathname } = req.nextUrl;
 
   // Documentos públicos existem na raiz em todas as três superfícies. Sem
   // esta exceção, admin./painel. reescreveriam para rotas inexistentes.
@@ -76,6 +94,6 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Ignora assets do Next, favicon e arquivos com extensão (estáticos).
-  matcher: ["/((?!_next/|favicon\\.ico|.*\\..*).*)"],
+  // Caminhos com ponto também podem devolver documentos HTML, como um 404.
+  matcher: ["/((?!_next/).*)"],
 };
