@@ -60,8 +60,10 @@ CLONE_LIST = '/tmp/igreja12-window.list'
 MAX_LIST = 8 << 20
 STDERR_BOUND = 65536
 # pg_restore -l entry: "<dump id>; <catalog oid> <oid> <DESC> <namespace|-> <tag...> <owner|->"
+# The owner can be EMPTY (EXTENSION and its COMMENT on Supabase): the line then ends in a bare space,
+# e.g. "5; 3079 16608 EXTENSION - supabase_vault ". Hence the optional owner is ``(?: \S*)?``, not ``(?: \S+)?``.
 TOC_ENTRY = re.compile(r'(\d+); \d+ \d+ (.+)')
-TOC_VAULT_EXTENSION = re.compile(r'(?:EXTENSION - supabase_vault|COMMENT - EXTENSION supabase_vault)(?: \S+)?')
+TOC_VAULT_EXTENSION = re.compile(r'(?:EXTENSION - supabase_vault|COMMENT - EXTENSION supabase_vault)(?: \S*)?')
 # Any entry whose namespace is the vault schema (TABLE DATA, SEQUENCE SET, ACL, COMMENT, ...). The namespace is the
 # token right after a DESC from a fixed vocabulary, so ``TABLE public vault_notes`` and ``TABLE DATA SALES vault x``
 # are NOT matched.
@@ -71,10 +73,10 @@ NAMESPACED_KINDS = ('TABLE DATA', 'SEQUENCE SET', 'SEQUENCE OWNED BY', 'SEQUENCE
                     'CONSTRAINT', 'INDEX', 'TRIGGER', 'POLICY', 'ROW SECURITY', 'DEFAULT', 'RULE', 'OPERATOR',
                     'STATISTICS', 'COLLATION', 'CAST')
 TOC_VAULT_SCHEMA = re.compile('(?:' + '|'.join(re.escape(k) for k in sorted(NAMESPACED_KINDS, key=len, reverse=True))
-                              + r') (?:vault .*|- SCHEMA vault(?: \S+)?)')
+                              + r') (?:vault .*|- SCHEMA vault(?: \S*)?)')
 EXCLUDED_KEYS = ('event_trigger_names', 'event_triggers', 'vault_extension', 'vault_schema')
 TOC_EVENT_TRIGGER = re.compile(r'EVENT TRIGGER - (\S+) (\S+)')
-TOC_EVENT_COMMENT = re.compile(r'COMMENT - EVENT TRIGGER (\S+)(?: \S+)?')
+TOC_EVENT_COMMENT = re.compile(r'COMMENT - EVENT TRIGGER (\S+)(?: \S*)?')
 # Fixed vocabulary of the object kind that stopped pg_restore (never a name, value or message text).
 RESTORE_KINDS = ('EXTENSION', 'EVENT TRIGGER', 'PUBLICATION TABLE', 'PUBLICATION', 'SCHEMA', 'TABLE DATA', 'TABLE',
                  'FUNCTION', 'PROCEDURE', 'TRIGGER', 'VIEW', 'MATERIALIZED VIEW', 'POLICY', 'INDEX', 'FK CONSTRAINT',
