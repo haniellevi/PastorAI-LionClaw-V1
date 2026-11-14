@@ -803,7 +803,7 @@ Ferramenta: `deploy/first_transition_window.py` (modos somente leitura `status`,
 `4318a07afb97b835a9c54931e6951a326af28ff3` (`130` migrations = `78` de base +
 `52` pendentes, sendo `44` transacionais e `8` `CONCURRENTLY`). O modo `run` vai
 da contenção até a A9 numa execução só, parando sempre após gravar `ddl-marker`
-em qualquer queda ou recusa (`transition-stopped`). O modo `a10` é uma execução
+em qualquer queda ou recusa (`transition-stopped` no orquestrador; JSON da CLI com `"refused": "window-transition-refused"` e estado em `recovery.state`). O modo `a10` é uma execução
 separada, e `resume-legacy` atua exclusivamente antes do marcador.
 
 ### 12.0 A VPS é compartilhada: a janela para só a Igreja 12
@@ -942,7 +942,9 @@ $PY -E -s $T status --config $W/first-transition.json
 Retomada pré-marcador do sistema antigo pelo mesmo diário (`resume_legacy` /
 subcomando CLI `resume-legacy`, permitida somente nos estados
 `contained-pre-ddl`, `backup-window-used` e `resume-partial`; recusa com
-`post-ddl-resume-forbidden` se houver `ddl-marker`):
+`post-ddl-resume-forbidden` no orquestrador — emitido pela CLI como
+`"refused": "window-transition-refused"` com `legacy_resume_allowed: false` —
+se houver `ddl-marker`):
 
 ```bash
 $PY -E -s $T resume-legacy $ARGS --expect-plan-digest <plan> --expect-window-digest <window> --resume-token <RESUME:...> [--allow-queue-drift]
@@ -960,9 +962,9 @@ Estados exatos retornados por `classify_recovery()` (`status` e campo
 | `backup-window-used` | Pré-marcador | `true` | Solicitação/backup da janela já registrada (`run` recusa reusar a solicitação). Executar `resume-legacy`; nova tentativa exige novo diário. |
 | `resume-partial` | Pré-marcador | `true` | Retomada pré-marcador interrompida no meio. Repetir `resume-legacy` com o mesmo `--resume-token` (usar `--allow-queue-drift` só se houver autorização explícita para drift após assentamento). |
 | `legacy-resumed` | Pré-marcador | `false` | Sistema antigo religado e ingress aberto. Qualquer nova janela exige novo diário limpo. |
-| `ddl-ambiguous` | Pós-marcador | `false` | Migration aberta ou resultado ambíguo (`run` recusa com `transition-stopped`). Sem retry e sem legado. Inspecionar ledger e índices inválidos em leitura; decidir por SIM próprio entre correção adiante ou restore manual de `window_backup_id`. |
-| `ddl-failed` | Pós-marcador | `false` | Falha transacional definitiva (`definite=true`, `run` recusa com `transition-stopped`). Sem retry e sem legado. Decidir por SIM próprio entre restore manual do `window.dump` ligado ao `window_backup_id` do marcador ou correção adiante. |
-| `post-ddl-failed` | Pós-marcador | `false` | Falha ou queda brusca pós-`ddl-marker` fora de migration/layout (inclui divergência `clone-source-schema-divergence` ou queda antes do layout). `run` recusa com `transition-stopped`; manter ingress bloqueado e inspecionar ledger/catálogo em leitura. |
+| `ddl-ambiguous` | Pós-marcador | `false` | Migration aberta ou resultado ambíguo (`run` recusa no orquestrador com `transition-stopped`; JSON da CLI `"refused": "window-transition-refused"` + `recovery.state`). Sem retry e sem legado. Inspecionar ledger e índices inválidos em leitura; decidir por SIM próprio entre correção adiante ou restore manual de `window_backup_id`. |
+| `ddl-failed` | Pós-marcador | `false` | Falha transacional definitiva (`definite=true`, `run` recusa no orquestrador com `transition-stopped`; JSON da CLI `"refused": "window-transition-refused"` + `recovery.state`). Sem retry e sem legado. Decidir por SIM próprio entre restore manual do `window.dump` ligado ao `window_backup_id` do marcador ou correção adiante. |
+| `post-ddl-failed` | Pós-marcador | `false` | Falha ou queda brusca pós-`ddl-marker` fora de migration/layout (inclui divergência `clone-source-schema-divergence` ou queda antes do layout). `run` recusa no orquestrador com `transition-stopped` (JSON da CLI `"refused": "window-transition-refused"` + `recovery.state`); manter ingress bloqueado e inspecionar ledger/catálogo em leitura. |
 | `candidate-failed` | Pós-marcador | `false` | Falha após criação do layout do candidato (`transition-done: layout` + `transition-failed`). Consumidores permanecem held, ingress bloqueado; decisão humana. |
 | `candidate-ambiguous` | Pós-marcador | `false` | Passo `a9:*` interrompido/ambíguo. Nada é reiniciado ou removido automaticamente; inspecionar o projeto candidato em leitura. |
 | `a9-complete` | Pós-marcador | `false` | 130 migrations aplicadas, catálogo conferido, backend **A** no ar com envios fechados e smoke verde, workers held e ingress bloqueado. Seguir para `a10` após **SIM 4**. |
@@ -1255,9 +1257,10 @@ e `5.2`.
 
 **Fatos operacionais vigentes (atualizados na Fase 4):**
 
-1. Gates repetidos idênticos nos contêineres (ex.: `ALLOW_REAL_SENDS=true`
-   repetido em `broadcast-worker`): tratados como um só; valores divergentes
-   continuam recusando (`candidate-inspect-gates`).
+1. Gates repetidos idênticos nos contêineres legados (ex.: `ALLOW_REAL_SENDS=true`
+   repetido em `broadcast-worker`): tratados como um só por `_unique_gates`;
+   valores divergentes no legado recusam com `driver-inspect-gates`, enquanto
+   no candidato qualquer repetição de gate recusa com `candidate-inspect-gates`.
 2. Na sessão do aplicador (`postgres` sem `SUPERUSER`, `rolbypassrls=true`,
    `rolcreaterole=true`, `statement_timeout = '2min'`, `lock_timeout = 0`):
    - **Não alterar a role persistente no Supabase** (`ALTER ROLE`). `PGOPTIONS`
@@ -1363,7 +1366,7 @@ root com as variáveis acima.
 | 09:30 | V7 foto dos outros sistemas (V4 dispensado, D13) | 10 min | bloco da seção 12.0 | Algum outro sistema fora do ar: não abrir a janela. |
 | 10:00 | **SIM 2** — J1 abrir a janela | 5 min | `$PY -E -s $T prepare $ARGS` e conferir `plan_digest` e `window_digest` do V9 final; registrar início UTC, operador, 120 min e SHAs | Digest diferente: parar; algo mudou desde o V9. |
 | 10:05 | J2 pausar só o backup da Igreja 12 | 2 min | `mv /etc/cron.d/pastorai-backup /root/pastorai-backup.cron.pausado` | Se não existir, conferir com `ls /etc/cron.d/` e anotar. Nunca parar o serviço `cron`. |
-| 10:07 | **SIM 3** — J3 a J6 (`run`, inclui o ponto de não retorno) | 20–35 min | `$PY -E -s $T run $ARGS --expect-plan-digest <plan> --expect-window-digest <window>` | Consultar `$PY -E -s $T status --config $W/first-transition.json`. Pré-marcador (`contained-pre-ddl`, `backup-window-used`): `resume-legacy` se autorizado. Pós-marcador (`ddl-marker`): `run` recusa sempre (`transition-stopped`); seguir tabela 12.2.1. |
+| 10:07 | **SIM 3** — J3 a J6 (`run`, inclui o ponto de não retorno) | 20–35 min | `$PY -E -s $T run $ARGS --expect-plan-digest <plan> --expect-window-digest <window>` | Consultar `$PY -E -s $T status --config $W/first-transition.json`. Pré-marcador (`contained-pre-ddl`, `backup-window-used`): `resume-legacy` se autorizado. Pós-marcador (`ddl-marker`): `run` recusa sempre (`transition-stopped` no orquestrador; JSON da CLI `"refused": "window-transition-refused"` e estado em `recovery.state`); seguir tabela 12.2.1. |
 | 10:40 | anotar `a10_token` do resultado | 1 min | — | Resultado sem `a10_token`: não seguir para a A10. |
 | 10:42 | **SIM 4** — J7 A10 | 5–10 min | `$PY -E -s $T a10 $ARGS --expect-plan-digest <plan> --expect-window-digest <window> --a10-token <a10_token>` | Se `a10-partial`, repetir o mesmo comando `a10`. Se `a10-contained` ou `a10-containment-incomplete`, seguir tabela 12.2.1 sem reabrir sozinho. |
 | 10:52 | **SIM 5** — J8 painel de **A** (`4318a07a`) | 15 min | no computador do operador: `cd <pasta>/frontend` e `vercel --prod` (seção 12.5) | Avaliar rollback na tabela de compatibilidade 12.5/12.7 antes de decidir `vercel rollback` vs correção adiante; backend e gates ficam como estão. |

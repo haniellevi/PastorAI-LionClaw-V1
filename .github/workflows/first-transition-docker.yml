@@ -10,12 +10,18 @@ on:
       - .github/workflows/first-transition-docker.yml
       - deploy/first_transition_*.py
       - deploy/initial_transition*.py
+      - deploy/package_backend_release.py
+      - deploy/release_topology.py
+      - deploy/release_preflight.py
       - deploy/tests/test_first_transition_*.py
   pull_request:
     paths:
       - .github/workflows/first-transition-docker.yml
       - deploy/first_transition_*.py
       - deploy/initial_transition*.py
+      - deploy/package_backend_release.py
+      - deploy/release_topology.py
+      - deploy/release_preflight.py
       - deploy/tests/test_first_transition_*.py
 
 permissions:

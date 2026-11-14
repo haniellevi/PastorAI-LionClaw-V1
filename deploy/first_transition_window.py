@@ -393,7 +393,7 @@ def run(args, out=print, *, a10=False):
     prepared = _init_inputs(args)
     token = getattr(args, 'a10_token', None)
     require(bool(token) == a10 and (not a10 or re.fullmatch('[0-9a-f]{64}', token)), 'window-a10-token')
-    io, c = args._io, prepared.config
+    c = prepared.config
     # Before any journal, quiescence or host effect: a window without the pinned restore exclusions is lost late.
     require(prepared.backup.restore_excluded_expected, 'window-backup-restore-excluded')
     secret, database, ingress, writers = _open_bindings(args, prepared)
@@ -452,7 +452,7 @@ def resume_legacy(args, out=print):
         transition = _assemble_transition(args, prepared, journal, secret, database, ingress, writers)
         try:
             result = transition.resume_legacy(token, allow_queue_drift=bool(getattr(args, 'allow_queue_drift', False)))
-        except BaseException as exc:
+        except BaseException as exc:  # noqa: BLE001 - surface interruption as CLI exit 2 with recovery diagnostics
             code = 'window-transition-refused' if isinstance(exc, Exception) else 'window-transition-interrupted'
             out(json.dumps(dict(refused=code, recovery=transition.recovery(),
                                 assertions_are_authorization=False), sort_keys=True))
