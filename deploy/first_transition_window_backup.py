@@ -65,13 +65,99 @@ RUNTIME_ROLE_NAMES = (
     'queue_worker_runtime',
     'service_role',
 )
-Q_SOURCE_ROLES = "SELECT rolname FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY rolname COLLATE \"C\""
+Q_SOURCE_ROLES = "SELECT rolname FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY oid, rolname COLLATE \"C\""
 Q_SOURCE_EXTENSIONS = (
     "SELECT e.extname::text, r.rolname::text FROM pg_extension e "
     "JOIN pg_roles r ON r.oid = e.extowner "
     "JOIN pg_namespace n ON n.oid = e.extnamespace "
     "WHERE n.nspname = 'public' ORDER BY e.extname COLLATE \"C\""
 )
+Q_SOURCE_TRUSTED_EXTENSION_OWNER = (
+    "SELECT CASE WHEN r.rolsuper THEN r.rolname::text "
+    "ELSE (SELECT b.rolname::text FROM pg_roles b WHERE b.oid = 10) END "
+    "FROM pg_roles r WHERE r.rolname = current_user"
+)
+Q_ALIGN_EXTENSION_OWNERS = """
+DO $$
+DECLARE
+    v_ext text := nullif(current_setting('igreja12.ext_name', true), '');
+    v_from_owner text := nullif(current_setting('igreja12.ext_from_owner', true), '');
+    v_owner text := current_setting('igreja12.ext_owner');
+    rec record;
+    acl record;
+BEGIN
+    FOR rec IN
+        SELECT p.oid::regprocedure AS sig, p.proacl IS NULL AS acl_null
+        FROM pg_depend d
+        JOIN pg_extension e ON e.oid = d.refobjid
+        JOIN pg_proc p ON p.oid = d.objid
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE d.deptype = 'e' AND n.nspname = 'public'
+          AND (v_ext IS NULL OR e.extname = v_ext)
+          AND (v_from_owner IS NULL OR p.proowner = v_from_owner::regrole)
+          AND p.proowner <> v_owner::regrole
+        ORDER BY 1
+    LOOP
+        EXECUTE format('ALTER FUNCTION %s OWNER TO %I', rec.sig, v_owner);
+        IF v_from_owner IS NOT NULL AND rec.acl_null THEN
+            EXECUTE format('SET LOCAL ROLE %I', v_owner);
+            FOR acl IN
+                SELECT r.rolname AS grantee, a.privilege_type, a.is_grantable
+                FROM pg_default_acl d
+                CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+                JOIN pg_roles r ON r.oid = a.grantee
+                WHERE d.defaclrole = v_owner::regrole
+                  AND d.defaclnamespace IN (0, 'public'::regnamespace)
+                  AND d.defaclobjtype = 'f'
+            LOOP
+                EXECUTE format(
+                    'GRANT %s ON FUNCTION %s TO %I%s',
+                    acl.privilege_type, rec.sig, acl.grantee,
+                    CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+                );
+            END LOOP;
+            RESET ROLE;
+        END IF;
+    END LOOP;
+    FOR rec IN
+        SELECT t.oid::regtype AS typ, t.typacl IS NULL AS acl_null
+        FROM pg_depend d
+        JOIN pg_extension e ON e.oid = d.refobjid
+        JOIN pg_type t ON t.oid = d.objid
+        JOIN pg_namespace n ON n.oid = t.typnamespace
+        WHERE d.deptype = 'e' AND n.nspname = 'public'
+          AND (v_ext IS NULL OR e.extname = v_ext)
+          AND (v_from_owner IS NULL OR t.typowner = v_from_owner::regrole)
+          AND t.typowner <> v_owner::regrole
+          AND (t.typelem = 0 OR NOT EXISTS (
+              SELECT 1 FROM pg_type e2 WHERE e2.oid = t.typelem AND e2.typarray = t.oid
+          ))
+        ORDER BY 1
+    LOOP
+        EXECUTE format('ALTER TYPE %s OWNER TO %I', rec.typ, v_owner);
+        IF v_from_owner IS NOT NULL AND rec.acl_null THEN
+            EXECUTE format('SET LOCAL ROLE %I', v_owner);
+            FOR acl IN
+                SELECT r.rolname AS grantee, a.privilege_type, a.is_grantable
+                FROM pg_default_acl d
+                CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+                JOIN pg_roles r ON r.oid = a.grantee
+                WHERE d.defaclrole = v_owner::regrole
+                  AND d.defaclnamespace IN (0, 'public'::regnamespace)
+                  AND d.defaclobjtype = 'T'
+            LOOP
+                EXECUTE format(
+                    'GRANT %s ON TYPE %s TO %I%s',
+                    acl.privilege_type, rec.typ, acl.grantee,
+                    CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+                );
+            END LOOP;
+            RESET ROLE;
+        END IF;
+    END LOOP;
+END
+$$;
+"""
 Q_APPLICATOR_ROLE = (
     "SELECT current_user, current_setting('statement_timeout'), r.rolsuper, r.rolbypassrls, "
     "r.rolcreaterole, r.rolcreatedb, r.rolinherit, r.rolcanlogin, r.rolreplication "
@@ -277,6 +363,30 @@ def source_public_extensions(connect, *, timeout=10):
         conn.close()
     require(all(ROLE.fullmatch(ext) and ROLE.fullmatch(owner) for ext, owner in items), 'window-backup-source-roles')
     return items
+
+
+def source_trusted_extension_owner(connect, default='postgres', *, timeout=10):
+    """Owner that PostgreSQL assigns to trusted-extension members executed on source."""
+    require(isinstance(default, str) and ROLE.fullmatch(default), 'window-backup-source-roles')
+    conn = connect(timeout=timeout)
+    try:
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(fdb.Q_BEGIN)
+        try:
+            cur.execute(fdb.Q_TIMEOUT, (f'{int(timeout * 1000)}ms',))
+            cur.fetchall()
+            cur.execute(Q_SOURCE_TRUSTED_EXTENSION_OWNER)
+            rows = cur.fetchall()
+        finally:
+            cur.execute('ROLLBACK')
+    finally:
+        conn.close()
+    if rows and rows[0] and rows[0][0] is not None:
+        owner = str(rows[0][0])
+        require(ROLE.fullmatch(owner), 'window-backup-source-roles')
+        return owner
+    return default
 
 
 def clone_state(conn):
@@ -542,35 +652,35 @@ class WindowBackup:
                     cur.execute(sql.SQL('CREATE EXTENSION IF NOT EXISTS {} WITH SCHEMA public').format(
                         sql.Identifier(ext)))
                     cur.execute('RESET ROLE')
-                    # Trusted extensions install member functions under the bootstrap superuser;
+                    # Trusted extensions install member functions/types under the bootstrap superuser;
                     # align their owners in public with the source extension owner so pg_restore ACLs match.
                     cur.execute(
-                        "SELECT set_config('igreja12.ext_name', %s, true), set_config('igreja12.ext_owner', %s, true)",
+                        "SELECT set_config('igreja12.ext_name', %s, true), "
+                        "set_config('igreja12.ext_from_owner', '', true), "
+                        "set_config('igreja12.ext_owner', %s, true)",
                         (ext, owner),
                     )
-                    cur.execute(
-                        """
-                        DO $$
-                        DECLARE
-                            v_ext text := current_setting('igreja12.ext_name');
-                            v_owner text := current_setting('igreja12.ext_owner');
-                            rec record;
-                        BEGIN
-                            FOR rec IN
-                                SELECT p.oid::regprocedure AS sig
-                                FROM pg_depend d
-                                JOIN pg_extension e ON e.oid = d.refobjid
-                                JOIN pg_proc p ON p.oid = d.objid
-                                JOIN pg_namespace n ON n.oid = p.pronamespace
-                                WHERE d.deptype = 'e' AND e.extname = v_ext AND n.nspname = 'public'
-                                ORDER BY 1
-                            LOOP
-                                EXECUTE format('ALTER FUNCTION %s OWNER TO %I', rec.sig, v_owner);
-                            END LOOP;
-                        END
-                        $$;
-                        """
-                    )
+                    cur.execute(Q_ALIGN_EXTENSION_OWNERS)
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _align_replay_extensions(self, address, password, trusted_owner):
+        """Reassign bootstrap-owned extension members created during replay to match source bootstrap ownership."""
+        if trusted_owner == self.config.admin_user:
+            return
+        conn = self.clone_connect(host=address, dbname=CLONE_DB, user=self.config.admin_user,
+                                  password=password, timeout=10)
+        try:
+            conn.autocommit = False
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT set_config('igreja12.ext_name', '', true), "
+                    "set_config('igreja12.ext_from_owner', %s, true), "
+                    "set_config('igreja12.ext_owner', %s, true)",
+                    (self.config.admin_user, trusted_owner),
+                )
+                cur.execute(Q_ALIGN_EXTENSION_OWNERS)
             conn.commit()
         finally:
             conn.close()
@@ -738,7 +848,7 @@ class WindowBackup:
         executor = MigrationExecutor(self.plan, python=self.config.python, workdir=str(workdir),
                                      secret=lambda: url, timeout=self.config.timeout('migration_s'),
                                      runner=ProcessRunner(binaries=(self.config.python,), run=self.migrate_run))
-        max_s = self.config.timeout('max_migration_s')
+        max_s = min(60, self.config.timeout('max_migration_s'))
         timings = []
         for index, migration in enumerate(self.plan.pending, 1):
             migration_started = self.clock()
@@ -779,6 +889,7 @@ class WindowBackup:
         run_dir = self._run_dir(request_digest)
         roles = source_role_names(self.connect)
         extensions = source_public_extensions(self.connect)
+        trusted_owner = source_trusted_extension_owner(self.connect, default=self.config.migration_user)
         dump_started = self.clock()
         path, backup_id, size = self._dump(run_dir)
         dump_seconds = float(round(self.clock() - dump_started, 3))
@@ -800,6 +911,7 @@ class WindowBackup:
             require(restored['catalog'] == self.expected.catalog, 'window-backup-restore-catalog')
             applicator_role, migration_timings, migrations_seconds, max_migration_seconds = self._replay(
                 request_digest, address, password)
+            self._align_replay_extensions(address, password, trusted_owner)
             final = self._state(address, password)
             rls_grants_verified = self._verify_runtime_rls_and_grants(address, password)
         finally:

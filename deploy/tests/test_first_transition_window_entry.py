@@ -42,6 +42,8 @@ class SourceCursor(WriterCursor):
             self.rows = [('postgres',), ('anon',), ('authenticated',)]
         elif query == backup_module.Q_SOURCE_EXTENSIONS:
             self.rows = []
+        elif query == backup_module.Q_SOURCE_TRUSTED_EXTENSION_OWNER:
+            self.rows = [('postgres',)]
         else:
             super().execute(query, params)
 

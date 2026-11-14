@@ -1000,13 +1000,18 @@ Sem modificar `deploy/backend-release.sh` (Decisão 9 e contrato com
 - **Topologia e Compose efetivos após a virada (`A` = `4318a07a`):**
   - Link ativo `/opt/pastorai-current` apontando para o diretório do release
     ativo de **A** (fora do legado `/opt/pastorai-lionclaw`), onde reside o
-    Compose efetivo `/opt/pastorai-current/deploy/docker-compose.yml` (projeto
+    Compose efetivo `/opt/pastorai-current/deploy/docker-compose.yml` +
+    `/opt/pastorai-current/deploy/docker-compose.override.yml` (projeto
     `pastorai`).
-  - **Overrides:** nenhum `docker-compose.override.yml` pode existir dentro
-    do diretório do release verificado (`/opt/pastorai-current/deploy/`);
-    overrides transitórios da janela (ex.: `a9-hold.override.yml`, gate
-    override da A10) ficam fora desse layout (em
-    `/var/lib/pastorai-first-transition/state/`).
+  - **Overrides:** `/opt/pastorai-current/deploy/docker-compose.override.yml`
+    **faz parte obrigatória do layout verificado do release**
+    (`initial_transition_files.layout_files()` / `release_topology.overlay`,
+    carregado por `CandidateSpec.compose_argv()` e `a10_compose_argv()`) e
+    **deve ser preservado** dentro de `/opt/pastorai-current/deploy/`. Apenas
+    os overrides **transitórios da janela** (`a9-hold.override.yml` e
+    `a10-gates.override.yml`) ficam fora desse layout (em
+    `/var/lib/pastorai-first-transition/state/`), e nenhum outro override
+    manual/avulso pode existir dentro do release.
   - **Dependências de runtime:** serviços de apoio `redis` (`pastorai_redis`),
     `evolution-postgres` (`pastorai_evo_postgres`) e `evolution-api`
     (`pastorai_evolution`), além dos 4 processos da aplicação (`backend`,
@@ -1025,7 +1030,7 @@ Sem modificar `deploy/backend-release.sh` (Decisão 9 e contrato com
     `ENV_FILE="${PASTORAI_ENV_FILE:-/opt/pastorai-current/deploy/.env}"` e
     `COMPOSE_FILE="${PASTORAI_COMPOSE_FILE:-/opt/pastorai-current/deploy/docker-compose.yml}"`.
   - Portanto, conferir o Compose efetivo explicitamente com `--env-file`:
-    `docker compose --env-file /etc/pastorai/.env.v2 -f /opt/pastorai-current/deploy/docker-compose.yml config --quiet`
+    `docker compose --env-file /etc/pastorai/.env.v2 -f /opt/pastorai-current/deploy/docker-compose.yml -f /opt/pastorai-current/deploy/docker-compose.override.yml config --quiet`
     (ou com o caminho externo efetivo confirmado no V1/1.2) e garantir no
     `/etc/cron.d/pastorai-backup` a variável `PASTORAI_ENV_FILE` apontando
     para esse arquivo `0600` (junto de `prepare-database-service.py` + sidecar
@@ -1292,11 +1297,12 @@ No computador do operador, com o checkout contendo os objetos de `<SHA_T>`,
 
 ```bash
 git archive --format=tar <SHA_T> deploy | ssh vps "sudo install -d -m 755 /opt/pastorai-releases/tool-<SHA_T> && sudo tar -x --no-same-owner -C /opt/pastorai-releases/tool-<SHA_T>"
-git bundle create - 4318a07afb97b835a9c54931e6951a326af28ff3 37c7d68d60b6f86cfb1fe75d4c720530537845d6 | ssh vps "sudo git -C /opt/pastorai-releases/repo fetch /dev/stdin && sudo git -C /opt/pastorai-releases/repo cat-file -e 4318a07afb97b835a9c54931e6951a326af28ff3^{commit} && sudo git -C /opt/pastorai-releases/repo cat-file -e 37c7d68d60b6f86cfb1fe75d4c720530537845d6^{commit}"
+git update-ref refs/transition/a 4318a07afb97b835a9c54931e6951a326af28ff3 && git update-ref refs/transition/executor 37c7d68d60b6f86cfb1fe75d4c720530537845d6 && git bundle create /tmp/first-transition.bundle refs/transition/a refs/transition/executor && git update-ref -d refs/transition/a && git update-ref -d refs/transition/executor
 ```
 
 ```bash
-scp first-transition.json backup.json bindings.json vps:/tmp/
+scp /tmp/first-transition.bundle first-transition.json backup.json bindings.json vps:/tmp/ && rm -f /tmp/first-transition.bundle
+ssh vps "sudo git -C /opt/pastorai-releases/repo fetch /tmp/first-transition.bundle 'refs/transition/*:refs/transition/*' && sudo rm -f /tmp/first-transition.bundle && sudo git -C /opt/pastorai-releases/repo cat-file -e 4318a07afb97b835a9c54931e6951a326af28ff3^{commit} && sudo git -C /opt/pastorai-releases/repo cat-file -e 37c7d68d60b6f86cfb1fe75d4c720530537845d6^{commit}"
 ```
 
 Na VPS (`ssh vps`, depois `sudo -i`):

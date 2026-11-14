@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import first_transition_database as fdb
 import first_transition_window_backup as wb
 from first_transition_adapter import LocalDatabase, digest, validate_clone_receipt
-from first_transition_orchestrator import BACKUP_REQUEST_SCHEMA
+from first_transition_orchestrator import BACKUP_REQUEST_SCHEMA, MigrationExecutor, ProcessRunner
 from test_first_transition_adapter_pg import database, plan  # noqa: F401  (shared fixtures)
 
 IMAGE = os.environ.get('FIRST_TRANSITION_WINDOW_IMAGE', '')
@@ -112,6 +112,18 @@ def test_real_window_backup_restores_and_replays_in_an_isolated_clone(plan, data
     label = 'label=igreja12.window-backup=igreja12-window-clone-' + digest(request)[:16]
     assert _docker('ps', '-aq', '--filter', label).stdout.strip() == ''
     assert _docker('network', 'ls', '-q', '--filter', label).stdout.strip() == ''
+    # Apply the 52 pending migrations to source (starting without btree_gist) and prove Q_CATALOG parity with clone.
+    source_work = tmp_path / 'source-migrate'
+    source_work.mkdir(mode=0o700)
+    executor = MigrationExecutor(plan, python=sys.executable, workdir=str(source_work), secret=lambda: url,
+                                 runner=ProcessRunner(binaries=(sys.executable,)))
+    for index, migration in enumerate(plan.pending, 1):
+        assert executor.apply(index, migration) == 0
+    with closing(psycopg2.connect(url)) as source:
+        migrated_source = wb.clone_state(source)
+    assert migrated_source['ledger'] == tuple(sorted(m.name for m in plan.migrations))
+    assert migrated_source['invalid'] == 0
+    assert migrated_source['catalog'] == clone['final_schema_digest']
 
 
 @pytest.mark.parametrize('gate', ['allow_real_sends', 'Allow_Real_Sends'])

@@ -78,6 +78,8 @@ class Cursor:
             self.rows = [('anon',), ('authenticated',), ('postgres',), ('service_role',)]
         elif query == wb.Q_SOURCE_EXTENSIONS:
             self.rows = []
+        elif query == wb.Q_SOURCE_TRUSTED_EXTENSION_OWNER:
+            self.rows = list(getattr(clone, 'trusted_owner_rows', ()))
         elif query == wb.Q_APPLICATOR_ROLE:
             self.rows = list(clone.applicator_rows)
         elif query == wb.Q_RUNTIME_ROLES:
@@ -99,6 +101,9 @@ class Conn:
 
     def cursor(self):
         return Cursor(self.clone, self.log)
+
+    def commit(self):
+        pass
 
     def close(self):
         self.closed = True
@@ -730,3 +735,55 @@ def test_d9_refuses_single_migration_over_60s_but_allows_total_over_60s(plan, tm
         sleep=lambda _: None, clock=lambda: clock2[0])
     with pytest.raises(Refused, match='^window-backup-migration-slow$'):
         backup_slow(request(plan, expected))
+
+    clock3 = [0.0]
+    host_cap = Host(plan)
+
+    def cap_slow_migrate(argv, **kwargs):
+        clock3[0] += 61.0 if len(host_cap.migrations) == 2 else 0.1
+        return Host.migrate(host_cap, argv, **kwargs)
+
+    overridden = tuple(sorted({**wb.TIMEOUTS, 'max_migration_s': 120}.items()))
+    backup_cap = wb.WindowBackup(
+        config(sub(tmp_path, 'cap'), restore_excluded_expected=PINNED, timeouts=overridden), plan, expected,
+        secret=lambda: SOURCE_URL, connect=source_connect, run=host_cap.run,
+        clone_connect=host_cap.clone_connect, migrate_run=cap_slow_migrate,
+        sleep=lambda _: None, clock=lambda: clock3[0])
+    with pytest.raises(Refused, match='^window-backup-migration-slow$'):
+        backup_cap(request(plan, expected))
+
+
+def test_align_replay_extensions_targets_source_trusted_owner_and_skips_matching_admin(plan, tmp_path):
+    host, expected = Host(plan), expectation(plan)
+    host.trusted_owner_rows = [('supabase_admin',)]
+    seen = []
+
+    class TrustedConn(Conn):
+        def cursor(self):
+            cur = super().cursor()
+            orig = cur.execute
+
+            def record(query, params=None):
+                seen.append((query, params))
+                return orig(query, params)
+
+            cur.execute = record
+            return cur
+
+    backup = wb.WindowBackup(
+        config(tmp_path, restore_excluded_expected=PINNED), plan, expected, secret=lambda: SOURCE_URL,
+        connect=lambda *, timeout: TrustedConn(host, host.sql), run=host.run,
+        clone_connect=lambda **_: TrustedConn(host, host.sql), migrate_run=host.migrate, sleep=lambda _: None)
+    backup(request(plan, expected))
+    assert any(params == ('clone_admin', 'supabase_admin') for _, params in seen)
+    assert any(query == wb.Q_ALIGN_EXTENSION_OWNERS for query, _ in seen)
+
+    host2 = Host(plan)
+    host2.trusted_owner_rows = [('clone_admin',)]
+    backup2 = wb.WindowBackup(
+        config(sub(tmp_path, 'same-admin'), restore_excluded_expected=PINNED), plan, expected,
+        secret=lambda: SOURCE_URL, connect=lambda *, timeout: TrustedConn(host2, host2.sql), run=host2.run,
+        clone_connect=lambda **_: TrustedConn(host2, host2.sql), migrate_run=host2.migrate, sleep=lambda _: None)
+    before_seen = len(seen)
+    backup2(request(plan, expected))
+    assert not any(query == wb.Q_ALIGN_EXTENSION_OWNERS for query, _ in seen[before_seen:])
