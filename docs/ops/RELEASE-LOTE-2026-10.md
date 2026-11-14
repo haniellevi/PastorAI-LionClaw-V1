@@ -257,12 +257,12 @@ não estão autorizados; revisão externa permanece com Sarah Opus 5.5 high.
 São cinco linhas `workflow_dispatch:`, uma em cada arquivo:
 `backend-tests.yml`, `frontend-ci.yml`, `rls-integration.yml`,
 `tooling-static.yml`, `synthetic-release.yml`. E2E já permite disparo manual.
-O conjunto completo de CI continua sendo seis workflows: os cinco acima mais
-E2E já existente. Estes cinco gatilhos novos não mudam a elegibilidade de DEV:
-`check_integrated_candidate.py` consulta `event=push`; dispatch verde não
-substitui push ausente/falho para promoção. Esse gate foi mantido byte-exato. Tooling-static integra os seis workflows
-acompanhados, mas não integra a lista de cinco exigida pelo gate DEV existente.
-Dispatch aprovado fornece evidência para revisão humana, sem tornar DEV elegível.
+O CI continuava com seis workflows. À época, o verificador de promoção do
+DEV consultava as execuções de `push` na `main` para os quatro checks
+obrigatórios e o ensaio sintético. O `tooling-static` completava o CI.
+Uma execução manual aprovada servia de evidência para revisão humana. A
+promoção ainda exigia sucesso nas cinco execuções de `push`.
+[Verificador no histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/tree/6c31932fcf06c23f19b0c26da562cbb84d34d372/deploy)
 Jobs, scripts, versões, permissions `contents: read`, timeouts, triggers de
 push/PR e concorrência ficam iguais. Nenhum workflow de publicação/monitor
 é habilitado, editado ou disparado; não há encadeamento `workflow_run`.

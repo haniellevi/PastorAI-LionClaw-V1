@@ -1,5 +1,4 @@
 """Controller boundary tests. Physical Docker rehearsal is a separate command."""
-import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -61,37 +60,6 @@ def test_failure_after_start_contains_api_and_consumers_and_keeps_previous_schem
     assert len(stops)==2 and all('backend' in args and all(c in args for c in pipeline.CONSUMERS) for args in stops)
     assert not any('down' in args or 'redis' in args for args in stops)
     assert json.loads((executor.state/'current-schema.json').read_text())==previous
-
-
-_spec=importlib.util.spec_from_file_location('integrated_candidate',Path(__file__).parents[1]/'check_integrated_candidate.py')
-gate=importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(gate)
-
-
-@pytest.mark.parametrize('bad', ['old-main','failed','running','fork','missing','newer-attempt'])
-def test_only_exact_integrated_revision_with_latest_four_checks_can_publish(bad):
-    sha='a'*40
-    def fetch(path):
-        if '/git/ref/' in path:
-            return {'object':{'sha':'b'*40 if bad=='old-main' else sha}}
-        runs=[dict(head_sha=sha,head_branch='main',head_repository={'full_name':'owner/repo'},
-                   run_number=1,run_attempt=1,status='completed',conclusion='success')]
-        if bad=='failed': runs[0]['conclusion']='failure'
-        if bad=='running': runs[0]['status']='in_progress'
-        if bad=='fork': runs[0]['head_repository']['full_name']='other/repo'
-        if bad=='missing': runs=[]
-        if bad=='newer-attempt': runs.append(runs[0]|{'run_attempt':2,'status':'in_progress','conclusion':None})
-        return {'workflow_runs':runs}
-    with pytest.raises(ValueError): gate.check('owner/repo',sha,fetch)
-
-
-def test_integrated_gate_accepts_successful_latest_workflows():
-    sha='a'*40
-    def fetch(path):
-        if '/git/ref/' in path: return {'object':{'sha':sha}}
-        return {'workflow_runs':[dict(head_sha=sha,head_branch='main',head_repository={'full_name':'owner/repo'},
-            run_number=1,run_attempt=1,status='completed',conclusion='success')]}
-    assert gate.check('owner/repo',sha,fetch)==sha
 
 
 def test_parent_environment_cannot_turn_deploy_into_reset(tmp_path,monkeypatch):
