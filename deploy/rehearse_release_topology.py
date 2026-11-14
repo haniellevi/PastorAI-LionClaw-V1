@@ -6,7 +6,8 @@ um repositório Git sintético, contrato, override com pin do ID verificado e se
 fonte de build) e executa o ``backend-release.sh`` REAL de cada candidato,
 empacotado por ``git archive`` como o workflow. Cria tudo com prefixo aleatório:
 legado sintético contido (três serviços Compose + broadcast avulso, ``restart=no``),
-Redis e Evolution falsa do projeto legado na rede do legado, projeto permanente.
+Redis e Evolution falsa do projeto legado na rede do legado, projeto permanente
+e configuração privada externa, compartilhada pelos releases.
 
 Transformações do ``deploy/docker-compose.yml`` real, conferidas por contagem:
 porta publicada 127.0.0.1:8000 -> porta livre própria (a 8000 do host pertence a
@@ -45,6 +46,9 @@ OWNER = 'pastorai.synthetic.owner'
 ROLES = rt.SERVICES
 GATES = {'ALLOW_REAL_SENDS': 'false', 'ASAAS_BILLING_ENABLED': 'false', 'BREVO_SEND_MODE': 'off',
          'BROADCAST_ASYNC_ENABLED': 'false'}
+CONFIG_NAME = 'configuration.fixture'
+CONFIG_VALUES = {'DATABASE_URL': 'postgresql://fixture:fixture@database.invalid:5432/igreja12',
+                 'SYNTHETIC_RELEASE_SENTINEL': 'external-config-fixture', **GATES}
 NOT_PROVEN = [
     'callback-real-da-evolution (Evolution falsa: servidor HTTP sem webhooks; alias backend so conferido '
     'por inspect e pelas guardas, nenhuma entrega Evolution->backend exercitada)',
@@ -55,6 +59,7 @@ NOT_PROVEN = [
     'promocao-por-digest-ghcr (so modo build; digest coberto por doubles e Compose config)',
     'restartcount-maior-que-zero-do-legado (limitacao anterior do controlador inicial permanece)',
     'reinicio-do-daemon-ou-host',
+    'execucao-real-de-cron-ou-backup (somente resolucao dos caminhos)',
 ]
 
 UVICORN = r'''#!/usr/local/bin/python
@@ -104,7 +109,8 @@ APP = {
         '    except OSError:\n        return False\n'),
     **{f'workers/{w}.py': WORKER for w in ('queue_worker', 'cron_worker', 'broadcast_worker')},
 }
-DOCKERFILE = f'''FROM {BASE_IMAGE}
+DOCKERFILE = '''ARG BASE_IMAGE
+FROM $BASE_IMAGE
 ARG PASTORAI_RELEASE_SHA=unknown
 LABEL org.opencontainers.image.revision=$PASTORAI_RELEASE_SHA
 ENV PASTORAI_RELEASE_SHA=$PASTORAI_RELEASE_SHA PYTHONPATH=/synthetic
@@ -140,7 +146,7 @@ def free_port():
 
 
 class Rehearsal:
-    def __init__(self, python):
+    def __init__(self, python, base_image, redis_image):
         self.run_id = uuid.uuid4().hex
         self.prefix = 'pastorai-synth-topo-' + self.run_id[:12]
         self.legacy_project = self.prefix + '-legacy'
@@ -150,6 +156,11 @@ class Rehearsal:
         self.dir = Path(tempfile.mkdtemp(prefix='igreja12-topology-rehearsal-'))
         self.root = self.dir / 'install'
         (self.root / 'releases').mkdir(parents=True)
+        self.configuration = self.root / 'private' / CONFIG_NAME
+        self.legacy_deploy = self.dir / 'legacy' / 'deploy'
+        self.base_image = self.prefix + '-base:local'
+        self.redis_image = self.prefix + '-redis:local'
+        self.input_images = {self.base_image: base_image, self.redis_image: redis_image}
         self.repo = self.dir / 'repo'
         self.shim = self.dir / 'bin'
         self.shim.mkdir()
@@ -174,7 +185,12 @@ class Rehearsal:
         port_from, port_to = '"127.0.0.1:8000:8000"', f'"127.0.0.1:{self.port}:8000"'
         if text.count(port_from) != 1 or text.count('image: pastorai-backend:latest') != 4:
             raise Failed('docker-compose.yml shape changed; transformation not applicable')
-        return text.replace(port_from, port_to).replace('image: pastorai-backend:latest', f'image: {self.tag}')
+        build_from = 'context: ../backend'
+        if text.count(build_from) != len(ROLES):
+            raise Failed('docker-compose.yml build context shape changed')
+        return (text.replace(port_from, port_to)
+                .replace('image: pastorai-backend:latest', f'image: {self.tag}')
+                .replace(build_from, f'{build_from}\n      args:\n        BASE_IMAGE: {self.base_image}'))
 
     def commit(self, message, *, ready_fail):
         files = {
@@ -206,7 +222,8 @@ class Rehearsal:
     def build(self, sha, tag):
         with tempfile.TemporaryDirectory(dir=self.dir) as directory:
             self.extract(sha, Path(directory))
-            run(['docker', 'build', '-q', '--network', 'none', '--build-arg', f'PASTORAI_RELEASE_SHA={sha}',
+            run(['docker', 'build', '-q', '--network', 'none', '--build-arg', f'BASE_IMAGE={self.base_image}',
+                 '--build-arg', f'PASTORAI_RELEASE_SHA={sha}',
                  '--label', f'{OWNER}={self.run_id}', '-t', tag, str(Path(directory) / 'backend')], timeout=600)
         image = docker('image', 'inspect', '--format', '{{.Id}}', tag)
         self.images.append(image)
@@ -222,7 +239,7 @@ class Rehearsal:
     # -- legacy and support --------------------------------------------------------------
     def legacy(self, image):
         services = {
-            'redis': dict(image=REDIS_IMAGE, container_name=f'{self.prefix}-legacy-redis', restart='always',
+            'redis': dict(image=self.redis_image, container_name=f'{self.prefix}-legacy-redis', restart='always',
                           command=['redis-server', '--save', '', '--appendonly', 'no'], pull_policy='never',
                           healthcheck=dict(test=['CMD', 'redis-cli', 'ping'], interval='2s', retries=10)),
             'evolution-api': dict(image=image, container_name=f'{self.prefix}-legacy-evolution', restart='always',
@@ -235,7 +252,8 @@ class Rehearsal:
                                   command=command, pull_policy='never', environment={'REDIS_URL': 'redis://redis:6379/0'})
         for value in services.values():
             value['labels'] = {OWNER: self.run_id}
-        path = self.dir / 'legacy-compose.json'
+        self.legacy_deploy.mkdir(parents=True)
+        path = self.legacy_deploy / 'compose.json'
         path.write_text(json.dumps({'name': self.legacy_project, 'services': services}))
         run(['docker', 'compose', '-f', str(path), 'up', '-d', '--wait', '--wait-timeout', '120'], timeout=200)
         self.network = f'{self.legacy_project}_default'
@@ -251,6 +269,9 @@ class Rehearsal:
         self.legacy_ids = ids
         self.dependency_ids = {name: docker('ps', '-q', '--no-trunc', '--filter', f'name=^/{self.prefix}-legacy-{name}$')
                                for name in ('redis', 'evolution')}
+        path.unlink()
+        self.legacy_deploy.rmdir()
+        self.legacy_deploy.parent.rmdir()
 
     def snapshot(self, ids):
         rows = json.loads(docker('inspect', *ids.values()))
@@ -263,6 +284,7 @@ class Rehearsal:
         rows = json.loads(docker('inspect', *ids)) if ids else []
         return {row['Config']['Labels'].get('com.docker.compose.service'): dict(
             id=row['Id'], name=row['Name'].lstrip('/'), image=row['Image'], running=row['State']['Running'],
+            started=row['State']['StartedAt'], restarts=row['RestartCount'],
             networks=sorted(row['NetworkSettings']['Networks'])) for row in rows}
 
     def assert_project(self, image, label):
@@ -271,9 +293,15 @@ class Rehearsal:
         self.check(all(v['running'] and v['image'] == image for v in state.values()), f'{label}:running-on-image-id')
         self.check(all(v['networks'] == [self.network] for v in state.values()), f'{label}:single-external-network')
         self.check(all(v['name'] == self.contract['containers'][r] for r, v in state.items()), f'{label}:contract-names')
+        configs = {f'{key}={value}' for key, value in CONFIG_VALUES.items()}
+        rows = [json.loads(line) for line in docker('inspect', '--format', '{{json .Config.Env}}',
+                                                    *(v['id'] for v in state.values())).splitlines()]
+        self.check(len(rows) == len(ROLES) and all(configs <= set(row) for row in rows),
+                   f'{label}:external-configuration-in-all-four')
         return state
 
     def assert_untouched(self, label):
+        self.check(not self.legacy_deploy.parent.exists(), f'{label}:legacy-deploy-directory-absent')
         self.check(self.snapshot(self.legacy_ids) == self.legacy_baseline, f'{label}:legacy-ids-stopped-no-intact')
         self.check(self.snapshot(self.dependency_ids) == self.dependency_baseline, f'{label}:dependencies-intact')
         volumes = docker('volume', 'ls', '-q', '--filter', f'label=com.docker.compose.project={self.project}')
@@ -284,10 +312,9 @@ class Rehearsal:
         target = self.root / 'releases' / sha
         target.mkdir()
         self.extract(sha, target)
-        env = {k: v for k, v in os.environ.items() if not k.startswith('DOCKER_')}
-        env.update(PATH=f'{self.shim}:{os.environ["PATH"]}', BACKEND_RELEASE_TEST_MODE='1',
-                   BACKEND_RELEASE_TEST_ROOT=str(self.root), BACKEND_RELEASE_TEST_CONFIG='configuration.fixture',
-                   BACKEND_RELEASE_TEST_PORT=str(self.port))
+        env = dict(PATH=f'{self.shim}:{os.environ["PATH"]}', HOME=str(self.dir), LC_ALL='C',
+                   BACKEND_RELEASE_TEST_MODE='1', BACKEND_RELEASE_TEST_ROOT=str(self.root),
+                   BACKEND_RELEASE_TEST_CONFIG=CONFIG_NAME, BACKEND_RELEASE_TEST_PORT=str(self.port))
         started = time.monotonic()
         done = run(['bash', str(target / 'deploy/backend-release.sh'), sha], check=False, timeout=900,
                    cwd=self.root, env=env)
@@ -308,14 +335,38 @@ class Rehearsal:
     def current(self):
         return (self.root / 'current').resolve().name
 
+    def assert_cron_inputs(self, sha, label):
+        # Resolve the proposed cron inputs with the active link; never run a job.
+        deploy = (self.root / 'current' / 'deploy').resolve(strict=True)
+        self.check(deploy == self.root / 'releases' / sha / 'deploy', f'{label}:cron-active-release')
+        self.check(all((deploy / name).is_file() for name in ('docker-compose.yml', 'docker-compose.override.yml')),
+                   f'{label}:cron-compose-inputs')
+        self.check(self.configuration.parent.stat().st_mode & 0o777 == 0o700
+                   and self.configuration.stat().st_mode & 0o777 == 0o600
+                   and self.configuration.read_text() == self.original_configuration,
+                   f'{label}:cron-fixed-external-configuration')
+
+    def assert_no_release_configuration(self, shas):
+        for sha in shas:
+            deploy = self.root / 'releases' / sha / 'deploy'
+            self.check(not any(os.path.lexists(deploy / name) for name in (CONFIG_NAME, '.env')),
+                       f'{sha[:12]}:no-private-configuration-in-release')
+
     def health_revision(self):
         import urllib.request
         with urllib.request.urlopen(f'http://127.0.0.1:{self.port}/health', timeout=5) as response:
             return json.loads(response.read())['revision']
 
     def main(self):
-        for image in (BASE_IMAGE, REDIS_IMAGE):
-            docker('image', 'inspect', image)  # local only; never pulled
+        image_ids = {tag: docker('image', 'inspect', '--format', '{{.Id}}', '--', image)
+                     for tag, image in self.input_images.items()}
+        for tag, image_id in image_ids.items():
+            docker('image', 'tag', image_id, tag)
+        self.configuration.parent.mkdir(mode=0o700)
+        self.original_configuration = ''.join(f'{key}={value}\n' for key, value in CONFIG_VALUES.items())
+        fd = os.open(self.configuration, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as fixture:
+            fixture.write(self.original_configuration)
         (self.repo).mkdir()
         self.git('init', '-q')
         sha_a = self.commit('A transition candidate', ready_fail=False)
@@ -341,16 +392,16 @@ class Rehearsal:
         layout = self.root / 'releases' / sha_a / 'deploy'
         self.check(not (layout.parent / 'backend' / 'Dockerfile').exists()
                    and (layout / 'release_topology.py').exists(), 'layout-has-helper-and-no-build-source')
-        (layout / 'configuration.fixture').write_text(''.join(f'{k}={v}\n' for k, v in GATES.items()))
-        (layout / 'configuration.fixture').chmod(0o600)
         itf.activate(self.root, sha_a)
         # The permanent project is born from the layout's own maintenance override (no -p, no -f).
         run(['docker', 'compose', 'up', '-d', '--no-deps', '--no-build', '--pull', 'never', '--wait',
              '--wait-timeout', '180', *ROLES], cwd=layout, timeout=240,
-            env={**os.environ, 'PASTORAI_ENV_FILE': 'configuration.fixture'})
+            env={**os.environ, 'PASTORAI_ENV_FILE': str(self.configuration)})
         self.assert_project(image_a, 'layout-a')
         self.check(self.health_revision() == sha_a, 'layout-a:health-from-own-port')
         self.assert_untouched('layout-a')
+        self.assert_no_release_configuration((sha_a,))
+        self.assert_cron_inputs(sha_a, 'layout-a')
 
         layout_ids = {r: v['id'] for r, v in self.project_state().items()}
         done = self.release(sha_b, 'release-b-fails-ready')
@@ -359,9 +410,11 @@ class Rehearsal:
         self.assert_project(image_a, 'release-b:rollback-to-layout-by-image-id')
         self.check(self.health_revision() == sha_a, 'release-b:health-revision-a')
         b = self.root / 'releases' / sha_b / 'deploy'
-        self.check(not any((b / n).exists() for n in ('configuration.fixture', 'release-topology.json',
-                                                     'docker-compose.override.yml')), 'release-b:no-candidate-leftovers')
+        self.check(not any((b / n).exists() for n in ('release-topology.json', 'docker-compose.override.yml')),
+                   'release-b:no-candidate-leftovers')
         self.assert_untouched('release-b')
+        self.assert_no_release_configuration((sha_a, sha_b))
+        self.assert_cron_inputs(sha_a, 'release-b')
 
         done = self.release(sha_c, 'release-c-healthy')
         self.check(done.returncode == 0 and self.current() == sha_c, 'release-c:promoted')
@@ -374,11 +427,13 @@ class Rehearsal:
         self.check(self.health_revision() == sha_c, 'release-c:health-revision-c')
         c = self.root / 'releases' / sha_c / 'deploy'
         self.check(json.loads((c / 'release-topology.json').read_text()) == self.contract, 'release-c:contract-carried')
-        model = json.loads(run(['docker', 'compose', 'config', '--format', 'json', '--no-env-resolution'], cwd=c,
-                               env={**os.environ, 'PASTORAI_ENV_FILE': 'configuration.fixture'}).stdout)
+        model = json.loads(run(['docker', 'compose', 'config', '--format', 'json', '--no-env-resolution'],
+                               cwd=self.root / 'current' / 'deploy',
+                               env={**os.environ, 'PASTORAI_ENV_FILE': str(self.configuration)}).stdout)
         rt.check_config(self.contract, model)
         self.check({model['services'][r]['image'] for r in ROLES} == {image_c}, 'release-c:manual-override-pins-id')
         self.assert_untouched('release-c')
+        self.assert_cron_inputs(sha_c, 'release-c')
 
         c_ids = {r: v['id'] for r, v in self.project_state().items()}
         done = self.release(sha_d, 'release-d-fails-ready')
@@ -386,6 +441,33 @@ class Rehearsal:
         self.assert_project(image_c, 'release-d:rollback-to-built-predecessor-by-id')
         self.check(self.health_revision() == sha_c, 'release-d:health-revision-c')
         self.assert_untouched('release-d')
+        self.assert_no_release_configuration((sha_a, sha_b, sha_c, sha_d))
+        self.assert_cron_inputs(sha_c, 'release-d')
+
+        before = self.project_state()
+        sha_drift = self.commit('Configuration drift before effects', ready_fail=False)
+        changed = self.original_configuration.replace(CONFIG_VALUES['DATABASE_URL'],
+                                                      'postgresql://fixture:fixture@changed.invalid:5432/igreja12')
+        self.configuration.write_text(changed)
+        try:
+            done = self.release(sha_drift, 'release-configuration-drift')
+            self.check(done.returncode != 0 and 'external configuration drift' in done.stderr,
+                       'release-configuration-drift:refused')
+            self.check(self.configuration.read_text() == changed, 'release-configuration-drift:input-unchanged')
+            self.check(not docker('image', 'ls', '-aq', '--filter',
+                                  f'label=org.opencontainers.image.revision={sha_drift}'),
+                       'release-configuration-drift:no-candidate-image')
+        finally:
+            self.configuration.write_text(self.original_configuration)
+        self.check(self.project_state() == before and self.current() == sha_c and self.health_revision() == sha_c,
+                   'release-configuration-drift:active-release-untouched')
+        drift_deploy = self.root / 'releases' / sha_drift / 'deploy'
+        self.check(not any(os.path.lexists(drift_deploy / name)
+                           for name in ('release-topology.json', 'docker-compose.override.yml')),
+                   'release-configuration-drift:no-candidate-leftovers')
+        self.assert_no_release_configuration((sha_drift,))
+        self.assert_untouched('release-configuration-drift')
+        self.assert_cron_inputs(sha_c, 'release-configuration-drift')
 
         # Physical refusals before any effect: concurrent alias, then a stranger project member.
         before = self.project_state()
@@ -429,7 +511,8 @@ class Rehearsal:
         docker('network', 'rm', f'{self.legacy_project}_default', check=False)
         retained = docker('image', 'ls', '--format', '{{.Repository}}:{{.Tag}}',
                           self.prefix + '-backend-release', check=False).split()
-        for tag in (self.tag, self.prefix + '-legacy:synthetic', self.prefix + '-transition:a', *retained):
+        for tag in (self.tag, self.prefix + '-legacy:synthetic', self.prefix + '-transition:a', *retained,
+                    *self.input_images):
             docker('rmi', tag, check=False)
         for image in set(self.images) | self.revision_images():
             docker('rmi', image, check=False)
@@ -461,9 +544,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--report', type=Path, required=True)
     parser.add_argument('--python', default=sys.executable, help='Python 3.13 for backend-release.sh helpers')
+    parser.add_argument('--base-image', default=BASE_IMAGE, help='Cached Python image reference or ID')
+    parser.add_argument('--redis-image', default=REDIS_IMAGE, help='Cached Redis image reference or ID')
     args = parser.parse_args(argv)
     os.umask(0o022)
-    rehearsal = Rehearsal(args.python)
+    rehearsal = Rehearsal(args.python, args.base_image, args.redis_image)
     status, error = 'pass', None
     started = time.monotonic()
     try:
