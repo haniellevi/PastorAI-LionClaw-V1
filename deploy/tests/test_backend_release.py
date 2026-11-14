@@ -922,6 +922,49 @@ def topology_contract(**changes):
     return contract
 
 
+class ExternalConfigurationTest(unittest.TestCase):
+    def test_refuses_unsafe_or_ambiguous_external_configuration_before_docker(self):
+        for case in ("missing", "insecure-directory", "insecure-file", "symbolic-link", "hard-link",
+                     "ambiguous", "missing-topology"):
+            with self.subTest(case=case):
+                release = BackendReleaseTest()
+                release.setUp()
+                try:
+                    private_dir = release.root / "private"
+                    private_dir.mkdir(mode=0o700)
+                    configuration = private_dir / "configuration.fixture"
+                    if case != "ambiguous":
+                        (release.old / configuration.name).unlink()
+                    if case != "missing":
+                        configuration.write_text("SYNTHETIC=1\n")
+                        configuration.chmod(0o600)
+                    if case == "insecure-directory":
+                        private_dir.chmod(0o750)
+                    elif case == "insecure-file":
+                        configuration.chmod(0o640)
+                    elif case == "symbolic-link":
+                        target = private_dir / "target.fixture"
+                        configuration.rename(target)
+                        configuration.symlink_to(target)
+                    elif case == "hard-link":
+                        (private_dir / "linked.fixture").hardlink_to(configuration)
+
+                    done = release.run_release()
+                    self.assertNotEqual(done.returncode, 0)
+                    if case == "ambiguous":
+                        diagnostic = "conflicts with release-local configuration"
+                    elif case == "missing-topology":
+                        diagnostic = "requires the adopted release topology"
+                    else:
+                        diagnostic = "missing or unsafe"
+                    self.assertIn(diagnostic, done.stderr)
+                    self.assertFalse(release.trace.exists())
+                    self.assertEqual((release.root / "current").resolve(), release.old.parent)
+                    self.assertFalse((release.new / configuration.name).exists())
+                finally:
+                    release.doCleanups()
+
+
 class TopologyReleaseTest(BackendReleaseTest):
     """The whole suite again with an adopted topology, plus its own guards."""
 
