@@ -113,7 +113,7 @@ def execute_sql(database, sql, params=None, *, autocommit=False):
         connection.close()
 
 
-def test_exact_51_migrations_and_idempotent_replay(plan, database, tmp_path, monkeypatch):
+def test_exact_52_migrations_and_idempotent_replay(plan, database, tmp_path, monkeypatch):
     calls = []
     original_apply = LocalDatabase.apply
     def recorded(self, candidate, migration, **kwargs):
@@ -123,12 +123,12 @@ def test_exact_51_migrations_and_idempotent_replay(plan, database, tmp_path, mon
     with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
         receipt = evidence(plan, db)
         result = LocalTransition(plan, db, journal).run(receipt)
-        assert result == dict(status='database-verified', ledger=129, production_ready=False,
+        assert result == dict(status='database-verified', ledger=130, production_ready=False,
                               services='simulated-held', host_verified=False, legacy_resume_allowed=False)
         assert not db.observe()['invalid']
         monkeypatch.setattr(db, 'apply', lambda *_: pytest.fail('completed replay must not reapply SQL'))
         assert LocalTransition(plan, db, journal).run(receipt) == result
-        assert len(journal.find('done')) == 51
+        assert len(journal.find('done')) == 52
         assert calls == [(target, m.name) for target in ('clone', 'source') for m in plan.pending]
         restore = journal.last('adapter-local-restore')
         assert restore['seq'] < journal.last('adapter-ddl-marker')['seq'] < journal.find('intent')[0]['seq']
@@ -203,7 +203,7 @@ def test_crash_after_commit_adopts_exact_journaled_migration(plan, database, tmp
     with LocalDatabase(*database) as db, Journal(tmp_path / 'journal') as journal:
         with pytest.raises(Refused, match='explicit-local-retry-required'):
             LocalTransition(plan, db, journal).run(receipt)
-        assert LocalTransition(plan, db, journal).run(receipt, retry=True)['ledger'] == 129
+        assert LocalTransition(plan, db, journal).run(receipt, retry=True)['ledger'] == 130
         assert journal.last('done', 'adapter-migration:' + first)['recovered'] is True
         assert calls == [first]
 
@@ -219,7 +219,7 @@ def test_failure_before_commit_holds_and_requires_explicit_retry(plan, database,
         assert journal.last('adapter-ddl-marker')['irrevocable'] is True
         assert journal.last('adapter-failed')['legacy_resume_allowed'] is False
         monkeypatch.setattr(db, 'apply', apply)
-        assert LocalTransition(plan, db, journal).run(receipt, retry=True)['ledger'] == 129
+        assert LocalTransition(plan, db, journal).run(receipt, retry=True)['ledger'] == 130
 
 
 def test_invalid_concurrent_index_is_preserved_and_blocks_retry(plan, database, tmp_path, monkeypatch):
@@ -238,7 +238,7 @@ def test_invalid_concurrent_index_is_preserved_and_blocks_retry(plan, database, 
         with pytest.raises(Refused, match='migration-failed'):
             LocalTransition(plan, db, journal).run(receipt)
         assert db.observe()['invalid'] == ('synthetic_invalid',)
-        assert 78 < len(db.observe()['ledger']) < 129
+        assert 78 < len(db.observe()['ledger']) < 130
         with pytest.raises(Refused, match='invalid-index'):
             LocalTransition(plan, db, journal).run(receipt, retry=True)
         assert db.observe()['invalid'] == ('synthetic_invalid',)
@@ -321,7 +321,7 @@ with LocalDatabase(os.environ['FIRST_TRANSITION_LOCAL_URL'],os.environ['FIRST_TR
         assert journal.last('done', 'adapter-migration:' + first) is None
         with pytest.raises(Refused, match='explicit-local-retry-required'):
             LocalTransition(plan, db, journal).run(receipt)
-        assert LocalTransition(plan, db, journal).run(receipt, retry=True)['ledger'] == 129
+        assert LocalTransition(plan, db, journal).run(receipt, retry=True)['ledger'] == 130
         assert journal.last('done', 'adapter-migration:' + first).get('recovered', False) is committed
 
 
@@ -416,8 +416,8 @@ def test_real_synthetic_dump_restore_checks_schema_and_counts(plan, database):
         receipt = db.rehearse_backup(plan)
         assert receipt['scope'] == 'synthetic-database-only'
         assert receipt['clone_rehearsal']['migrations_verified'] is True
-        assert receipt['clone_rehearsal']['applied'] == 51
-        assert receipt['clone_rehearsal']['final_ledger'] == 129
+        assert receipt['clone_rehearsal']['applied'] == 52
+        assert receipt['clone_rehearsal']['final_ledger'] == 130
         assert receipt['clone_rehearsal']['concurrent'] == 8
         assert receipt['restore_verified'] is True
         assert receipt['content_verified'] is False
@@ -473,7 +473,7 @@ def test_host_contract_and_real_database_are_bound_end_to_end(plan, database, tm
         receipt = LocalEvidence.synthetic(plan.digest, baseline_digest(db.observe()),
                                           host_digest=contained['fingerprint'])
         result = LocalTransition(plan, db, journal, host=host).run(receipt)
-        assert result['ledger'] == 129 and result['host_verified'] is False
+        assert result['ledger'] == 130 and result['host_verified'] is False
         assert journal.last('adapter-local-restore')['restore_verified'] is True
         assert journal.last('adapter-preflight')['pending'] == 0
         assert all(not state['running'] for state in port.snapshot()['services'].values())
@@ -545,8 +545,8 @@ def test_successful_retry_clears_old_failure_for_readonly_replay(plan, database,
         with pytest.raises(Refused):
             LocalTransition(plan, db, journal).run(receipt)
         monkeypatch.setattr(db, 'apply', apply)
-        assert LocalTransition(plan, db, journal).run(receipt, retry=True)['ledger'] == 129
-        assert LocalTransition(plan, db, journal).run(receipt)['ledger'] == 129
+        assert LocalTransition(plan, db, journal).run(receipt, retry=True)['ledger'] == 130
+        assert LocalTransition(plan, db, journal).run(receipt)['ledger'] == 130
 
 
 @pytest.mark.parametrize('candidate', ['aptitude', 'member', 'official-number'])
@@ -588,7 +588,7 @@ def test_valid_destination_aptitude_is_not_a_repeated_pre_ddl_gate(plan, databas
                 # Its uv_origem_aptidao trigger fills 'legado' for later grants.
                 execute_sql(database, "UPDATE pessoas SET apto_proxima_cd=true WHERE id='eeeeeeee-0000-4000-8000-000000000001'")
         monkeypatch.setattr(db, 'apply', grant_after_schema)
-        assert LocalTransition(plan, db, journal).run(receipt)['ledger'] == 129
+        assert LocalTransition(plan, db, journal).run(receipt)['ledger'] == 130
         assert db.observe()['aptitude_backfill'] == 1
     assert execute_sql(database, "SELECT origem_aptidao_cd FROM pessoas WHERE id='eeeeeeee-0000-4000-8000-000000000001'") == [('legado',)]
 
@@ -665,7 +665,7 @@ def test_invalid_clone_receipt_blocks_marker(plan, database, tmp_path, monkeypat
         before = db.observe()
         backup = dict(plan_digest=plan.digest, source_identity=db.identity,
                       baseline_digest=baseline_digest(before), restore_verified=True,
-                      clone_rehearsal=dict(migrations_verified=True, applied=51, final_ledger=129,
+                      clone_rehearsal=dict(migrations_verified=True, applied=52, final_ledger=130,
                           concurrent=8, sql_digest=digest([(m.name, m.sha256) for m in plan.pending]),
                           final_schema_digest='a'*64, clone_identity='b'*64, cluster_global_ddl_possible=True))
         if fault == 'not-verified':
@@ -702,7 +702,7 @@ def test_source_catalog_divergence_from_clone_is_refused(plan, database, tmp_pat
         monkeypatch.setattr(db, 'apply', divergent)
         with pytest.raises(Refused, match='clone-source-schema-divergence'):
             LocalTransition(plan, db, journal).run(evidence(plan, db))
-        assert len(db.observe()['ledger']) == 129
+        assert len(db.observe()['ledger']) == 130
         assert journal.last('adapter-database-verified') is None
         assert journal.last('adapter-failed')['legacy_resume_allowed'] is False
 
@@ -743,7 +743,7 @@ def test_final_catalog_error_is_sanitized_and_holds(plan, database, tmp_path, mo
         assert failure.value.__suppress_context__
         assert journal.last('adapter-failed')['code'] == 'clone-source-schema-check-failed'
         assert journal.last('adapter-database-verified') is None
-        assert len(db.observe()['ledger']) == 129
+        assert len(db.observe()['ledger']) == 130
 
 
 @pytest.mark.parametrize('change', ['missing', 'definition'])
@@ -757,7 +757,7 @@ def test_completed_index_drift_refuses_replay(plan, database, tmp_path, change):
             execute_sql(database, f'CREATE INDEX {index} ON public.pessoas(id)')
         with pytest.raises(Refused, match='reviewed-index-(missing|changed)'):
             LocalTransition(plan, db, journal).run(receipt)
-        assert len(db.observe()['ledger']) == 129
+        assert len(db.observe()['ledger']) == 130
 
 
 @pytest.mark.parametrize('changed_owner', [False, True])

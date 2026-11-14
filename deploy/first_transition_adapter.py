@@ -22,7 +22,7 @@ from uuid import UUID
 from initial_transition_files import Journal, git_tree, read_regular
 from initial_transition_ops import BACKFILL_SQL, Refused, require
 
-APPLICATION_SHA = 'afdfb78d71a53f2861632806e13cdda4662d7d63'
+APPLICATION_SHA = '4318a07afb97b835a9c54931e6951a326af28ff3'  # Base A da primeira virada (origin/main apos #678 e #689, Casa Limpa 3.1).
 EXECUTOR_SHA = '37c7d68d60b6f86cfb1fe75d4c720530537845d6'
 ROLES = ('backend', 'cron-worker', 'broadcast-worker', 'queue-worker')
 MISSING = frozenset({
@@ -182,7 +182,7 @@ def prepare(repo: Path, application_sha=APPLICATION_SHA, executor_sha=EXECUTOR_S
     probes = git_tree(repo, application_sha, (probe,), re.compile(re.escape(probe)), git)
     require(probe in probes, 'preflight-missing')
     plan = Plan(application_sha, executor_sha, migrations, baseline, executor[runner], probes[probe], adapter_sources())
-    require((len(migrations), len(baseline), len(plan.pending)) == (129, 78, 51), 'release-shape')
+    require((len(migrations), len(baseline), len(plan.pending)) == (130, 78, 52), 'release-shape')
     require(MISSING <= {m.name for m in migrations}, 'baseline-missing-set')
     require(all(not re.search(r'\bconcurrently\b', '\n'.join(
         line for line in m.sql.decode().splitlines() if not line.lstrip().startswith('--')), re.I)
@@ -429,6 +429,41 @@ def validate_clone_receipt(backup, plan, identity, baseline):
             and all(isinstance(clone.get(key), str) and re.fullmatch('[0-9a-f]{64}', clone[key])
                     for key in ('final_schema_digest', 'clone_identity')),
             'clone-receipt-invalid')
+    if 'applicator_role' in clone:
+        role = clone['applicator_role']
+        require(isinstance(role, dict)
+                and isinstance(role.get('role'), str) and role['role']
+                and isinstance(role.get('restore_role'), str) and role['restore_role']
+                and role['role'] != role['restore_role']
+                and role.get('rolsuper') is False and role.get('rolbypassrls') is True
+                and role.get('rolcreaterole') is True and role.get('rolcreatedb') is True
+                and role.get('rolinherit') is True and role.get('rolcanlogin') is True
+                and role.get('rolreplication') is False
+                and role.get('statement_timeout') == '2min',
+                'clone-receipt-invalid')
+    for key in ('dump_seconds', 'restore_seconds', 'migrations_seconds', 'max_migration_seconds'):
+        if key in clone:
+            val = clone[key]
+            require(isinstance(val, (int, float)) and not isinstance(val, bool) and val >= 0, 'clone-receipt-invalid')
+            if key == 'max_migration_seconds':
+                require(val <= 60, 'clone-receipt-invalid')
+    if 'migration_timings' in clone:
+        timings = clone['migration_timings']
+        require(isinstance(timings, list) and len(timings) == len(plan.pending)
+                and all(isinstance(item, dict) and item.get('name') == m.name
+                        and item.get('concurrent') is bool(m.concurrent)
+                        and isinstance(item.get('seconds'), (int, float))
+                        and not isinstance(item['seconds'], bool) and 0 <= item['seconds'] <= 60
+                        for item, m in zip(timings, plan.pending)),
+                'clone-receipt-invalid')
+    if 'rls_grants_verified' in clone:
+        rls = clone['rls_grants_verified']
+        require(isinstance(rls, dict)
+                and rls.get('service_role_bypassrls') is True
+                and rls.get('non_service_roles_bypassrls') is False
+                and isinstance(rls.get('runtime_roles'), list) and len(rls['runtime_roles']) == 7
+                and isinstance(rls.get('tables'), dict) and len(rls['tables']) >= 2,
+                'clone-receipt-invalid')
 
 
 class LocalTransition:

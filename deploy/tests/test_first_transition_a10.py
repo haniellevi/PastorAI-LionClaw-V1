@@ -523,3 +523,22 @@ def test_conflicting_duplicate_legacy_gate_refuses_before_containment(world):
         transition.run()
     assert world.legacy_effects() == [] and world.migrate.applied == []
     assert all(i.state == 'open' for i in world.rig.ingress.values())
+
+
+def test_a10_refuses_source_schema_divergence_from_clone_digest(world):
+    transition, result = a9(world)
+    docker = world.cdocker
+
+    def diverge_during_recreate(argv, **kwargs):
+        answer = A10Docker.__call__(docker, argv, **kwargs)
+        if argv == world.spec.a10_compose_argv():
+            world.pg.extra_ddl.append('a10_unplanned_ddl')
+        return answer
+    transition.candidate.runner = diverge_during_recreate
+    with pytest.raises(Refused, match='^clone-source-schema-divergence$'):
+        transition.a10(result['a10_token'])
+    assert world.cdocker.containers[A10_IDS['backend']]['running'] is False
+    assert ('docker', 'start', A10_IDS['backend']) not in world.cdocker.calls
+    assert world.journal.last('transition-a10-contained')['complete'] is True
+    assert world.journal.last('transition-a10-complete') is None
+    assert all(i.state == 'blocked' for i in world.rig.ingress.values())

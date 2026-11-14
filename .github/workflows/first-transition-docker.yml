@@ -1,0 +1,79 @@
+# Ensaio real do backup de janela e replay das 52 migrations em Docker PG17 (item 4.6).
+# Executa somente contra banco descartavel proprio dentro do runner, com dados sinteticos.
+name: First Transition Docker Rehearsal
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/first-transition-docker.yml
+      - deploy/first_transition_*.py
+      - deploy/initial_transition*.py
+      - deploy/package_backend_release.py
+      - deploy/release_topology.py
+      - deploy/release_preflight.py
+      - deploy/tests/test_first_transition_*.py
+  pull_request:
+    paths:
+      - .github/workflows/first-transition-docker.yml
+      - deploy/first_transition_*.py
+      - deploy/initial_transition*.py
+      - deploy/package_backend_release.py
+      - deploy/release_topology.py
+      - deploy/release_preflight.py
+      - deploy/tests/test_first_transition_*.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: first-transition-docker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  window-backup-docker:
+    name: window-backup-docker-pg17
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # O adaptador le blobs exatos pelos commits revisados (APPLICATION_SHA e EXECUTOR_SHA).
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/backend-ci-setup
+
+      - name: Executar ensaio real de dump, restore e 52 migrations em PG17 isolado
+        run: |
+          set -euo pipefail
+          umask 022
+          pg_image="postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929"
+          docker pull "$pg_image"
+          container="igreja12-ci-window-src-$(date +%s)-$$"
+          nonce="$(cat /proc/sys/kernel/random/uuid)"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          docker run --pull=never -d --name "$container" \
+            --tmpfs /var/lib/postgresql/data \
+            -p 127.0.0.1::5432 \
+            -e POSTGRES_DB=first_transition_test \
+            -e POSTGRES_PASSWORD=synthetic-only \
+            "$pg_image" >/dev/null
+          for _ in $(seq 1 50); do
+            if docker exec "$container" pg_isready -q -h 127.0.0.1 -U postgres; then
+              break
+            fi
+            sleep 0.2
+          done
+          docker exec "$container" pg_isready -q -h 127.0.0.1 -U postgres
+          docker exec -i "$container" psql -q -U postgres -d first_transition_test -v ON_ERROR_STOP=1 \
+            -c "COMMENT ON DATABASE first_transition_test IS 'igreja12-local-disposable:${nonce}'"
+          port="$(docker port "$container" 5432/tcp | awk -F: '{print $NF; exit}')"
+          FIRST_TRANSITION_LOCAL_URL="postgresql://postgres:synthetic-only@127.0.0.1:${port}/first_transition_test" \
+          FIRST_TRANSITION_LOCAL_NONCE="$nonce" \
+          FIRST_TRANSITION_WINDOW_DOCKER=1 \
+          FIRST_TRANSITION_WINDOW_IMAGE="$pg_image" \
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest \
+            deploy/tests/test_first_transition_window_backup_docker.py -v -s

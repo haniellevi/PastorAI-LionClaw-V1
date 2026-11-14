@@ -18,7 +18,7 @@ Sequence (one durable journal, shared with ObservedHostContract):
 5. final pre-DDL re-check of the stored receipt and of containment/quiescence
    (no second backup call), then the durable irrevocable ``ddl-marker``, which
    binds the window backup id;
-6. the 51 pending migrations (43 transactional, 8 CONCURRENTLY) one by one via
+6. the 52 pending migrations (44 transactional, 8 CONCURRENTLY) one by one via
    the exact pinned ``backend/scripts/migrate.py`` bytes of the Plan, each with
    a durable intent first; the first failure or doubt stops for good;
 7. candidate release layout ``<release_root>/<sha>`` (first_transition_candidate);
@@ -56,7 +56,7 @@ import stat
 import subprocess
 import time
 
-from first_transition_a10 import A10_PROCEDURES, A10Step
+from first_transition_a10 import A10_PROCEDURES, A10Step, a10_recovery_state
 from first_transition_adapter import APPLICATION_SHA, EXECUTOR_SHA, ROLES, Plan, digest, validate_clone_receipt
 from first_transition_candidate import (CONSUMERS, CandidatePort, CandidateRunner, CandidateSpec, check_backend_running,
                                         check_held, check_identity, write_candidate_release, write_hold_override)
@@ -72,7 +72,7 @@ CONFIG_SCHEMA = 'igreja12.first-transition-config/1'
 CONFIG_KEYS = frozenset({'schema', 'repo', 'state_dir', 'migration_workdir', 'python', 'docker', 'database',
                          'host', 'candidate', 'package_manifest_sha256', 'timeouts'})
 TIMEOUTS = dict(migration_s=300, observe_s=10, quiescence_interval_s=5, quiescence_budget_s=60, a10_settle_s=30)
-SHAPE = (51, 43, 8)  # pending, transactional, CONCURRENTLY
+SHAPE = (52, 44, 8)  # pending, transactional, CONCURRENTLY
 PROCEDURES = {
     'not-started': 'nothing intended: no recovery action',
     'containment-partial': 'replay run(): contain() never re-signals; an unclean exit stays refused for a human',
@@ -95,6 +95,9 @@ PROCEDURES = {
 BACKUP_REQUEST_SCHEMA = 'igreja12.first-transition-window-backup-request/1'
 CLONE_FIELDS = ('migrations_verified', 'clone_identity', 'cluster_global_ddl_possible', 'applied', 'final_ledger',
                 'concurrent', 'sql_digest', 'final_schema_digest')
+OPTIONAL_CLONE_SECONDS = ('dump_seconds', 'restore_seconds', 'migrations_seconds', 'max_migration_seconds')
+APPLICATOR_ROLE_FIELDS = ('role', 'restore_role', 'rolsuper', 'rolbypassrls', 'rolcreaterole', 'rolcreatedb',
+                          'rolinherit', 'rolcanlogin', 'rolreplication', 'statement_timeout')
 PROCESS_ENV = frozenset({'PATH', 'LC_ALL', 'LANG', 'PYTHON_DOTENV_DISABLED', 'MIGRATION_DATABASE_URL', 'PGAPPNAME',
                          'PGCONNECT_TIMEOUT'})
 
@@ -219,8 +222,7 @@ class FirstTransition(A10Step):
 
     def _open(self, step):
         """Intent without receipt: the outcome is unknown and never retried automatically."""
-        return (self.j.last('transition-intent', step) is not None
-                and self.j.last('transition-done', step) is None)
+        return _open_step(self.j, step)
 
     def _observe(self):
         return self.db.observe(timeout=self.t['observe_s'])
@@ -241,16 +243,16 @@ class FirstTransition(A10Step):
         require(self.j.last('observed-host-intent', 'legacy-resume') is None, 'transition-legacy-resume-started')
         require(self.j.last('transition-failed') is None, 'transition-stopped')  # first failure is final
         require(not self._a10_started(), 'transition-a10-started')  # after A10 only a10() may continue
+        require(self.j.last('ddl-marker') is None, 'transition-stopped')  # post-marker refusal is unconditional
         try:
-            if self.j.last('ddl-marker') is None:
-                self._window_unused()
-                self._baseline()
-                self._gate_snapshot()  # pre-window gate values, while the legacy still runs
-                self.host.contain()
-                self._quiesce()
-                self._pending_baseline()
-                self._backup()
-                self._mark_ddl()
+            self._window_unused()
+            self._baseline()
+            self._gate_snapshot()  # pre-window gate values, while the legacy still runs
+            self.host.contain()
+            self._quiesce()
+            self._pending_baseline()
+            self._backup()
+            self._mark_ddl()
             self._migrate()
             self._release_layout()
             return self._a9()
@@ -311,10 +313,34 @@ class FirstTransition(A10Step):
         require(isinstance(receipt.get('backup_id'), str) and re.fullmatch('[0-9a-f]{64}', receipt['backup_id']),
                 'transition-backup-unbound')
         clone = receipt['clone_rehearsal']
+        sanitized = {key: clone[key] for key in CLONE_FIELDS}
+        for key in OPTIONAL_CLONE_SECONDS:
+            if key in clone:
+                sanitized[key] = float(clone[key])
+        if 'migration_timings' in clone:
+            sanitized['migration_timings'] = [
+                dict(name=str(item['name']), seconds=float(item['seconds']), concurrent=bool(item['concurrent']))
+                for item in clone['migration_timings']
+            ]
+        if 'applicator_role' in clone:
+            role = clone['applicator_role']
+            sanitized['applicator_role'] = {k: role[k] for k in APPLICATOR_ROLE_FIELDS}
+        if 'rls_grants_verified' in clone:
+            rls = clone['rls_grants_verified']
+            sanitized['rls_grants_verified'] = dict(
+                runtime_roles=[str(r) for r in rls['runtime_roles']],
+                service_role_bypassrls=bool(rls['service_role_bypassrls']),
+                non_service_roles_bypassrls=bool(rls['non_service_roles_bypassrls']),
+                tables={
+                    str(tbl): dict(rls=bool(info['rls']), force_rls=bool(info['force_rls']),
+                                   policy_roles=[str(p) for p in info['policy_roles']])
+                    for tbl, info in rls['tables'].items()
+                },
+            )
         return dict(plan_digest=receipt['plan_digest'], source_identity=receipt['source_identity'],
                     baseline_digest=receipt['baseline_digest'], restore_verified=True,
                     request_digest=request_digest, backup_id=receipt['backup_id'],
-                    clone_rehearsal={key: clone[key] for key in CLONE_FIELDS})
+                    clone_rehearsal=sanitized)
 
     def _backup(self):
         """The window backup, requested exactly once after this run's quiescence."""
@@ -356,6 +382,23 @@ class FirstTransition(A10Step):
                       window_backup_id=backup['backup_id'], backup_request_digest=backup['request_digest'],
                       legacy_resume_allowed=False)
 
+    def _clone_final_schema_digest(self):
+        """Returns final_schema_digest bound by ddl-marker -> transition-backup.
+
+        Scope note: Q_CATALOG hashes public-schema relations/indexes/constraints/
+        policies/triggers/functions/columns plus default ACLs on namespace 0 or public,
+        so restore_excluded_expected items (vault schema/extension, cluster event
+        triggers) stay outside the compared catalog digest.
+        """
+        marker = self.j.last('ddl-marker')
+        backup = self.j.last('transition-backup')
+        require(marker is not None and backup is not None
+                and digest(backup.get('receipt')) == backup.get('receipt_digest')
+                and marker.get('backup_digest') == backup.get('receipt_digest')
+                and marker.get('window_backup_id') == backup.get('backup_id'),
+                'transition-backup-unbound')
+        return backup['receipt']['clone_rehearsal']['final_schema_digest']
+
     # -- DDL ----------------------------------------------------------------------------------------
     def _migrate(self):
         ledger = list(self.plan.baseline)
@@ -389,6 +432,7 @@ class FirstTransition(A10Step):
         final = self._observe()
         require_same_database(final, self.expected)  # before transition-migrated, layout and A9
         require(list(final['ledger']) == sorted(m.name for m in self.plan.migrations), 'final-ledger')
+        require(final['catalog'] == self._clone_final_schema_digest(), 'clone-source-schema-divergence')
         if self.j.last('transition-migrated') is None:
             self.j.append('transition-migrated', ledger=len(final['ledger']), catalog=final['catalog'])
         else:
@@ -472,6 +516,7 @@ class FirstTransition(A10Step):
         require_same_database(observation, self.expected)
         require(observation['ledger'] == tuple(sorted(m.name for m in self.plan.migrations)), 'final-ledger')
         require(observation['catalog'] == self.j.last('transition-migrated')['catalog'], 'database-ddl-drift')
+        require(observation['catalog'] == self._clone_final_schema_digest(), 'clone-source-schema-divergence')
         require(not observation['invalid'] and observation['index_builds'] == 0, 'database-ddl-in-progress')
         # Idle TCP pools cannot attribute remote PG sessions. Even legitimate
         # backend activity conservatively refuses until the database is quiet.
@@ -544,42 +589,50 @@ class FirstTransition(A10Step):
     # -- recovery --------------------------------------------------------------------------------
     def recovery(self):
         """Objective classification of the journal; never performs an action."""
-        j = self.j
-        open_steps = [e['step'] for e in j.find('transition-intent') if self._open(e['step'])]
-        failed = j.last('transition-failed')
-        a10 = self._a10_recovery()
-        if a10 is not None:
-            state = a10
-        elif j.last('transition-a9-complete') is not None and failed is None:
-            state = 'a9-complete'
-        elif j.last('ddl-marker') is not None:
-            migrations = [s for s in open_steps if s.startswith('migration:')]
-            if migrations:
-                outcome = j.last('transition-migration-failed', migrations[-1])
-                state = 'ddl-failed' if outcome is not None and outcome['definite'] is True else 'ddl-ambiguous'
-            elif any(s.startswith('a9:') for s in open_steps):
-                state = 'candidate-ambiguous'
-            elif j.last('transition-done', 'layout') is not None and failed is not None:
-                state = 'candidate-failed'
-            else:
-                state = 'post-ddl-failed'
-        elif j.last('observed-host-resumed') is not None:
-            state = 'legacy-resumed'
-        elif j.last('observed-host-intent', 'legacy-resume') is not None:
-            state = 'resume-partial'
-        elif j.last('transition-backup-request') is not None:
-            state = 'backup-window-used'
-        elif j.last('observed-host-contained') is not None:
-            state = 'contained-pre-ddl'
-        elif j.find('observed-host-intent'):
-            state = 'containment-partial'
+        return classify_recovery(self.j)
+
+
+def _open_step(journal, step):
+    return journal.last('transition-intent', step) is not None and journal.last('transition-done', step) is None
+
+
+def classify_recovery(journal):
+    """Objective classification of the journal without touching DB, host, or journal state."""
+    open_steps = [e['step'] for e in journal.find('transition-intent') if _open_step(journal, e['step'])]
+    failed = journal.last('transition-failed')
+    a10 = a10_recovery_state(journal)
+    if a10 is not None:
+        state = a10
+    elif journal.last('transition-a9-complete') is not None and failed is None:
+        state = 'a9-complete'
+    elif journal.last('ddl-marker') is not None:
+        migrations = [s for s in open_steps if s.startswith('migration:')]
+        if migrations:
+            outcome = journal.last('transition-migration-failed', migrations[-1])
+            state = 'ddl-failed' if outcome is not None and outcome['definite'] is True else 'ddl-ambiguous'
+        elif any(s.startswith('a9:') for s in open_steps):
+            state = 'candidate-ambiguous'
+        elif journal.last('transition-done', 'layout') is not None and failed is not None:
+            state = 'candidate-failed'
         else:
-            state = 'not-started'
-        marker = j.last('ddl-marker')
-        return dict(state=state, procedure=PROCEDURES[state], open_steps=open_steps,
-                    legacy_resume_allowed=state in ('contained-pre-ddl', 'backup-window-used', 'resume-partial'),
-                    window_backup_id=None if marker is None else marker.get('window_backup_id'),
-                    automatic_undo=False, destructive_retry=False, automatic_restore=False)
+            state = 'post-ddl-failed'
+    elif journal.last('observed-host-resumed') is not None:
+        state = 'legacy-resumed'
+    elif journal.last('observed-host-intent', 'legacy-resume') is not None:
+        state = 'resume-partial'
+    elif journal.last('transition-backup-request') is not None:
+        state = 'backup-window-used'
+    elif journal.last('observed-host-contained') is not None:
+        state = 'contained-pre-ddl'
+    elif journal.find('observed-host-intent'):
+        state = 'containment-partial'
+    else:
+        state = 'not-started'
+    marker = journal.last('ddl-marker')
+    return dict(state=state, procedure=PROCEDURES[state], open_steps=open_steps,
+                legacy_resume_allowed=state in ('contained-pre-ddl', 'backup-window-used', 'resume-partial'),
+                window_backup_id=None if marker is None else marker.get('window_backup_id'),
+                automatic_undo=False, destructive_retry=False, automatic_restore=False)
 
 
 # -- configuration ----------------------------------------------------------------------------------

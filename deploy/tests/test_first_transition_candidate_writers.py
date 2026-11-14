@@ -223,7 +223,9 @@ def test_assemble_real_writer_candidate_path_replay_and_secret_isolation(compose
     world = composed.world
     starts, requests = world.cdocker.starts, len(world.requests)
     replay, fresh_writers = composed.transition()
-    assert replay.run() == result
+    with pytest.raises(Refused, match='^transition-stopped$'):
+        replay.run()
+    assert replay.recovery()['state'] == 'a9-complete'
     assert world.cdocker.starts == starts == 1 and len(world.requests) == requests == 1
     assert fresh_writers.declared == frozenset(LEGACY.values())
     world.consumers_held()
@@ -374,8 +376,9 @@ def test_open_start_intent_never_adopts_or_retries(world):
     calls = list(world.cdocker.calls)
     with pytest.raises(Refused, match='^candidate-start-ambiguous$'):
         t.candidate_writer(timeout=5)
-    with pytest.raises(Refused, match='^candidate-start-ambiguous$'):
+    with pytest.raises(Refused, match='^transition-stopped$'):
         t.run()
+    assert t.recovery()['state'] == 'candidate-ambiguous'
     assert world.cdocker.calls[:len(calls)] == calls and world.cdocker.starts == 1
     assert world.journal.last('transition-done', 'a9:start-backend') is None
 
@@ -476,8 +479,9 @@ def test_open_create_intent_is_not_adopted_or_repeated(world):
                len(world.requests), world.cdocker.starts)
     with pytest.raises(Refused, match='^candidate-project-not-empty$'):
         t.candidate_writer(timeout=5)
-    with pytest.raises(Refused, match='^candidate-create-ambiguous$'):
+    with pytest.raises(Refused, match='^transition-stopped$'):
         t.run()
+    assert t.recovery()['state'] == 'candidate-ambiguous'
     assert (world.legacy_effects(), world.cdocker.effects(), world.migrate.applied, len(world.requests),
             world.cdocker.starts) == effects
     assert world.journal.last('transition-done', 'a9:create') is None

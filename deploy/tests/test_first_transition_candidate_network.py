@@ -31,11 +31,14 @@ def test_created_network_intent_survives_a9_replay_and_writer(world):
     assert result['status'] == 'a9-backend-smoked'
     assert transition.candidate_writer(timeout=5) == CANDIDATE_IDS['backend']
     world.journal.close()
-    assert world.transition().run() == result
+    replay = world.transition()
+    with pytest.raises(Refused, match='^transition-stopped$'):
+        replay.run()
     assert world.cdocker.starts == 1
     world.consumers_held()
     world.assert_legacy_contained()
     assert world.journal.last('transition-a9-complete')
+    assert replay.recovery()['state'] == 'a9-complete'
 
 
 @pytest.mark.parametrize('effective', [False, True])

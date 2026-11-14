@@ -37,7 +37,7 @@ LISTING = '\n'.join([
     '4008; 1255 16400 FUNCTION extensions grant_pg_net_access() supabase_admin',
     '4009; 3466 16410 EVENT TRIGGER - issue_pg_net_access supabase_admin',
     '4010; 0 0 COMMENT - EVENT TRIGGER issue_pg_net_access supabase_admin',
-    '4011; 3466 16411 EVENT TRIGGER - ensure_rls postgres',
+    '4011; 3466 16411 EVENT TRIGGER - ensure_rls clone_admin',
     '4012; 6104 16420 PUBLICATION - supabase_realtime postgres',
     '4013; 6106 16421 PUBLICATION TABLE public igrejas postgres',
 ]) + '\n'
@@ -76,8 +76,18 @@ class Cursor:
             self.rows = [('ok',)]
         elif query == wb.Q_SOURCE_ROLES:
             self.rows = [('anon',), ('authenticated',), ('postgres',), ('service_role',)]
+        elif query == wb.Q_SOURCE_EXTENSIONS:
+            self.rows = []
+        elif query == wb.Q_SOURCE_TRUSTED_EXTENSION_OWNER:
+            self.rows = list(getattr(clone, 'trusted_owner_rows', ()))
+        elif query == wb.Q_APPLICATOR_ROLE:
+            self.rows = list(clone.applicator_rows)
+        elif query == wb.Q_RUNTIME_ROLES:
+            self.rows = list(clone.runtime_role_rows)
+        elif query == wb.Q_RUNTIME_TABLE_PRIVS:
+            self.rows = list(clone.runtime_table_rows)
         elif text == 'SELECT rolname FROM pg_roles':
-            self.rows = [('postgres',)]
+            self.rows = [('clone_admin',), ('postgres',)]
         else:
             self.rows = []
 
@@ -92,6 +102,9 @@ class Conn:
     def cursor(self):
         return Cursor(self.clone, self.log)
 
+    def commit(self):
+        pass
+
     def close(self):
         self.closed = True
 
@@ -101,10 +114,30 @@ class Host:
 
     def __init__(self, plan, *, fail=None, catalog=None, invalid=False, leftover=False):
         self.plan, self.fail, self.invalid, self.leftover = plan, fail or set(), invalid, leftover
-        self.calls, self.migrations, self.sql, self.restored = [], [], [], False
+        self.calls, self.migrations, self.sql, self.restored, self.clone_users = [], [], [], False, []
         self.listing, self.copied, self.restore_args = LISTING, {}, None
         self.restore_stderr = b'pg_restore: from TOC entry 4002; 3079 16385 EXTENSION - supabase_vault postgres\n'
         self.catalog_override = catalog
+        self.applicator_rows = [('postgres', '2min', False, True, True, True, True, True, False)]
+        self.runtime_role_rows = [
+            ('anon', False, False, False, False, False, False),
+            ('authenticated', False, False, False, False, False, False),
+            ('private_send_runtime', False, False, False, False, False, False),
+            ('private_storage_runtime', False, False, False, False, False, False),
+            ('private_summary_runtime', False, False, False, False, False, False),
+            ('queue_worker_runtime', False, False, False, False, False, False),
+            ('service_role', False, True, False, False, False, False),
+        ]
+        self.runtime_table_rows = [
+            ('cell_alerts', True, True, ['authenticated'], False, False, True, True, True, False,
+             False, False, False, False, True, False, False, False),
+            ('celula_alerta_regras', True, True, ['authenticated'], False, False, True, True, True, False,
+             False, False, False, False, True, False, False, False),
+            ('private_deletion_uploads', True, True, ['private_storage_runtime'], False, False, False, False, False,
+             False, True, False, False, False, True, False, True, False),
+            ('private_summary_tasks', True, True, ['authenticated', 'private_summary_runtime'], False, False, True,
+             False, False, False, False, False, True, False, True, False, False, True),
+        ]
 
     def ledger(self):
         if not self.restored:
@@ -156,6 +189,7 @@ class Host:
 
     def clone_connect(self, *, host, dbname, user, password, timeout):
         assert host == '172.30.0.2' and password and password not in SOURCE_URL
+        self.clone_users.append(user)
         return Conn(self, self.sql)
 
 
@@ -170,7 +204,7 @@ def config(tmp_path, **overrides):
     values = dict(docker_binary='/usr/bin/docker', docker_endpoint='unix:///run/docker.sock',
                   docker_config_dir='/state/docker-cli', backup_root=str(root), clone_workdir=str(work),
                   python='/opt/venv/bin/python',
-                  dump_image=IMAGE, clone_image=CLONE_IMAGE, clone_superusers=('postgres',))
+                  dump_image=IMAGE, clone_image=CLONE_IMAGE)
     values.update(overrides)
     return wb.WindowBackupConfig(**values)
 
@@ -216,9 +250,23 @@ def test_receipt_attests_request_and_passes_the_orchestrator_validation(plan, tm
     validate_clone_receipt(receipt, plan, expected.identity, expected.baseline_digest)
     assert receipt['request_digest'] == digest(req) and receipt['restore_verified'] is True
     clone = receipt['clone_rehearsal']
-    assert clone['applied'] == 51 and clone['final_ledger'] == 129 and clone['concurrent'] == 8
+    assert clone['applied'] == 52 and clone['final_ledger'] == 130 and clone['concurrent'] == 8
     assert clone['final_schema_digest'] == digest([list(r) for r in FINAL_ROWS])
     assert clone['restored_catalog'] == expected.catalog and clone['roles_created'] == 3
+    assert isinstance(receipt['dump_seconds'], float) and isinstance(receipt['restore_seconds'], float)
+    assert isinstance(receipt['migrations_seconds'], float) and isinstance(receipt['max_migration_seconds'], float)
+    assert len(clone['migration_timings']) == 52 and all(t['seconds'] <= 60 for t in clone['migration_timings'])
+    assert clone['applicator_role'] == dict(
+        role='postgres', restore_role='clone_admin', rolsuper=False, rolbypassrls=True, rolcreaterole=True,
+        rolcreatedb=True, rolinherit=True, rolcanlogin=True, rolreplication=False, statement_timeout='2min')
+    assert clone['rls_grants_verified']['service_role_bypassrls'] is True
+    assert clone['rls_grants_verified']['non_service_roles_bypassrls'] is False
+    assert set(clone['rls_grants_verified']['tables']) == {
+        'cell_alerts', 'celula_alerta_regras', 'private_deletion_uploads', 'private_summary_tasks'}
+    assert 'postgres' in host.clone_users and 'clone_admin' in host.clone_users
+    assert host.restore_args[host.restore_args.index('-U') + 1] == 'clone_admin'
+    clone_env = next(env for args, env in host.calls if args[:2] == ('run', '-d'))
+    assert clone_env[wb.CLONE_USER_ENV] == 'clone_admin'
     dump = Path(receipt['backup_path'])
     assert dump.read_bytes() == DUMP and receipt['backup_id'] == hashlib.sha256(DUMP).hexdigest()
     assert stat.S_IMODE(os.lstat(dump).st_mode) == 0o600 and stat.S_IMODE(os.lstat(dump.parent).st_mode) == 0o700
@@ -422,7 +470,10 @@ def test_new_clone_roles_are_minimal_noinherit_without_altering_existing_roles(p
     assert len(creates) == 1 and 'NOLOGIN NOINHERIT' in str(creates[0])
     assert 'private_storage_runtime' in str(creates[0]) and 'postgres' not in str(creates[0])
     assert not any('ALTER ROLE' in str(q) and 'private_storage_runtime' in str(q) for q in host.sql)
-    assert any('SUPERUSER' in str(q) and 'postgres' in str(q) for q in host.sql)
+    assert any('NOSUPERUSER' in str(q) and 'BYPASSRLS' in str(q) and 'postgres' in str(q) for q in host.sql)
+    assert any("statement_timeout = '2min'" in str(q) and 'postgres' in str(q) for q in host.sql)
+    assert any('CREATE DATABASE' in str(q) and 'OWNER' in str(q) and 'postgres' in str(q) for q in host.sql)
+    assert not any('ALTER ROLE "postgres" SUPERUSER' in str(q) for q in host.sql)
 
 
 def test_restore_uses_a_filtered_list_without_vault_and_foreign_owned_event_triggers(plan, tmp_path):
@@ -434,7 +485,7 @@ def test_restore_uses_a_filtered_list_without_vault_and_foreign_owned_event_trig
     assert 'issue_pg_net_access' not in text  # owned by a role that is not a clone superuser
     # Everything else stays: public objects, data, policies/functions, own event trigger, publication.
     for entry in ('TABLE public igrejas', 'TABLE DATA public igrejas', 'FUNCTION extensions grant_pg_net_access()',
-                  'EVENT TRIGGER - ensure_rls postgres', 'PUBLICATION - supabase_realtime',
+                  'EVENT TRIGGER - ensure_rls clone_admin', 'PUBLICATION - supabase_realtime',
                   'PUBLICATION TABLE public igrejas', 'SCHEMA - public'):
         assert entry in text
     assert host.restore_args[-3:] == ('-L', wb.CLONE_LIST, wb.CLONE_DUMP)
@@ -446,7 +497,7 @@ def test_restore_uses_a_filtered_list_without_vault_and_foreign_owned_event_trig
 
 def test_event_triggers_owned_by_a_clone_superuser_are_kept(plan, tmp_path):
     host, expected = Host(plan), expectation(plan)
-    provider(plan, tmp_path, host, expected, clone_superusers=('postgres', 'supabase_admin'),
+    provider(plan, tmp_path, host, expected, clone_superusers=('supabase_admin',),
              restore_excluded_expected=(('event_trigger_names', ()), ('event_triggers', 0), ('vault_extension', 2),
                                         ('vault_schema', 2)))(request(plan, expected))
     text = host.copied[wb.CLONE_LIST].decode()
@@ -454,7 +505,7 @@ def test_event_triggers_owned_by_a_clone_superuser_are_kept(plan, tmp_path):
 
 
 def test_filter_never_removes_other_entries_and_refuses_an_empty_result():
-    lines, removed = wb.filter_restore_list(LISTING, frozenset({'postgres'}))
+    lines, removed = wb.filter_restore_list(LISTING, frozenset({'clone_admin'}))
     assert len(lines) == len(LISTING.splitlines()) - 6 and sum(v for v in removed.values() if isinstance(v, int)) == 6
     with pytest.raises(Refused, match='^window-backup-restore-list$'):
         wb.filter_restore_list('; only comments\n', frozenset())
@@ -488,7 +539,7 @@ def test_every_backup_code_literal_is_published_and_escapes_the_entry_point():
 def test_unparseable_listing_line_refuses_instead_of_staying(plan):
     forged = LISTING + 'fragment of a name\n4002; 0 0 EXTENSION - supabase_vault x\n'
     with pytest.raises(Refused, match='^window-backup-restore-list$'):
-        wb.filter_restore_list(forged.replace('4013;', 'broken\n4013;', 1), frozenset({'postgres'}))
+        wb.filter_restore_list(forged.replace('4013;', 'broken\n4013;', 1), frozenset({'clone_admin'}))
 
 
 def test_restore_stderr_is_bounded_when_read(plan, tmp_path):
@@ -585,7 +636,7 @@ EMPTY_OWNER_LISTING = LISTING.replace('EXTENSION - supabase_vault postgres', 'EX
 
 def test_filter_removes_vault_extension_and_comment_with_an_empty_owner():
     assert 'EXTENSION - supabase_vault \n' in EMPTY_OWNER_LISTING  # the trailing space really is there
-    lines, removed = wb.filter_restore_list(EMPTY_OWNER_LISTING, frozenset({'postgres'}))
+    lines, removed = wb.filter_restore_list(EMPTY_OWNER_LISTING, frozenset({'clone_admin'}))
     text = '\n'.join(lines)
     assert 'supabase_vault' not in text and 'COMMENT - EVENT TRIGGER issue_pg_net_access' not in text
     assert removed == dict(vault_extension=2, vault_schema=3, event_triggers=2,
@@ -596,7 +647,7 @@ def test_filter_removes_vault_extension_and_comment_with_an_empty_owner():
     assert len(lines) == len(EMPTY_OWNER_LISTING.splitlines()) - 7 and 'SCHEMA vault' not in text
     for lookalike in ('4050; 3079 16700 EXTENSION - supabase_vault_extra ',
                       '4051; 0 0 COMMENT - EXTENSION supabase_vaults '):
-        kept, _ = wb.filter_restore_list(EMPTY_OWNER_LISTING + lookalike + '\n', frozenset({'postgres'}))
+        kept, _ = wb.filter_restore_list(EMPTY_OWNER_LISTING + lookalike + '\n', frozenset({'clone_admin'}))
         assert lookalike in kept
 
 
@@ -615,5 +666,124 @@ def test_restore_with_empty_owner_listing_drops_vault_from_the_clone_list(plan, 
 
 def test_vault_filter_ignores_a_schema_that_merely_looks_like_a_desc_word():
     lines, removed = wb.filter_restore_list(LISTING + '4030; 0 16600 TABLE DATA SALES vault x postgres\n',
-                                            frozenset({'postgres'}))
+                                            frozenset({'clone_admin'}))
     assert 'TABLE DATA SALES vault x' in '\n'.join(lines) and removed['vault_schema'] == 2
+
+
+def test_config_rejects_migration_user_sharing_superuser_or_restore_role(tmp_path):
+    for bad in (
+        dict(admin_user='postgres', migration_user='postgres'),
+        dict(restore_user='postgres', migration_user='postgres'),
+        dict(clone_superusers=('postgres',), migration_user='postgres'),
+    ):
+        with pytest.raises(Refused, match='^window-backup-roles$'):
+            config(tmp_path, **bad).validated()
+
+
+@pytest.mark.parametrize('row', [
+    ('postgres', '2min', True, True, True, True, True, True, False),
+    ('postgres', '2min', False, False, True, True, True, True, False),
+    ('postgres', '10s', False, True, True, True, True, True, False),
+    ('postgres', '2min', False, True, False, True, True, True, False),
+])
+def test_applicator_session_refuses_superuser_missing_bypass_or_wrong_timeout(plan, tmp_path, row):
+    host, expected = Host(plan), expectation(plan)
+    host.applicator_rows = [row]
+    with pytest.raises(Refused, match='^window-backup-clone-role$'):
+        provider(plan, tmp_path, host, expected)(request(plan, expected))
+
+
+def test_runtime_rls_verification_refuses_anon_grant_or_missing_force_rls(plan, tmp_path):
+    host, expected = Host(plan), expectation(plan)
+    host.runtime_table_rows[0] = (
+        'cell_alerts', True, False, ['authenticated'], False, False, True, True, True, False,
+        False, False, False, False, True, False, False, False)
+    with pytest.raises(Refused, match='^window-backup-runtime-rls$'):
+        provider(plan, tmp_path, host, expected)(request(plan, expected))
+    host2 = Host(plan)
+    host2.runtime_role_rows[-1] = ('service_role', False, False, False, False, False, False)
+    with pytest.raises(Refused, match='^window-backup-runtime-rls$'):
+        provider(plan, sub(tmp_path, 'b'), host2, expected)(request(plan, expected))
+
+
+def test_d9_refuses_single_migration_over_60s_but_allows_total_over_60s(plan, tmp_path):
+    clock = [0.0]
+
+    def fast_total_migrate(argv, **kwargs):
+        clock[0] += 2.0  # 52 * 2s = 104s total > 60s, max single = 2s <= 60s -> allowed per D9
+        return Host.migrate(host_ok, argv, **kwargs)
+
+    host_ok, expected = Host(plan), expectation(plan)
+    backup_ok = wb.WindowBackup(
+        config(tmp_path, restore_excluded_expected=PINNED), plan, expected, secret=lambda: SOURCE_URL,
+        connect=source_connect, run=host_ok.run, clone_connect=host_ok.clone_connect,
+        migrate_run=fast_total_migrate, sleep=lambda _: None, clock=lambda: clock[0])
+    receipt = backup_ok(request(plan, expected))
+    assert receipt['seconds'] >= 104.0 and receipt['max_migration_seconds'] <= 2.0
+
+    clock2 = [0.0]
+    host_slow = Host(plan)
+
+    def slow_one_migrate(argv, **kwargs):
+        clock2[0] += 61.0 if len(host_slow.migrations) == 2 else 0.1
+        return Host.migrate(host_slow, argv, **kwargs)
+
+    backup_slow = wb.WindowBackup(
+        config(sub(tmp_path, 'slow'), restore_excluded_expected=PINNED), plan, expected,
+        secret=lambda: SOURCE_URL, connect=source_connect, run=host_slow.run,
+        clone_connect=host_slow.clone_connect, migrate_run=slow_one_migrate,
+        sleep=lambda _: None, clock=lambda: clock2[0])
+    with pytest.raises(Refused, match='^window-backup-migration-slow$'):
+        backup_slow(request(plan, expected))
+
+    clock3 = [0.0]
+    host_cap = Host(plan)
+
+    def cap_slow_migrate(argv, **kwargs):
+        clock3[0] += 61.0 if len(host_cap.migrations) == 2 else 0.1
+        return Host.migrate(host_cap, argv, **kwargs)
+
+    overridden = tuple(sorted({**wb.TIMEOUTS, 'max_migration_s': 120}.items()))
+    backup_cap = wb.WindowBackup(
+        config(sub(tmp_path, 'cap'), restore_excluded_expected=PINNED, timeouts=overridden), plan, expected,
+        secret=lambda: SOURCE_URL, connect=source_connect, run=host_cap.run,
+        clone_connect=host_cap.clone_connect, migrate_run=cap_slow_migrate,
+        sleep=lambda _: None, clock=lambda: clock3[0])
+    with pytest.raises(Refused, match='^window-backup-migration-slow$'):
+        backup_cap(request(plan, expected))
+
+
+def test_align_replay_extensions_targets_source_trusted_owner_and_skips_matching_admin(plan, tmp_path):
+    host, expected = Host(plan), expectation(plan)
+    host.trusted_owner_rows = [('supabase_admin',)]
+    seen = []
+
+    class TrustedConn(Conn):
+        def cursor(self):
+            cur = super().cursor()
+            orig = cur.execute
+
+            def record(query, params=None):
+                seen.append((query, params))
+                return orig(query, params)
+
+            cur.execute = record
+            return cur
+
+    backup = wb.WindowBackup(
+        config(tmp_path, restore_excluded_expected=PINNED), plan, expected, secret=lambda: SOURCE_URL,
+        connect=lambda *, timeout: TrustedConn(host, host.sql), run=host.run,
+        clone_connect=lambda **_: TrustedConn(host, host.sql), migrate_run=host.migrate, sleep=lambda _: None)
+    backup(request(plan, expected))
+    assert any(params == ('clone_admin', 'supabase_admin') for _, params in seen)
+    assert any(query == wb.Q_ALIGN_EXTENSION_OWNERS for query, _ in seen)
+
+    host2 = Host(plan)
+    host2.trusted_owner_rows = [('clone_admin',)]
+    backup2 = wb.WindowBackup(
+        config(sub(tmp_path, 'same-admin'), restore_excluded_expected=PINNED), plan, expected,
+        secret=lambda: SOURCE_URL, connect=lambda *, timeout: TrustedConn(host2, host2.sql), run=host2.run,
+        clone_connect=lambda **_: TrustedConn(host2, host2.sql), migrate_run=host2.migrate, sleep=lambda _: None)
+    before_seen = len(seen)
+    backup2(request(plan, expected))
+    assert not any(query == wb.Q_ALIGN_EXTENSION_OWNERS for query, _ in seen[before_seen:])

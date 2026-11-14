@@ -1,4 +1,4 @@
-"""Real dump -> isolated clone -> replay of the 51, with Docker and the owned synthetic first_transition_test.
+"""Real dump -> isolated clone -> replay of the 52, with Docker and the owned synthetic first_transition_test.
 
 Opt-in only: FIRST_TRANSITION_LOCAL_URL/NONCE (owned disposable database, see
 test_first_transition_adapter_pg), FIRST_TRANSITION_WINDOW_DOCKER=1 and a digest-pinned
@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import first_transition_database as fdb
 import first_transition_window_backup as wb
 from first_transition_adapter import LocalDatabase, digest, validate_clone_receipt
-from first_transition_orchestrator import BACKUP_REQUEST_SCHEMA
+from first_transition_orchestrator import BACKUP_REQUEST_SCHEMA, MigrationExecutor, ProcessRunner
 from test_first_transition_adapter_pg import database, plan  # noqa: F401  (shared fixtures)
 
 IMAGE = os.environ.get('FIRST_TRANSITION_WINDOW_IMAGE', '')
@@ -75,10 +75,34 @@ def test_real_window_backup_restores_and_replays_in_an_isolated_clone(plan, data
     validate_clone_receipt(receipt, plan, expected.identity, expected.baseline_digest)
     clone = receipt['clone_rehearsal']
     assert receipt['request_digest'] == digest(request) and clone['restored_catalog'] == before['catalog']
-    assert (clone['applied'], clone['final_ledger'], clone['concurrent']) == (51, 129, 8)
+    assert '20261112_160000_celula_alerta_regras.sql' in [m.name for m in plan.pending]
+    assert (clone['applied'], clone['final_ledger'], clone['concurrent']) == (52, 130, 8)
     assert clone['restore_excluded'] == dict(vault_extension=0, vault_schema=0, event_triggers=0,
                                              event_trigger_names=[])
     assert clone['final_schema_digest'] != before['catalog']
+    assert isinstance(receipt['dump_seconds'], float) and isinstance(receipt['restore_seconds'], float)
+    assert isinstance(receipt['migrations_seconds'], float) and isinstance(receipt['max_migration_seconds'], float)
+    assert receipt['max_migration_seconds'] <= 60.0
+    assert len(clone['migration_timings']) == 52
+    assert all(isinstance(t['seconds'], float) and 0 <= t['seconds'] <= 60.0 for t in clone['migration_timings'])
+    assert clone['applicator_role'] == dict(
+        role='postgres', restore_role='clone_admin', rolsuper=False, rolbypassrls=True, rolcreaterole=True,
+        rolcreatedb=True, rolinherit=True, rolcanlogin=True, rolreplication=False, statement_timeout='2min')
+    rls = clone['rls_grants_verified']
+    assert rls['service_role_bypassrls'] is True and rls['non_service_roles_bypassrls'] is False
+    assert set(rls['tables']) == {'cell_alerts', 'celula_alerta_regras', 'private_deletion_uploads',
+                                  'private_summary_tasks'}
+    assert all(info['rls'] and info['force_rls'] for info in rls['tables'].values())
+    print(json.dumps({
+        'dump_seconds': receipt['dump_seconds'],
+        'restore_seconds': receipt['restore_seconds'],
+        'migrations_seconds': receipt['migrations_seconds'],
+        'max_migration_seconds': receipt['max_migration_seconds'],
+        'total_seconds': receipt['seconds'],
+        'applicator_role': clone['applicator_role'],
+        'rls_grants_verified': clone['rls_grants_verified'],
+        'slowest_5_migrations': sorted(clone['migration_timings'], key=lambda m: m['seconds'], reverse=True)[:5],
+    }, sort_keys=True))
     dump = Path(receipt['backup_path'])
     assert dump.read_bytes()[:5] == b'PGDMP' and stat.S_IMODE(os.lstat(dump).st_mode) == 0o600
     # The source is untouched (still the baseline) and no clone resource is left behind.
@@ -88,6 +112,18 @@ def test_real_window_backup_restores_and_replays_in_an_isolated_clone(plan, data
     label = 'label=igreja12.window-backup=igreja12-window-clone-' + digest(request)[:16]
     assert _docker('ps', '-aq', '--filter', label).stdout.strip() == ''
     assert _docker('network', 'ls', '-q', '--filter', label).stdout.strip() == ''
+    # Apply the 52 pending migrations to source (starting without btree_gist) and prove Q_CATALOG parity with clone.
+    source_work = tmp_path / 'source-migrate'
+    source_work.mkdir(mode=0o700)
+    executor = MigrationExecutor(plan, python=sys.executable, workdir=str(source_work), secret=lambda: url,
+                                 runner=ProcessRunner(binaries=(sys.executable,)))
+    for index, migration in enumerate(plan.pending, 1):
+        assert executor.apply(index, migration) == 0
+    with closing(psycopg2.connect(url)) as source:
+        migrated_source = wb.clone_state(source)
+    assert migrated_source['ledger'] == tuple(sorted(m.name for m in plan.migrations))
+    assert migrated_source['invalid'] == 0
+    assert migrated_source['catalog'] == clone['final_schema_digest']
 
 
 @pytest.mark.parametrize('gate', ['allow_real_sends', 'Allow_Real_Sends'])
