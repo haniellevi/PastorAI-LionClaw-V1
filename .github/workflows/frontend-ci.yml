@@ -51,6 +51,31 @@ jobs:
       - name: Auditar dependencias de producao
         run: npm audit --omit=dev --audit-level=high
 
+      # Informativo: inclui as dependencias de desenvolvimento (lint, testes,
+      # build), que o passo acima nao enxerga. Em 12/11 havia 1 alerta alto
+      # (undici, via jsdom) sem correcao automatica, entao nao bloqueia.
+      # Quando zerar, trocar para bloqueante: remover continue-on-error.
+      - name: Auditar dependencias de desenvolvimento (informativo)
+        continue-on-error: true
+        run: |
+          set +e
+          npm audit --audit-level=high 2>&1 | tee "$RUNNER_TEMP/npm-audit-dev.txt"
+          status=${PIPESTATUS[0]}
+          {
+            echo "### npm audit completo (com dev), frontend"
+            echo
+            if [ "$status" -eq 0 ]; then
+              echo "Nenhum alerta alto ou critico."
+            else
+              echo "npm audit retornou status $status. A saida abaixo identifica alertas ou falha de execucao."
+              echo
+              echo '```'
+              head -n 60 "$RUNNER_TEMP/npm-audit-dev.txt"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
       - name: Lint
         run: npm run lint
 

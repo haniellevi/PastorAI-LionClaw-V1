@@ -159,8 +159,8 @@ fora do workflow; a Action não descobre nem aceita uma chave nova por conta
 própria. Valores, URLs, chaves, credenciais do banco e acesso à VPS ficam
 fora do Git. A conta de deploy já precisa ter acesso ao Docker e aos
 diretórios de release existentes e a Python 3 no host para inspecionar o JSON
-resolvido do Compose sem imprimi-lo. A configuração privada do release ativo é
-copiada para o candidato sem ser impressa.
+resolvido do Compose sem imprimi-lo. O script seleciona um dos modos de
+configuração privada descritos abaixo.
 
 O empacotamento usa `deploy/package_backend_release.py` do checkout do workflow
 para ler blobs do `release_sha` exato. A seleção inclui Python da aplicação,
@@ -196,7 +196,9 @@ chave de host fixada e chama `deploy/backend-release.sh` na VPS. O script
 recusa checker anterior ausente ou manifesto anterior inválido antes de copiar
 a configuração privada ou chamar Docker. Depois confere os gates de efeitos externos no Compose resolvido do candidato
 e do release anterior, antes de build ou `up`, e nos quatro contêineres ativos;
-depois executa os checkers anterior e candidato no backend ativo, cada um com
+no modo externo, confere também o ambiente efetivo dos quatro serviços ativos
+contra o Compose normal antes de qualquer build, alteração de imagem ou interrupção. Em
+seguida executa os checkers anterior e candidato no backend ativo, cada um com
 o manifesto selecionado por sua própria árvore, em transações somente leitura.
 Ambos precisam passar antes de construir ou substituir os serviços; o rollback
 repete o checker anterior em sua própria imagem antes de retomar a aplicação.
@@ -319,6 +321,43 @@ prazo, manter gates fechados, registrar interrupção e escalar a Raniel.
 
 ## Configuração e retenção, P2-6/9/10/14
 
+### Configuração privada do runtime
+
+O modo externo exige a topologia adotada e usa o caminho fixo no host
+`/etc/pastorai-private/runtime.env`.
+Se houver uma entrada no caminho do diretório `/etc/pastorai-private` ou no do
+arquivo, o release exige o contrato completo antes de prosseguir. O diretório
+deve ter modo `0700` e os dois caminhos devem estar livres de links simbólicos.
+O arquivo deve ser regular, não vazio, com `nlink=1` e modo `0600`.
+O diretório e o arquivo devem pertencer ao UID efetivo do executor. Configuração
+ausente ou inválida, inclusive presença simultânea de `deploy/.env` no release
+ativo, recusa a operação. Somente quando o diretório e o arquivo externos estão
+ausentes vale o padrão por release, que copia o `deploy/.env` ativo para o
+candidato e aplica modo `0600`. No modo de teste, a configuração externa fica
+em `private/configuration.fixture` dentro da raiz de teste.
+
+No modo externo, o release ativo, o candidato e o rollback usam o mesmo
+arquivo por `PASTORAI_ENV_FILE`. O script o usa sem copiar, alterar permissões
+ou removê-lo. A configuração esperada vem do Compose normal, sem depender do
+override temporário da A10. O script compara a configuração esperada com os
+quatro serviços ativos e valida se o candidato mantém os destinos de banco,
+Redis e serviços associados. Confere também o ambiente dos contêineres e do
+checker de rollback ainda parados. O operador registra apenas o resultado, sem
+imprimir configuração ou ambiente. Mantenha o arquivo e seu conteúdo estáveis
+durante toda a janela, inclusive durante eventual rollback.
+
+No arranjo documentado para a Igreja 12, o proprietário é `root` e J9 usa
+esse mesmo arquivo e o Compose base em
+`/opt/pastorai-current/deploy/docker-compose.yml`. A conta SSH autorizada
+precisa executar o release com o mesmo UID proprietário. Qualquer ajuste
+necessário nesse acesso tem autorização própria. Preserve os modos `0700`
+e `0600`.
+
+Integre este suporte antes de fixar A. `deploy/backend-release.sh` faz parte do
+pacote cuja igualdade é conferida entre A e a `main` no Plano Casa Limpa.
+Esta documentação não autoriza provisionar o arquivo, alterar J9 ou executar
+o release em produção.
+
 No Environment protegido, configurar sob gate próprio
 `BACKEND_DEPLOY_ALLOWED_ACTORS` (logins exatos separados por espaços) e
 `BACKEND_DEPLOY_SAFE_BASE_SHA` (SHA completo do primeiro commit revisado que
@@ -331,8 +370,9 @@ executado). A variável não pode apontar à base antiga. Isso não concede auto
 
 Tarball do runner é removido mesmo com falha posterior; tarball remoto tem trap
 EXIT no comando de extração/release. Candidato existente é recusado. O script
-recusa alias/symlink de candidato e configuração candidata preexistente; limpa
-sua cópia privada após contenção confirmada e preserva a configuração do ativo.
+recusa alias/symlink de candidato e configuração candidata preexistente.
+No modo por release, limpa sua cópia privada após contenção confirmada e
+preserva a configuração do ativo.
 INT/TERM durante o restart passam pela contenção e pelo rollback, preservando
 o código de saída do sinal. Se a parada dos serviços falhar, a configuração
 candidata permanece restrita para recuperação humana; não removê-la enquanto
