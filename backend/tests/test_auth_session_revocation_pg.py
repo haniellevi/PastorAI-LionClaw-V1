@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import time
 import datetime as dt
+from functools import partial
 from types import SimpleNamespace
 from uuid import uuid4
 from urllib.parse import urlsplit
@@ -20,9 +21,13 @@ from app.db.models import AppUser, AuthSession
 from app.db.session import get_db
 from app.db.tenant_session import mark_tenant_scoped
 from app.deps import CurrentUser, get_current_user
-from app.routers import auth, team
+from app.routers import auth, platform_admin, team
 from app.services.auth_sessions import register_session_with_backend_role
 from app.services.clerk import ClerkClient, get_clerk_client
+from app.services.platform_membership import (
+    get_platform_admin_checker,
+    platform_admin_exists_with_backend_role,
+)
 from app.workers.cron_worker import AUTH_SESSION_PURGE_INTERVAL, CronWorker
 from tests.conftest_rls import assert_disposable_database
 from tests.test_uv_turmas_pg import database, migrated_database, seeded  # noqa: F401
@@ -97,6 +102,11 @@ def _app(database, tenant, subject, clerk, *, current_user=None):
 
     app.dependency_overrides[get_db] = db_override
     app.dependency_overrides[get_clerk_client] = lambda: clerk
+    # Real allowlist read on the synthetic database (connection role, BYPASSRLS).
+    app.dependency_overrides[get_platform_admin_checker] = lambda: partial(
+        platform_admin_exists_with_backend_role,
+        session_factory=lambda: Session(database),
+    )
     if current_user is not None:
         app.dependency_overrides[get_current_user] = lambda: current_user
     return app
@@ -395,3 +405,178 @@ def test_removing_member_revokes_sessions_and_returns_401(database, seeded):
             text("select status from app_users where id=:id"),
             {"id": v["leader"]},
         ) == "revogado"
+
+
+def _team_admin(v, subject):
+    return CurrentUser(
+        app_user_id=str(v["uid"]),
+        clerk_user_id=subject,
+        igreja_id=str(v["t"]),
+        email="admin@example.test",
+        nome="Admin sintético",
+        roles=frozenset({"admin"}),
+    )
+
+
+def _session_revoked(database, jti):
+    with database.connect() as connection:
+        return connection.scalar(
+            text("select revoked_at from auth_sessions where jti=:jti"),
+            {"jti": jti},
+        )
+
+
+def test_church_admin_cannot_revoke_platform_operator(database, seeded):
+    """P1.1: the tenant route refuses, keeping status and every session."""
+    v = seeded
+    admin_subject, operator_subject = "p11-team-admin", "p11-platform-operator"
+    with database.begin() as connection:
+        connection.execute(
+            text("update app_users set clerk_user_id=:sub where id=:id"),
+            {"sub": admin_subject, "id": v["uid"]},
+        )
+        connection.execute(
+            text("update app_users set clerk_user_id=:sub where id=:id"),
+            {"sub": operator_subject, "id": v["leader"]},
+        )
+        connection.execute(
+            text("insert into platform_admins(app_user_id,email) values(:u,'operator@example.test')"),
+            {"u": v["leader"]},
+        )
+    clerk = _clerk()
+    token, jti = _token(clerk, operator_subject)
+    _insert_session(database, jti=jti, tenant=v["t"], app_user_id=v["leader"])
+    app = _app(
+        database, v["t"], admin_subject, clerk, current_user=_team_admin(v, admin_subject)
+    )
+
+    with TestClient(app) as client:
+        refused = client.delete(f"/team/{v['leader']}")
+        assert refused.status_code == 409, refused.text
+
+    assert _session_revoked(database, jti) is None
+    with database.connect() as connection:
+        assert connection.scalar(
+            text("select status from app_users where id=:id"), {"id": v["leader"]}
+        ) == "ativo"
+        # The tenant session still cannot read the allowlist directly.
+        assert not connection.scalar(
+            text("select has_table_privilege('authenticated','platform_admins','SELECT')")
+        )
+
+    console = FastAPI()
+    console.include_router(platform_admin.router)
+
+    def console_db():
+        session = Session(database)
+        try:
+            yield session
+        finally:
+            session.close()
+
+    console.dependency_overrides[get_db] = console_db
+    console.dependency_overrides[get_clerk_client] = lambda: clerk
+    with TestClient(console) as client:
+        me = client.get("/admin/me", headers={"Authorization": f"Bearer {token}"})
+        assert me.status_code == 200, me.text
+
+
+def test_revoked_platform_operator_loses_console_with_live_session(database, seeded):
+    """P1.1: status revogado blocks /admin/* despite JWT + live auth_sessions."""
+    v = seeded
+    operator_subject = "p11-revoked-operator"
+    with database.begin() as connection:
+        connection.execute(
+            text("update app_users set clerk_user_id=:sub, status='revogado' where id=:id"),
+            {"sub": operator_subject, "id": v["leader"]},
+        )
+        connection.execute(
+            text("insert into platform_admins(app_user_id,email) values(:u,'operator@example.test')"),
+            {"u": v["leader"]},
+        )
+    clerk = _clerk()
+    token, jti = _token(clerk, operator_subject)
+    _insert_session(database, jti=jti, tenant=v["t"], app_user_id=v["leader"])
+
+    console = FastAPI()
+    console.include_router(platform_admin.router)
+
+    def console_db():
+        session = Session(database)
+        try:
+            yield session
+        finally:
+            session.close()
+
+    console.dependency_overrides[get_db] = console_db
+    console.dependency_overrides[get_clerk_client] = lambda: clerk
+    with TestClient(console) as client:
+        for path in ("/admin/me", "/admin/igrejas"):
+            denied = client.get(path, headers={"Authorization": f"Bearer {token}"})
+            assert denied.status_code == 403, (path, denied.text)
+    assert _session_revoked(database, jti) is None
+
+
+def test_removing_member_keeps_other_church_sessions(database, seeded):
+    """Tenant revocation stays scoped: other churches' sessions are untouched."""
+    v = seeded
+    admin_subject, target_subject = "p11-scope-admin", "p11-scope-target"
+    other_user = uuid4()
+    with database.begin() as connection:
+        connection.execute(
+            text("update app_users set clerk_user_id=:sub where id=:id"),
+            {"sub": admin_subject, "id": v["uid"]},
+        )
+        connection.execute(
+            text("update app_users set clerk_user_id=:sub where id=:id"),
+            {"sub": target_subject, "id": v["leader"]},
+        )
+        connection.execute(
+            text(
+                "insert into app_users(id,igreja_id,status,nome,email) "
+                "values(:u,:t,'ativo','Outra igreja sintética','other@example.test')"
+            ),
+            {"u": other_user, "t": v["other"]},
+        )
+    _insert_session(database, jti="p11-target-jti", tenant=v["t"], app_user_id=v["leader"])
+    _insert_session(database, jti="p11-other-jti", tenant=v["other"], app_user_id=other_user)
+    app = _app(
+        database, v["t"], admin_subject, _clerk(), current_user=_team_admin(v, admin_subject)
+    )
+
+    with TestClient(app) as client:
+        cross = client.delete(f"/team/{other_user}")
+        assert cross.status_code == 404, cross.text
+        removed = client.delete(f"/team/{v['leader']}")
+        assert removed.status_code == 200, removed.text
+
+    assert _session_revoked(database, "p11-target-jti") is not None
+    assert _session_revoked(database, "p11-other-jti") is None
+
+
+def test_revoked_platform_operator_retry_revokes_only_tenant_sessions(database, seeded):
+    v = seeded
+    subject = "p11-idempotent-admin"
+    with database.begin() as connection:
+        connection.execute(
+            text("update app_users set clerk_user_id=:sub where id=:id"),
+            {"sub": subject, "id": v["uid"]},
+        )
+        connection.execute(
+            text("update app_users set status='revogado' where id=:id"),
+            {"id": v["leader"]},
+        )
+        connection.execute(
+            text("insert into platform_admins(app_user_id,email) values(:u,'operator@example.test')"),
+            {"u": v["leader"]},
+        )
+    _insert_session(database, jti="p11-idempotent-tenant", tenant=v["t"], app_user_id=v["leader"])
+    _insert_session(database, jti="p11-idempotent-other", tenant=None, app_user_id=v["leader"])
+    app = _app(database, v["t"], subject, _clerk(), current_user=_team_admin(v, subject))
+    with TestClient(app) as client:
+        for _ in range(2):
+            response = client.delete(f"/team/{v['leader']}")
+            assert response.status_code == 200, response.text
+            assert response.json()["status"] == "revogado"
+    assert _session_revoked(database, "p11-idempotent-tenant") is not None
+    assert _session_revoked(database, "p11-idempotent-other") is None

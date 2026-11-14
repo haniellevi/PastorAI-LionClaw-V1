@@ -48,7 +48,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.db.tenant_session import mark_cross_tenant
-from app.deps import PlatformAdminUser, get_platform_admin
+from app.deps import REVOKED_USER_STATUS, PlatformAdminUser, get_platform_admin
 from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.asaas import AsaasClient, MIN_UNDEFINED_PAYMENT_VALUE, get_asaas_client
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
@@ -256,7 +256,8 @@ def admin_login(
     app_user = db.execute(
         select(AppUser).options(noload(AppUser.roles), noload(AppUser.igreja)).where(AppUser.clerk_user_id == clerk_user_id)
     ).scalar_one_or_none()
-    if app_user is None:
+    # P1.1: revoked accounts get the same generic denial (no enumeration).
+    if app_user is None or app_user.status == REVOKED_USER_STATUS:
         raise denied
 
     is_admin = db.execute(
