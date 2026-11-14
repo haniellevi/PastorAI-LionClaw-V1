@@ -289,7 +289,7 @@ do backend (item 2 da seção 1) nem na ferramenta da virada (sai na Fase 6).
 |---|---|---|---|
 | 3.1 | Inventário de todas as pastas rastreadas fora do código (`docs/` por subpasta, `output/`, `tools/`, `supabase/`, scripts da raiz, `backend/scripts/`, `deploy/` de DEV), com veredito por item: MANTER (citado por `AGENTS.md`, `PRODUCT.md`, runbook, `PRD-COVERAGE.md`, CI, teste ou código) ou REMOVER, e para cada REMOVER quem o cita (`git grep` no repositório inteiro) | não | tabela entregue ao dono |
 | 3.2 | Dono aprova a tabela | **SIM único**, com a tabela | aprovado |
-| 3.3 | PRs de remoção por lote; cada uma remove os arquivos **e** ajusta quem os citava. Já decididos (D4 e D6): governança pausada (cerca de 41 scripts e `docs/governance`) e a retirada do pipeline de DEV suspenso. O workflow de publicação e seu verificador de elegibilidade estão arquivados no Git. A configuração no GitHub fica na 6.5. Candidatos: `docs/sprints`, `docs/historico`, planos antigos, `QA-PLAN*`, `tools/render_progress.py`, `backend/scripts/apply_migrations.py`, `output/release/a3-final-local` | coberto pela 3.2 | por PR: checks verdes; `git grep` dos caminhos removidos = 0 fora de migrations; `new_migration.py` e `migrate.py` funcionando (teste) |
+| 3.3 | PRs de remoção por lote; cada uma remove os arquivos **e** ajusta quem os citava. Já decididos (D4 e D6): governança pausada (cerca de 41 scripts e `docs/governance`) e a retirada do pipeline de DEV suspenso. O workflow de publicação e seu verificador de elegibilidade estão arquivados no Git. A configuração no GitHub fica na 6.5. Candidatos: `docs/sprints`, `docs/historico`, planos antigos, `QA-PLAN*`, `backend/scripts/apply_migrations.py`, `output/release/a3-final-local` | coberto pela 3.2 | por PR: checks verdes; `git grep` dos caminhos removidos = 0 fora de migrations; `new_migration.py` e `migrate.py` funcionando (teste) |
 | 3.4 | `ROADMAP.md` enxuto, na PR que retira `docs/historico`: mostrar na tabela da 3.2 o que sai; ficam decisões vigentes, este plano e a fila da seção 8 | coberto pela 3.2 | PR mesclada; cada obrigação antiga aparece na fila ou tem decisão de abandono |
 
 O dono aprovou a 3.2 somente para o lote documental da PR #679. Para essa PR,
@@ -335,6 +335,12 @@ DEV suspenso e o ajuste das referências na PR #686. A prova de migrations
 deste lote é o teste de `migrate.py`. A retomada de `new_migration.py` segue
 na fila da seção 8, item 6. O merge está autorizado se os quatro checks
 obrigatórios e o ensaio sintético passarem no SHA candidato.
+
+O dono aprovou a 3.2 só para o arquivamento do gerador legado do painel de
+progresso e o ajuste das referências na PR #689. A prova de migrations deste
+lote é o teste de `migrate.py`. A retomada de `new_migration.py` segue na fila
+da seção 8, item 6. O merge está autorizado se os quatro checks obrigatórios
+passarem no SHA candidato.
 
 #### Fase 4 — Ferramenta da virada apontada para a `main`
 
@@ -1051,8 +1057,7 @@ evidência, não instruções para retomar suas sequências ou manter seu painel
 Daqui para frente, atualizar somente este roteiro quando o estado/escopo mudar
 e registrar entrega, testes e limites na descrição da PR. Requisitos e runbooks
 continuam sendo referências técnicas; sem novo sprint, painel ou plano paralelo.
-O painel local solicitado em 24/10 (`output/painel/`) é só visualização gerada
-deste roteiro, sem planejamento paralelo; após atualizar esta fonte, executar
-`tools/render_progress.py` para regenerá-lo.
+O gerador legado do painel local solicitado em 24/10 foi arquivado no Git na
+Fase 3; a partir daqui, o acompanhamento fica somente neste roteiro.
 Integração exige `backend-tests`, `frontend-ci`, `e2e-critical` e
 `rls-integration`; produção e efeitos reais exigem autorização nominal própria.
