@@ -9,13 +9,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from first_transition_adapter import LocalEvidence, Refused, local_endpoint, prepare
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-APP = 'afdfb78d71a53f2861632806e13cdda4662d7d63'
+APP = '1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc'
 EXECUTOR = '37c7d68d60b6f86cfb1fe75d4c720530537845d6'
 
 
-def test_exact_plan_selects_the_reviewed_78_plus_51():
+def test_exact_plan_selects_the_reviewed_78_plus_52():
     plan = prepare(ROOT, APP, EXECUTOR)
-    assert (len(plan.baseline), len(plan.pending), len(plan.migrations)) == (78, 51, 129)
+    assert (len(plan.baseline), len(plan.pending), len(plan.migrations)) == (78, 52, 130)
     assert sum(m.concurrent for m in plan.pending) == 8
     assert plan.application_sha == APP and plan.executor_sha == EXECUTOR
     assert plan.report()['production_ready'] is False
@@ -108,10 +108,10 @@ def test_importing_rehearsal_has_no_effects(monkeypatch):
 def test_full_preflight_summary_is_counts_only():
     import json
     import first_transition_adapter as adapter
-    counts = dict(status='ok', read_only=True, files=129, applied=78, pending=51,
+    counts = dict(status='ok', read_only=True, files=130, applied=78, pending=52,
                   unknown=0, fk_findings=0, duplicates=0, missing_tables=0,
                   definer_examined=0, definer_unverified=10, definer_findings=0)
-    assert adapter.preflight_summary(json.dumps(counts).encode(), 129, 78) == counts
+    assert adapter.preflight_summary(json.dumps(counts).encode(), 130, 78) == counts
 
 
 @pytest.mark.parametrize('output', [b'not-json', b'{"raw_person_id":"synthetic-private-id"}',
@@ -119,7 +119,7 @@ def test_full_preflight_summary_is_counts_only():
 def test_unexpected_preflight_output_is_not_exposed(output):
     import first_transition_adapter as adapter
     with pytest.raises(Refused, match='full-preflight-output') as failure:
-        adapter.preflight_summary(output, 129, 78)
+        adapter.preflight_summary(output, 130, 78)
     assert 'synthetic-private-id' not in str(failure.value)
 
 

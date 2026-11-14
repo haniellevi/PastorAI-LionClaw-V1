@@ -65,6 +65,7 @@ CODES = frozenset({
     'window-backup-image-unpinned', 'window-backup-paths', 'window-backup-timeouts',
     'package-identity-mismatch', 'candidate-layout-not-prepared', 'candidate-hold-mismatch', 'layout-mismatch',
     'window-a10-token', 'window-resume-token', 'journal-torn', 'journal-invalid', 'state-not-directory',
+    'clone-source-schema-divergence',
 }) | BACKUP_CODES  # literal, secret-free codes of the backup provider (cause of a failed rehearsal/window)
 
 

@@ -216,7 +216,7 @@ def test_receipt_attests_request_and_passes_the_orchestrator_validation(plan, tm
     validate_clone_receipt(receipt, plan, expected.identity, expected.baseline_digest)
     assert receipt['request_digest'] == digest(req) and receipt['restore_verified'] is True
     clone = receipt['clone_rehearsal']
-    assert clone['applied'] == 51 and clone['final_ledger'] == 129 and clone['concurrent'] == 8
+    assert clone['applied'] == 52 and clone['final_ledger'] == 130 and clone['concurrent'] == 8
     assert clone['final_schema_digest'] == digest([list(r) for r in FINAL_ROWS])
     assert clone['restored_catalog'] == expected.catalog and clone['roles_created'] == 3
     dump = Path(receipt['backup_path'])

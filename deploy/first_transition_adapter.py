@@ -22,7 +22,7 @@ from uuid import UUID
 from initial_transition_files import Journal, git_tree, read_regular
 from initial_transition_ops import BACKFILL_SQL, Refused, require
 
-APPLICATION_SHA = 'afdfb78d71a53f2861632806e13cdda4662d7d63'
+APPLICATION_SHA = '1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc'  # Base atual de origin/main pre-#678 (Casa Limpa 3.1).
 EXECUTOR_SHA = '37c7d68d60b6f86cfb1fe75d4c720530537845d6'
 ROLES = ('backend', 'cron-worker', 'broadcast-worker', 'queue-worker')
 MISSING = frozenset({
@@ -182,7 +182,7 @@ def prepare(repo: Path, application_sha=APPLICATION_SHA, executor_sha=EXECUTOR_S
     probes = git_tree(repo, application_sha, (probe,), re.compile(re.escape(probe)), git)
     require(probe in probes, 'preflight-missing')
     plan = Plan(application_sha, executor_sha, migrations, baseline, executor[runner], probes[probe], adapter_sources())
-    require((len(migrations), len(baseline), len(plan.pending)) == (129, 78, 51), 'release-shape')
+    require((len(migrations), len(baseline), len(plan.pending)) == (130, 78, 52), 'release-shape')
     require(MISSING <= {m.name for m in migrations}, 'baseline-missing-set')
     require(all(not re.search(r'\bconcurrently\b', '\n'.join(
         line for line in m.sql.decode().splitlines() if not line.lstrip().startswith('--')), re.I)

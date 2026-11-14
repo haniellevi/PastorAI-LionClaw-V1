@@ -222,7 +222,7 @@ def test_prepare_is_pure_and_run_composes_real_backup_and_controller(entry):
     assert lines[-1]['production_ready'] is False and lines[-1]['a10'] == 'separate-authorization'
     assert re.fullmatch('[0-9a-f]{64}', lines[-1]['a10_token'])
     assert entry.world.migrate.applied == [m.name for m in entry.world.plan.pending]
-    assert len(entry.backup_io.migrations) == 51
+    assert len(entry.backup_io.migrations) == 52
     assert sum('--no-transaction' in argv for argv, _ in entry.backup_io.migrations) == 8
     entry.world.consumers_held()
     assert all(binding.observe(binding.scope, timeout=5) == 'blocked'

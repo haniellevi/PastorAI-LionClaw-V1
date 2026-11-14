@@ -1,4 +1,4 @@
-"""Real dump -> isolated clone -> replay of the 51, with Docker and the owned synthetic first_transition_test.
+"""Real dump -> isolated clone -> replay of the 52, with Docker and the owned synthetic first_transition_test.
 
 Opt-in only: FIRST_TRANSITION_LOCAL_URL/NONCE (owned disposable database, see
 test_first_transition_adapter_pg), FIRST_TRANSITION_WINDOW_DOCKER=1 and a digest-pinned
@@ -75,7 +75,8 @@ def test_real_window_backup_restores_and_replays_in_an_isolated_clone(plan, data
     validate_clone_receipt(receipt, plan, expected.identity, expected.baseline_digest)
     clone = receipt['clone_rehearsal']
     assert receipt['request_digest'] == digest(request) and clone['restored_catalog'] == before['catalog']
-    assert (clone['applied'], clone['final_ledger'], clone['concurrent']) == (51, 129, 8)
+    assert '20261112_160000_celula_alerta_regras.sql' in [m.name for m in plan.pending]
+    assert (clone['applied'], clone['final_ledger'], clone['concurrent']) == (52, 130, 8)
     assert clone['restore_excluded'] == dict(vault_extension=0, vault_schema=0, event_triggers=0,
                                              event_trigger_names=[])
     assert clone['final_schema_digest'] != before['catalog']

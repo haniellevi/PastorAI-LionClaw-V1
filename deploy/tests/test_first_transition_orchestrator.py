@@ -236,8 +236,9 @@ class World:
         return dict(plan_digest=plan.digest, source_identity=self.expected.identity,
                     baseline_digest=self.expected.baseline_digest, restore_verified=True,
                     clone_rehearsal=dict(migrations_verified=True, clone_identity='8' * 64,
-                                         cluster_global_ddl_possible=True, applied=51, final_ledger=129,
-                                         concurrent=8, final_schema_digest='7' * 64,
+                                         cluster_global_ddl_possible=True, applied=52, final_ledger=130,
+                                         concurrent=8,
+                                         final_schema_digest=FakePg([m.name for m in plan.migrations]).catalog(),
                                          sql_digest=digest([(m.name, m.sha256) for m in plan.pending])))
 
     def provide_backup(self, request):
@@ -321,7 +322,7 @@ def test_full_a9_sequence_through_real_ports(world):
     assert order.index('observed-host-contained') < order.index('transition-quiescent') < order.index(
         'transition-backup') < marker < order.index('transition-intent:migration:' + world.plan.pending[0].name)
     assert j.last('transition-quiescent')['observations'] == 2 and world.pg.connections >= 4
-    # 51 migrations one by one in plan order, 8 without transaction, exact pinned executor bytes.
+    # 52 migrations one by one in plan order, 8 without transaction, exact pinned executor bytes.
     assert world.migrate.applied == [m.name for m in world.plan.pending]
     assert sum('--no-transaction' in a for a in world.migrate.argv) == 8
     assert sorted(world.pg.ledger) == sorted(m.name for m in world.plan.migrations)
@@ -1037,3 +1038,15 @@ def test_failed_concurrent_migration_is_never_classified_as_definite(world):
     outcome = world.journal.last('transition-migration-failed')
     assert outcome['definite'] is False and outcome['step'] == 'migration:' + concurrent.name
     assert transition.recovery()['state'] == 'ddl-ambiguous'
+
+
+def test_clone_source_schema_divergence_blocks_layout_and_a9(world):
+    last = world.plan.pending[-1]
+    world.migrate.after = lambda name: name == last.name and world.pg.extra_ddl.append('unexpected_source_ddl')
+    transition = world.transition()
+    with pytest.raises(Refused, match='^clone-source-schema-divergence$'):
+        transition.run()
+    assert world.migrate.applied == [m.name for m in world.plan.pending]
+    assert world.journal.last('transition-migrated') is None and world.journal.last('transition-intent', 'layout') is None
+    assert world.layouts == [] and world.cdocker.calls == []
+    assert transition.recovery()['state'] == 'post-ddl-failed'

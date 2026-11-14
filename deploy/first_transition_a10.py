@@ -151,6 +151,7 @@ class A10Step:
         observation = self._observe()
         require_same_database(observation, self.expected)
         require(observation['ledger'] == tuple(sorted(m.name for m in self.plan.migrations)), 'final-ledger')
+        require(observation['catalog'] == self._clone_final_schema_digest(), 'clone-source-schema-divergence')
         require(observation['catalog'] == self.j.last('transition-migrated')['catalog'], 'database-ddl-drift')
         require(not observation['invalid'] and observation['index_builds'] == 0, 'database-ddl-in-progress')
 

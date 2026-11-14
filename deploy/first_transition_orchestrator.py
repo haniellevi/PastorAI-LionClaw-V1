@@ -18,7 +18,7 @@ Sequence (one durable journal, shared with ObservedHostContract):
 5. final pre-DDL re-check of the stored receipt and of containment/quiescence
    (no second backup call), then the durable irrevocable ``ddl-marker``, which
    binds the window backup id;
-6. the 51 pending migrations (43 transactional, 8 CONCURRENTLY) one by one via
+6. the 52 pending migrations (44 transactional, 8 CONCURRENTLY) one by one via
    the exact pinned ``backend/scripts/migrate.py`` bytes of the Plan, each with
    a durable intent first; the first failure or doubt stops for good;
 7. candidate release layout ``<release_root>/<sha>`` (first_transition_candidate);
@@ -72,7 +72,7 @@ CONFIG_SCHEMA = 'igreja12.first-transition-config/1'
 CONFIG_KEYS = frozenset({'schema', 'repo', 'state_dir', 'migration_workdir', 'python', 'docker', 'database',
                          'host', 'candidate', 'package_manifest_sha256', 'timeouts'})
 TIMEOUTS = dict(migration_s=300, observe_s=10, quiescence_interval_s=5, quiescence_budget_s=60, a10_settle_s=30)
-SHAPE = (51, 43, 8)  # pending, transactional, CONCURRENTLY
+SHAPE = (52, 44, 8)  # pending, transactional, CONCURRENTLY
 PROCEDURES = {
     'not-started': 'nothing intended: no recovery action',
     'containment-partial': 'replay run(): contain() never re-signals; an unclean exit stays refused for a human',
@@ -355,6 +355,23 @@ class FirstTransition(A10Step):
                       window_backup_id=backup['backup_id'], backup_request_digest=backup['request_digest'],
                       legacy_resume_allowed=False)
 
+    def _clone_final_schema_digest(self):
+        """Returns final_schema_digest bound by ddl-marker -> transition-backup.
+
+        Scope note: Q_CATALOG hashes public-schema relations/indexes/constraints/
+        policies/triggers/functions/columns plus default ACLs on namespace 0 or public,
+        so restore_excluded_expected items (vault schema/extension, cluster event
+        triggers) stay outside the compared catalog digest.
+        """
+        marker = self.j.last('ddl-marker')
+        backup = self.j.last('transition-backup')
+        require(marker is not None and backup is not None
+                and digest(backup.get('receipt')) == backup.get('receipt_digest')
+                and marker.get('backup_digest') == backup.get('receipt_digest')
+                and marker.get('window_backup_id') == backup.get('backup_id'),
+                'transition-backup-unbound')
+        return backup['receipt']['clone_rehearsal']['final_schema_digest']
+
     # -- DDL ----------------------------------------------------------------------------------------
     def _migrate(self):
         ledger = list(self.plan.baseline)
@@ -388,6 +405,7 @@ class FirstTransition(A10Step):
         final = self._observe()
         require_same_database(final, self.expected)  # before transition-migrated, layout and A9
         require(list(final['ledger']) == sorted(m.name for m in self.plan.migrations), 'final-ledger')
+        require(final['catalog'] == self._clone_final_schema_digest(), 'clone-source-schema-divergence')
         if self.j.last('transition-migrated') is None:
             self.j.append('transition-migrated', ledger=len(final['ledger']), catalog=final['catalog'])
         else:
@@ -471,6 +489,7 @@ class FirstTransition(A10Step):
         require_same_database(observation, self.expected)
         require(observation['ledger'] == tuple(sorted(m.name for m in self.plan.migrations)), 'final-ledger')
         require(observation['catalog'] == self.j.last('transition-migrated')['catalog'], 'database-ddl-drift')
+        require(observation['catalog'] == self._clone_final_schema_digest(), 'clone-source-schema-divergence')
         require(not observation['invalid'] and observation['index_builds'] == 0, 'database-ddl-in-progress')
         # Idle TCP pools cannot attribute remote PG sessions. Even legitimate
         # backend activity conservatively refuses until the database is quiet.
