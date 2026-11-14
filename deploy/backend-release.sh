@@ -52,9 +52,13 @@ fi
 if [[ "${BACKEND_RELEASE_TEST_MODE:-}" == 1 ]]; then
   release_root="${BACKEND_RELEASE_TEST_ROOT:?}/releases"
   active_link="$BACKEND_RELEASE_TEST_ROOT/current"
+  private_dir="$BACKEND_RELEASE_TEST_ROOT/private"
+  external_file="$private_dir/$configuration"
 else
   release_root=/opt/pastorai-releases
   active_link=/opt/pastorai-current
+  private_dir=/etc/pastorai-private
+  external_file="$private_dir/runtime.env"
 fi
 # Every release mode shares the same lock through activation, recovery and
 # cleanup. Resolve the active release only after entering this critical section.
@@ -80,7 +84,31 @@ if [[ ! "$active_release_sha" =~ ^[0-9a-f]{40}$ || "$active" != "$release_root/$
   echo "active release revision unverifiable; exact SHA required for rollback" >&2
   exit 1
 fi
-if [[ ! -f "$active/deploy/$configuration" || ! -f "$candidate/deploy/check_backend_schema.py" ]]; then
+external_configuration=0
+env_file="$configuration"
+external_digest() {
+  if [[ ! -d "$private_dir" || ! -f "$external_file" || ! -r "$external_file" ||
+        ! -s "$external_file" || "$(readlink -e -- "$external_file")" != "$external_file" ||
+        "$(stat -c '%u:%a' -- "$private_dir")" != "$EUID:700" ||
+        "$(stat -c '%u:%a:%h' -- "$external_file")" != "$EUID:600:1" ]]; then
+    echo "external configuration missing or unsafe" >&2
+    return 1
+  fi
+  sha256sum < "$external_file"
+}
+if [[ -e "$private_dir" || -L "$private_dir" ]]; then
+  if [[ -e "$active/deploy/$configuration" || -L "$active/deploy/$configuration" ]]; then
+    echo "external configuration conflicts with release-local configuration" >&2
+    exit 1
+  fi
+  configuration_digest=$(external_digest) || exit 1
+  external_configuration=1
+  env_file="$external_file"
+elif [[ ! -f "$active/deploy/$configuration" ]]; then
+  echo "active configuration or candidate schema check is missing" >&2
+  exit 1
+fi
+if [[ ! -f "$candidate/deploy/check_backend_schema.py" ]]; then
   echo "active configuration or candidate schema check is missing" >&2
   exit 1
 fi
@@ -122,8 +150,12 @@ if [[ -e "$active/deploy/release-topology.json" || -L "$active/deploy/release-to
   fi
   topology_contract="$active/deploy/release-topology.json"
 fi
+if (( external_configuration )) && [[ -z "$topology_contract" ]]; then
+  echo "external configuration requires the adopted release topology" >&2
+  exit 1
+fi
 
-export PASTORAI_ENV_FILE="$configuration"
+export PASTORAI_ENV_FILE="$env_file"
 services=(backend queue-worker cron-worker broadcast-worker)
 restart_started=0
 candidate_configuration_needed=0
@@ -150,7 +182,7 @@ fi
 # Optional artifact promotion. No image tags or on-target rebuild are used.
 compose() {
   local overlay=
-  local -a files=() extra=()
+  local -a files=() extra=() env_options=()
   # Pins exist only for digest promotion or an adopted topology.
   case "$PWD" in
     "$candidate/deploy") overlay=$image_override_candidate ;;
@@ -165,7 +197,15 @@ compose() {
   elif (( ${#extra[@]} )); then
     files=(-f docker-compose.yml "${extra[@]}")
   fi
-  docker compose "${files[@]}" "$@"
+  if (( external_configuration )); then
+    env_options=(--env-file /dev/null)
+    docker compose "${env_options[@]}" "${files[@]}" "$@" 2>/dev/null || {
+      echo "Compose command failed with external configuration" >&2
+      return 1
+    }
+  else
+    docker compose "${files[@]}" "$@"
+  fi
 }
 
 # Docker state of the adopted topology (no-op on the compatible path).
@@ -344,6 +384,57 @@ check_external_gates() {
   done
 }
 
+check_configuration_digest() {
+  (( external_configuration )) || return 0
+  [[ "$(external_digest)" == "$configuration_digest" ]] || {
+    echo "external configuration changed during release" >&2
+    return 1
+  }
+}
+
+# The schema checkers run inside the active backend. Confirm that the
+# candidate and recovery will use the same connection settings before
+# trusting those checkers. Resolved environments stay in private pipes.
+check_external_runtime() {
+  local mode=$1
+  shift
+  local -a roles=("${services[@]}") compose_options=()
+  if [[ "$mode" == checker ]]; then
+    roles=(backend)
+    compose_options=("$@")
+  fi
+  compose "${compose_options[@]}" config --format json | python3 -c '
+import json
+import subprocess
+import sys
+
+mode = sys.argv[1]
+try:
+    services = json.load(sys.stdin)["services"]
+    for name in sys.argv[2:]:
+        service = services[name]
+        desired = service["environment"]
+        container = service["container_name"]
+        output = subprocess.check_output(
+            ["docker", "inspect", "--type", "container", "--format", "{{json .Config.Env}}", container],
+            stderr=subprocess.DEVNULL, timeout=15,
+        )
+        entries = json.loads(output)
+        live = dict(entry.split("=", 1) for entry in entries)
+        if len(live) != len(entries) or not desired.get("DATABASE_URL"):
+            raise ValueError
+        connection_keys = {
+            key for key in live.keys() | desired.keys()
+            if key.upper().endswith("DATABASE_URL") or key.upper().startswith("PG")
+        } | {"REDIS_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "EVOLUTION_API_URL"}
+        keys = connection_keys if mode == "candidate" else connection_keys | desired.keys()
+        if any(live.get(key) != desired.get(key) for key in keys):
+            raise ValueError
+except (KeyError, TypeError, ValueError, OSError, subprocess.SubprocessError):
+    sys.exit("external configuration drift or unverifiable runtime")
+' "$mode" "${roles[@]}"
+}
+
 # Containers are inspected while stopped, before any application entrypoint.
 inspect_stopped_gates() {
   local service container
@@ -412,9 +503,12 @@ contain_consumers() {
 }
 
 create_and_start() {
+  check_configuration_digest || return 1
   topology_guard replace || return 1
   compose up --no-start --no-build --no-deps --pull never --force-recreate "${services[@]}" || return 1
   inspect_stopped_gates "${services[@]}" || return 1
+  if (( external_configuration )); then check_external_runtime created || return 1; fi
+  check_configuration_digest || return 1
   topology_guard created || return 1
   compose start --wait --wait-timeout 180 "${services[@]}"
 }
@@ -423,6 +517,7 @@ create_and_start() {
 # No application command or restart policy may run until its exit is verified.
 check_previous_schema() {
   local container checker_status
+  check_configuration_digest || return 1
   checker_override=$(mktemp /tmp/backend-rollback-compose.XXXXXXXX.json) || return 1
   python3 - "$checker_override" "$1" <<'OVERRIDE'
 import json, sys
@@ -441,6 +536,8 @@ OVERRIDE
   topology_guard replace || return 1
   compose "${checker_compose[@]}" up --no-start --no-build --no-deps --pull never --force-recreate backend || return 1
   inspect_stopped_gates backend || return 1
+  if (( external_configuration )); then check_external_runtime checker "${checker_compose[@]}" || return 1; fi
+  check_configuration_digest || return 1
   topology_guard checker || return 1
   container=$(compose ps -aq backend) || return 1
   [[ -n "$container" && "$container" != *$'\n'* ]] || return 1
@@ -491,7 +588,8 @@ check_compose_capabilities() {
 
 cleanup() {
   local status=$?
-  if (( ! candidate_configuration_needed )) && [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
+  if (( ! external_configuration && ! candidate_configuration_needed )) &&
+     [[ "$(readlink -f -- "$active_link")" != "$candidate" ]]; then
     rm -f -- "$candidate/deploy/$configuration"
   fi
   [[ -z "$checker_override" ]] || rm -f -- "$checker_override"
@@ -533,7 +631,8 @@ rollback() {
       echo "rollback schema compatibility unverifiable; keep gates closed and use a reviewed forward fix" >&2
       exit "$original_status"
     fi
-    if ! check_compose_gates ||
+    if ! check_configuration_digest ||
+       ! check_compose_gates ||
        ! prepare_release_image ||
        ! check_previous_schema "$rollback_manifest" ||
        ! create_and_start ||
@@ -561,17 +660,30 @@ if [[ -n "$topology_contract" ]]; then
 fi
 
 # Capability failure must leave the active services and configuration untouched.
+if (( external_configuration )); then require_local_docker; fi
 check_compose_capabilities
 if [[ -n "$topology_contract" ]]; then
   # True predecessor: the four services of the adopted project, nothing else.
-  require_local_docker
+  if (( ! external_configuration )); then require_local_docker; fi
   topology_guard predecessor "$active_release_sha"
+fi
+if (( external_configuration )); then
+  cd -- "$active/deploy"
+  check_compose_gates
+  check_external_gates
+  check_external_runtime active
+  cd -- "$candidate/deploy"
+  check_compose_gates
+  check_external_runtime candidate
+  check_configuration_digest
 fi
 prepare_pinned_images
 
 # Keep secrets on the VPS; never include them in the Git archive or logs.
-cp -p -- "$active/deploy/$configuration" "$candidate/deploy/$configuration"
-chmod 600 "$candidate/deploy/$configuration"
+if (( ! external_configuration )); then
+  cp -p -- "$active/deploy/$configuration" "$candidate/deploy/$configuration"
+  chmod 600 "$candidate/deploy/$configuration"
+fi
 cd -- "$candidate/deploy"
 compose config --quiet
 check_compose_gates
@@ -612,6 +724,7 @@ create_and_start
 check_external_gates
 curl -fsS --max-time 5 http://127.0.0.1:$health_port/health >/dev/null
 curl -fsS --max-time 5 http://127.0.0.1:$health_port/ready >/dev/null
+check_configuration_digest
 
 # Persist the public pin for subsequent ordinary Compose maintenance, without
 # modifying the private environment file. No mutable tag can reappear on up.
