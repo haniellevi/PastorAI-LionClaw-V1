@@ -311,9 +311,9 @@ remover do Git exige PR, CI verde e SIM.
 | Caminho | Estado | Ajuste necessário |
 |---|---|---|
 | Entrada do acompanhamento antigo | arquivada | O script aposentado e seu teste estão no [histórico do Git](https://github.com/haniellevi/PastorAI-LionClaw-V1/tree/16be7829e429671bbbef643afc6f45b92c9a48e1). O planejamento atual fica no ROADMAP. |
-| `tools/render_progress.py` | rastreado | o ROADMAP manda rodá-lo; só sai se o painel local for encerrado e o ROADMAP editado |
+| Gerador legado do painel de progresso | arquivado | o painel local foi encerrado e o ROADMAP ajustado na Fase 3 |
 | `backend/scripts/apply_migrations.py` | rastreado | proibido pelo AGENTS, mas citado em `docs/ai/AI-BOOTSTRAP.md` e na cobertura |
-| `output/painel` | ignorado | saída do `render_progress.py`; ajustar o ROADMAP |
+| antiga pasta local do painel | ignorado | antiga saída do gerador legado do painel local; ROADMAP ajustado na Fase 3 |
 
 ### 4.3 Duvidosos
 
