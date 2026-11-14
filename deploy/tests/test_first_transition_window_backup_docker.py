@@ -80,6 +80,29 @@ def test_real_window_backup_restores_and_replays_in_an_isolated_clone(plan, data
     assert clone['restore_excluded'] == dict(vault_extension=0, vault_schema=0, event_triggers=0,
                                              event_trigger_names=[])
     assert clone['final_schema_digest'] != before['catalog']
+    assert isinstance(receipt['dump_seconds'], float) and isinstance(receipt['restore_seconds'], float)
+    assert isinstance(receipt['migrations_seconds'], float) and isinstance(receipt['max_migration_seconds'], float)
+    assert receipt['max_migration_seconds'] <= 60.0
+    assert len(clone['migration_timings']) == 52
+    assert all(isinstance(t['seconds'], float) and 0 <= t['seconds'] <= 60.0 for t in clone['migration_timings'])
+    assert clone['applicator_role'] == dict(
+        role='postgres', restore_role='clone_admin', rolsuper=False, rolbypassrls=True, rolcreaterole=True,
+        rolcreatedb=True, rolinherit=True, rolcanlogin=True, rolreplication=False, statement_timeout='2min')
+    rls = clone['rls_grants_verified']
+    assert rls['service_role_bypassrls'] is True and rls['non_service_roles_bypassrls'] is False
+    assert set(rls['tables']) == {'cell_alerts', 'celula_alerta_regras', 'private_deletion_uploads',
+                                  'private_summary_tasks'}
+    assert all(info['rls'] and info['force_rls'] for info in rls['tables'].values())
+    print(json.dumps({
+        'dump_seconds': receipt['dump_seconds'],
+        'restore_seconds': receipt['restore_seconds'],
+        'migrations_seconds': receipt['migrations_seconds'],
+        'max_migration_seconds': receipt['max_migration_seconds'],
+        'total_seconds': receipt['seconds'],
+        'applicator_role': clone['applicator_role'],
+        'rls_grants_verified': clone['rls_grants_verified'],
+        'slowest_5_migrations': sorted(clone['migration_timings'], key=lambda m: m['seconds'], reverse=True)[:5],
+    }, sort_keys=True))
     dump = Path(receipt['backup_path'])
     assert dump.read_bytes()[:5] == b'PGDMP' and stat.S_IMODE(os.lstat(dump).st_mode) == 0o600
     # The source is untouched (still the baseline) and no clone resource is left behind.

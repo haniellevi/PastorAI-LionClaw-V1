@@ -40,6 +40,8 @@ class SourceCursor(WriterCursor):
             self.rows = [(getattr(self.pg, 'executor_user', 'postgres'), getattr(self.pg, 'executor_ready', True))]
         elif query == backup_module.Q_SOURCE_ROLES:
             self.rows = [('postgres',), ('anon',), ('authenticated',)]
+        elif query == backup_module.Q_SOURCE_EXTENSIONS:
+            self.rows = []
         else:
             super().execute(query, params)
 

@@ -52,9 +52,75 @@ ROLE = re.compile(r'[A-Za-z_][A-Za-z0-9_]{0,62}')
 ARG = re.compile(r'[A-Za-z0-9_./=:,+-]{1,256}')
 SOURCE_ENV = 'PGDUMP_URL'
 CLONE_ENV = 'POSTGRES_PASSWORD'
+CLONE_USER_ENV = 'POSTGRES_USER'
 RESTORE_ENV = 'PGPASSWORD'
 CLONE_DB = 'window_clone'
+APPLICATOR_STATEMENT_TIMEOUT = '2min'
+RUNTIME_ROLE_NAMES = (
+    'anon',
+    'authenticated',
+    'private_send_runtime',
+    'private_storage_runtime',
+    'private_summary_runtime',
+    'queue_worker_runtime',
+    'service_role',
+)
 Q_SOURCE_ROLES = "SELECT rolname FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY rolname COLLATE \"C\""
+Q_SOURCE_EXTENSIONS = (
+    "SELECT e.extname::text, r.rolname::text FROM pg_extension e "
+    "JOIN pg_roles r ON r.oid = e.extowner "
+    "JOIN pg_namespace n ON n.oid = e.extnamespace "
+    "WHERE n.nspname = 'public' ORDER BY e.extname COLLATE \"C\""
+)
+Q_APPLICATOR_ROLE = (
+    "SELECT current_user, current_setting('statement_timeout'), r.rolsuper, r.rolbypassrls, "
+    "r.rolcreaterole, r.rolcreatedb, r.rolinherit, r.rolcanlogin, r.rolreplication "
+    "FROM pg_roles r WHERE r.rolname = current_user"
+)
+Q_RUNTIME_ROLES = (
+    "SELECT rolname, rolsuper, rolbypassrls, rolcanlogin, rolinherit, rolcreaterole, rolcreatedb "
+    "FROM pg_roles WHERE rolname IN ('anon', 'authenticated', 'private_send_runtime', "
+    "'private_storage_runtime', 'private_summary_runtime', 'queue_worker_runtime', 'service_role') "
+    'ORDER BY rolname COLLATE "C"'
+)
+Q_RUNTIME_TABLE_PRIVS = (
+    "SELECT c.relname::text, c.relrowsecurity, c.relforcerowsecurity, "
+    "coalesce(ARRAY(SELECT DISTINCT r::regrole::text FROM pg_policy p, LATERAL unnest(p.polroles) r "
+    "WHERE p.polrelid = c.oid ORDER BY 1), ARRAY[]::text[]), "
+    "(has_any_column_privilege('anon', c.oid, 'SELECT,INSERT,UPDATE') OR has_table_privilege('anon', c.oid, 'DELETE')), "
+    "(has_any_column_privilege('service_role', c.oid, 'SELECT,INSERT,UPDATE') "
+    "OR has_table_privilege('service_role', c.oid, 'DELETE')), "
+    "has_table_privilege('authenticated', c.oid, 'SELECT'), "
+    "has_any_column_privilege('authenticated', c.oid, 'INSERT'), "
+    "has_any_column_privilege('authenticated', c.oid, 'UPDATE'), "
+    "has_table_privilege('authenticated', c.oid, 'DELETE'), "
+    "(has_any_column_privilege('private_storage_runtime', c.oid, 'SELECT,INSERT,UPDATE') "
+    "OR has_table_privilege('private_storage_runtime', c.oid, 'DELETE')), "
+    "(has_any_column_privilege('private_send_runtime', c.oid, 'SELECT,INSERT,UPDATE') "
+    "OR has_table_privilege('private_send_runtime', c.oid, 'DELETE')), "
+    "(has_any_column_privilege('private_summary_runtime', c.oid, 'SELECT,INSERT,UPDATE') "
+    "OR has_table_privilege('private_summary_runtime', c.oid, 'DELETE')), "
+    "(has_any_column_privilege('queue_worker_runtime', c.oid, 'SELECT,INSERT,UPDATE') "
+    "OR has_table_privilege('queue_worker_runtime', c.oid, 'DELETE')), "
+    "CASE WHEN c.relname = 'cell_alerts' "
+    "THEN has_column_privilege('authenticated', c.oid, 'tratado', 'UPDATE') ELSE true END, "
+    "CASE WHEN c.relname = 'cell_alerts' "
+    "THEN has_column_privilege('authenticated', c.oid, 'igreja_id', 'UPDATE') ELSE false END, "
+    "CASE WHEN c.relname = 'private_deletion_uploads' "
+    "THEN has_table_privilege('private_storage_runtime', c.oid, 'SELECT') "
+    "AND has_table_privilege('private_storage_runtime', c.oid, 'DELETE') "
+    "AND has_any_column_privilege('private_storage_runtime', c.oid, 'UPDATE') "
+    "AND NOT has_any_column_privilege('private_storage_runtime', c.oid, 'INSERT') ELSE false END, "
+    "CASE WHEN c.relname = 'private_summary_tasks' "
+    "THEN has_table_privilege('private_summary_runtime', c.oid, 'SELECT') "
+    "AND has_any_column_privilege('private_summary_runtime', c.oid, 'UPDATE') "
+    "AND NOT has_any_column_privilege('private_summary_runtime', c.oid, 'INSERT') "
+    "AND NOT has_table_privilege('private_summary_runtime', c.oid, 'DELETE') ELSE false END "
+    "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+    "WHERE n.nspname = 'public' AND c.relname IN ("
+    "'cell_alerts', 'celula_alerta_regras', 'private_deletion_uploads', 'private_summary_tasks') "
+    'ORDER BY c.relname COLLATE "C"'
+)
 CLONE_DUMP = '/tmp/igreja12-window.dump'
 CLONE_LIST = '/tmp/igreja12-window.list'
 MAX_LIST = 8 << 20
@@ -85,7 +151,8 @@ RESTORE_KINDS = ('EXTENSION', 'EVENT TRIGGER', 'PUBLICATION TABLE', 'PUBLICATION
                  'SEQUENCE OWNED BY', 'SEQUENCE SET', 'DEFAULT', 'STATISTICS', 'OPERATOR', 'SECURITY LABEL')
 TOC_ERROR = re.compile(rb'from TOC entry \d+; \d+ \d+ (' + b'|'.join(
     re.escape(k.encode()) for k in sorted(RESTORE_KINDS, key=len, reverse=True)) + rb') ')
-TIMEOUTS = {'dump_s': 1800, 'ready_s': 180, 'restore_s': 1800, 'migration_s': 300, 'docker_s': 120}
+TIMEOUTS = {'dump_s': 1800, 'ready_s': 180, 'restore_s': 1800, 'migration_s': 300, 'max_migration_s': 60,
+            'docker_s': 120}
 
 
 @dataclass(frozen=True)
@@ -101,8 +168,8 @@ class WindowBackupConfig:
     clone_image: str
     clone_command: tuple = ()
     dump_network: str = 'bridge'
-    admin_user: str = 'postgres'
-    restore_user: str = 'postgres'
+    admin_user: str = 'clone_admin'
+    restore_user: str = 'clone_admin'
     migration_user: str = 'postgres'
     clone_superusers: tuple = ()
     # Optional pin of what filter_restore_list must remove (copied from the V9 receipt's ``restore_excluded``).
@@ -122,7 +189,9 @@ class WindowBackupConfig:
         require(self.dump_network in ('bridge', 'host'), 'window-backup-network')
         require(all(isinstance(r, str) and ROLE.fullmatch(r) for r in (self.admin_user, self.restore_user,
                                                                          self.migration_user, *self.clone_superusers))
-                and type(self.clone_superusers) is tuple, 'window-backup-roles')
+                and type(self.clone_superusers) is tuple
+                and self.migration_user not in (self.admin_user, self.restore_user, *self.clone_superusers),
+                'window-backup-roles')
         pairs = self.restore_excluded_expected
         require(type(pairs) is tuple and all(type(p) is tuple and len(p) == 2 and isinstance(p[0], str) for p in pairs),
                 'window-backup-restore-excluded')
@@ -188,6 +257,26 @@ def source_role_names(connect, *, timeout=10):
         conn.close()
     require(names and all(isinstance(n, str) and ROLE.fullmatch(n) for n in names), 'window-backup-source-roles')
     return names
+
+
+def source_public_extensions(connect, *, timeout=10):
+    """Extension (name, owner) pairs in schema ``public`` so clone restore preserves non-restore extension owners."""
+    conn = connect(timeout=timeout)
+    try:
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(fdb.Q_BEGIN)
+        try:
+            cur.execute(fdb.Q_TIMEOUT, (f'{int(timeout * 1000)}ms',))
+            cur.fetchall()
+            cur.execute(Q_SOURCE_EXTENSIONS)
+            items = tuple((str(row[0]), str(row[1])) for row in cur.fetchall())
+        finally:
+            cur.execute('ROLLBACK')
+    finally:
+        conn.close()
+    require(all(ROLE.fullmatch(ext) and ROLE.fullmatch(owner) for ext, owner in items), 'window-backup-source-roles')
+    return items
 
 
 def clone_state(conn):
@@ -269,16 +358,16 @@ def restore_error_code(stderr):
 BACKUP_CODES = frozenset({
     'window-backup-already-used', 'window-backup-argv', 'window-backup-cleanup-failed', 'window-backup-clone-failed',
     'window-backup-clone-inspect', 'window-backup-clone-is-source', 'window-backup-clone-migration-failed',
-    'window-backup-clone-not-ready', 'window-backup-clone-shape', 'window-backup-command', 'window-backup-config',
-    'window-backup-config-keys', 'window-backup-dump-failed', 'window-backup-dump-format',
+    'window-backup-clone-not-ready', 'window-backup-clone-role', 'window-backup-clone-shape', 'window-backup-command',
+    'window-backup-config', 'window-backup-config-keys', 'window-backup-dump-failed', 'window-backup-dump-format',
     'window-backup-final-invalid-index', 'window-backup-final-ledger', 'window-backup-image-unpinned',
-    'window-backup-network', 'window-backup-network-failed', 'window-backup-output', 'window-backup-paths',
-    'window-backup-plan', 'window-backup-request', 'window-backup-restore-catalog',
-    'window-backup-restore-excluded', 'window-backup-restore-failed',
-    'window-backup-restore-invalid-index', 'window-backup-restore-ledger', 'window-backup-restore-list',
-    'window-backup-restore-list-failed', 'window-backup-roles', 'window-backup-root-missing',
-    'window-backup-run-exists', 'window-backup-secret', 'window-backup-source-roles', 'window-backup-spawn-failed',
-    'window-backup-timeout', 'window-backup-timeouts', 'window-backup-workdir-missing',
+    'window-backup-migration-slow', 'window-backup-network', 'window-backup-network-failed', 'window-backup-output',
+    'window-backup-paths', 'window-backup-plan', 'window-backup-request', 'window-backup-restore-catalog',
+    'window-backup-restore-excluded', 'window-backup-restore-failed', 'window-backup-restore-invalid-index',
+    'window-backup-restore-ledger', 'window-backup-restore-list', 'window-backup-restore-list-failed',
+    'window-backup-roles', 'window-backup-root-missing', 'window-backup-run-exists', 'window-backup-runtime-rls',
+    'window-backup-secret', 'window-backup-source-roles', 'window-backup-spawn-failed', 'window-backup-timeout',
+    'window-backup-timeouts', 'window-backup-workdir-missing',
     *('window-backup-restore-failed-' + k.lower().replace(' ', '-') for k in RESTORE_KINDS),
 })
 
@@ -385,8 +474,8 @@ class WindowBackup:
         self._ok(('network', 'create', '--internal', '--label', 'igreja12.window-backup=' + name, name),
                  'window-backup-network-failed')
         self._ok(('run', '-d', '--pull=never', '--name', name, '--network', name, '--label', 'igreja12.window-backup=' + name,
-                  '-e', CLONE_ENV, self.config.clone_image, *self.config.clone_command),
-                 'window-backup-clone-failed', env={CLONE_ENV: password})
+                  '-e', CLONE_ENV, '-e', CLONE_USER_ENV, self.config.clone_image, *self.config.clone_command),
+                 'window-backup-clone-failed', env={CLONE_ENV: password, CLONE_USER_ENV: self.config.admin_user})
         address = self._ok(('inspect', '--format', '{{(index .NetworkSettings.Networks "' + name + '").IPAddress}}',
                             name), 'window-backup-clone-inspect', capture=True)
         require(re.fullmatch(r'(?:\d{1,3}\.){3}\d{1,3}', address or ''), 'window-backup-clone-inspect')
@@ -411,12 +500,80 @@ class WindowBackup:
                 if role not in existing:
                     cur.execute(sql.SQL('CREATE ROLE {} NOLOGIN NOINHERIT').format(sql.Identifier(role)))
                     created += 1
+            if self.config.migration_user not in existing and self.config.migration_user not in roles:
+                cur.execute(sql.SQL('CREATE ROLE {} NOLOGIN NOINHERIT').format(
+                    sql.Identifier(self.config.migration_user)))
+                created += 1
             for role in self.config.clone_superusers:
                 cur.execute(sql.SQL('ALTER ROLE {} SUPERUSER').format(sql.Identifier(role)))
-            cur.execute(sql.SQL('ALTER ROLE {} LOGIN PASSWORD %s').format(
-                sql.Identifier(self.config.migration_user)), (password,))
-            cur.execute(sql.SQL('CREATE DATABASE {} TEMPLATE template0').format(sql.Identifier(CLONE_DB)))
+            cur.execute(
+                sql.SQL('ALTER ROLE {} WITH NOSUPERUSER INHERIT CREATEROLE CREATEDB NOREPLICATION BYPASSRLS LOGIN '
+                        'PASSWORD %s').format(sql.Identifier(self.config.migration_user)),
+                (password,),
+            )
+            cur.execute(sql.SQL("ALTER ROLE {} SET statement_timeout = '2min'").format(
+                sql.Identifier(self.config.migration_user)))
+            # Supabase's postgres role is NOSUPERUSER with ADMIN OPTION on the core client roles
+            # (verified against supabase/postgres:17.11.0.018), required on PG16+ for migration 20261030_160000.
+            all_roles = existing | set(roles)
+            if 'service_role' in all_roles:
+                cur.execute('ALTER ROLE service_role BYPASSRLS')
+            for client_role in ('anon', 'authenticated', 'service_role'):
+                if client_role in all_roles and client_role != self.config.migration_user:
+                    cur.execute(sql.SQL('GRANT {} TO {} WITH ADMIN OPTION').format(
+                        sql.Identifier(client_role), sql.Identifier(self.config.migration_user)))
+            cur.execute(sql.SQL('CREATE DATABASE {} OWNER {} TEMPLATE template0').format(
+                sql.Identifier(CLONE_DB), sql.Identifier(self.config.migration_user)))
         return created
+
+    def _prepare_clone_extensions(self, address, password, extensions):
+        """Create source ``public`` extensions under their source owner before ``pg_restore``."""
+        targets = [(ext, owner) for ext, owner in extensions if owner != self.config.restore_user]
+        if not targets:
+            return
+        from psycopg2 import sql
+        conn = self.clone_connect(host=address, dbname=CLONE_DB, user=self.config.admin_user,
+                                  password=password, timeout=10)
+        try:
+            conn.autocommit = False
+            with conn.cursor() as cur:
+                for ext, owner in targets:
+                    cur.execute(sql.SQL('SET LOCAL ROLE {}').format(sql.Identifier(owner)))
+                    cur.execute(sql.SQL('CREATE EXTENSION IF NOT EXISTS {} WITH SCHEMA public').format(
+                        sql.Identifier(ext)))
+                    cur.execute('RESET ROLE')
+                    # Trusted extensions install member functions under the bootstrap superuser;
+                    # align their owners in public with the source extension owner so pg_restore ACLs match.
+                    cur.execute(
+                        "SELECT set_config('igreja12.ext_name', %s, true), set_config('igreja12.ext_owner', %s, true)",
+                        (ext, owner),
+                    )
+                    cur.execute(
+                        """
+                        DO $$
+                        DECLARE
+                            v_ext text := current_setting('igreja12.ext_name');
+                            v_owner text := current_setting('igreja12.ext_owner');
+                            rec record;
+                        BEGIN
+                            FOR rec IN
+                                SELECT p.oid::regprocedure AS sig
+                                FROM pg_depend d
+                                JOIN pg_extension e ON e.oid = d.refobjid
+                                JOIN pg_proc p ON p.oid = d.objid
+                                JOIN pg_namespace n ON n.oid = p.pronamespace
+                                WHERE d.deptype = 'e' AND e.extname = v_ext AND n.nspname = 'public'
+                                ORDER BY 1
+                            LOOP
+                                EXECUTE format('ALTER FUNCTION %s OWNER TO %I', rec.sig, v_owner);
+                            END LOOP;
+                        END
+                        $$;
+                        """
+                    )
+            conn.commit()
+        finally:
+            conn.close()
 
     def _restore(self, name, path, password, run_dir):
         """Restore with the content list filtered by ``filter_restore_list`` (see there for what and why)."""
@@ -463,8 +620,111 @@ class WindowBackup:
         finally:
             conn.close()
 
+    def _verify_applicator_session(self, address, password):
+        """Read actual applicator flags and role-level statement_timeout on a fresh applicator connection."""
+        conn = self.clone_connect(host=address, dbname=CLONE_DB, user=self.config.migration_user,
+                                  password=password, timeout=10)
+        try:
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute(fdb.Q_BEGIN)
+            try:
+                cur.execute(fdb.Q_PATH)
+                cur.fetchall()
+                cur.execute(Q_APPLICATOR_ROLE)
+                rows = cur.fetchall()
+            finally:
+                cur.execute('ROLLBACK')
+        finally:
+            conn.close()
+        require(len(rows) == 1 and len(rows[0]) == 9, 'window-backup-clone-role')
+        role, timeout_val, rolsuper, rolbypassrls, rolcreaterole, rolcreatedb, rolinherit, rolcanlogin, rolrepl = rows[0]
+        require(role == self.config.migration_user
+                and role != self.config.restore_user
+                and role != self.config.admin_user
+                and timeout_val == APPLICATOR_STATEMENT_TIMEOUT
+                and rolsuper is False
+                and rolbypassrls is True
+                and rolcreaterole is True
+                and rolcreatedb is True
+                and rolinherit is True
+                and rolcanlogin is True
+                and rolrepl is False,
+                'window-backup-clone-role')
+        return dict(
+            role=str(role),
+            restore_role=self.config.restore_user,
+            rolsuper=False,
+            rolbypassrls=True,
+            rolcreaterole=True,
+            rolcreatedb=True,
+            rolinherit=True,
+            rolcanlogin=True,
+            rolreplication=False,
+            statement_timeout=str(timeout_val),
+        )
+
+    def _verify_runtime_rls_and_grants(self, address, password):
+        """Inspect runtime role flags, RLS/FORCE RLS, policies and column/table grants without reading domain data."""
+        conn = self.clone_connect(host=address, dbname=CLONE_DB, user=self.config.admin_user,
+                                  password=password, timeout=10)
+        try:
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute(fdb.Q_BEGIN)
+            try:
+                cur.execute(fdb.Q_PATH)
+                cur.fetchall()
+                cur.execute(Q_RUNTIME_ROLES)
+                role_rows = cur.fetchall()
+                cur.execute(Q_RUNTIME_TABLE_PRIVS)
+                table_rows = cur.fetchall()
+            finally:
+                cur.execute('ROLLBACK')
+        finally:
+            conn.close()
+        require(tuple(row[0] for row in role_rows) == RUNTIME_ROLE_NAMES, 'window-backup-runtime-rls')
+        for name, rolsuper, rolbypassrls, rolcanlogin, rolinherit, rolcreaterole, rolcreatedb in role_rows:
+            require(rolsuper is False and rolcanlogin is False and rolcreaterole is False
+                    and rolcreatedb is False and rolbypassrls is (name == 'service_role'),
+                    'window-backup-runtime-rls')
+        expected_tables = ('cell_alerts', 'celula_alerta_regras', 'private_deletion_uploads', 'private_summary_tasks')
+        require(tuple(row[0] for row in table_rows) == expected_tables, 'window-backup-runtime-rls')
+        verified_tables = {}
+        for row in table_rows:
+            require(len(row) == 18, 'window-backup-runtime-rls')
+            (name, rls, force_rls, polroles, anon_any, service_any, auth_sel, auth_ins, auth_upd, auth_del,
+             storage_any, send_any, summary_any, queue_any, alerts_tratado, alerts_igreja,
+             upload_ok, summary_ok) = row
+            require(rls is True and force_rls is True and not anon_any and not service_any,
+                    'window-backup-runtime-rls')
+            roles_tuple = tuple(polroles)
+            if name in ('cell_alerts', 'celula_alerta_regras'):
+                require(roles_tuple == ('authenticated',)
+                        and auth_sel is True and auth_ins is True and auth_upd is True and auth_del is False
+                        and not storage_any and not send_any and not summary_any and not queue_any
+                        and alerts_tratado is True and alerts_igreja is False,
+                        'window-backup-runtime-rls')
+            elif name == 'private_deletion_uploads':
+                require(roles_tuple == ('private_storage_runtime',)
+                        and not auth_sel and not auth_ins and not auth_upd and not auth_del
+                        and upload_ok is True and not send_any and not summary_any and not queue_any,
+                        'window-backup-runtime-rls')
+            else:
+                require(roles_tuple == ('authenticated', 'private_summary_runtime')
+                        and summary_ok is True and not storage_any and not send_any and not queue_any,
+                        'window-backup-runtime-rls')
+            verified_tables[name] = dict(rls=True, force_rls=True, policy_roles=list(roles_tuple))
+        return dict(
+            runtime_roles=list(RUNTIME_ROLE_NAMES),
+            service_role_bypassrls=True,
+            non_service_roles_bypassrls=False,
+            tables=verified_tables,
+        )
+
     def _replay(self, request_digest, address, password):
         # Outside the backup root: protected path names (backups, *.dump) are refused by the executor.
+        applicator_role = self._verify_applicator_session(address, password)
         root = Path(self.config.clone_workdir)
         require(os.path.lexists(root) and stat.S_ISDIR(os.lstat(root).st_mode) and not root.is_symlink(),
                 'window-backup-workdir-missing')
@@ -478,9 +738,18 @@ class WindowBackup:
         executor = MigrationExecutor(self.plan, python=self.config.python, workdir=str(workdir),
                                      secret=lambda: url, timeout=self.config.timeout('migration_s'),
                                      runner=ProcessRunner(binaries=(self.config.python,), run=self.migrate_run))
+        max_s = self.config.timeout('max_migration_s')
+        timings = []
         for index, migration in enumerate(self.plan.pending, 1):
-            require(executor.apply(index, migration) == 0, 'window-backup-clone-migration-failed')
-        return len(self.plan.pending)
+            migration_started = self.clock()
+            rc = executor.apply(index, migration)
+            elapsed = float(round(self.clock() - migration_started, 3))
+            require(rc == 0, 'window-backup-clone-migration-failed')
+            require(elapsed <= max_s, 'window-backup-migration-slow')
+            timings.append(dict(name=migration.name, seconds=elapsed, concurrent=bool(migration.concurrent)))
+        migrations_seconds = float(round(sum(t['seconds'] for t in timings), 3))
+        max_migration_seconds = float(max((t['seconds'] for t in timings), default=0.0))
+        return applicator_role, timings, migrations_seconds, max_migration_seconds
 
     def _cleanup(self, name):
         # Own resources only, by exact name; a missing container/network is not an error.
@@ -509,7 +778,10 @@ class WindowBackup:
         started = self.clock()
         run_dir = self._run_dir(request_digest)
         roles = source_role_names(self.connect)
+        extensions = source_public_extensions(self.connect)
+        dump_started = self.clock()
         path, backup_id, size = self._dump(run_dir)
+        dump_seconds = float(round(self.clock() - dump_started, 3))
         name = 'igreja12-window-clone-' + request_digest[:16]
         password = secrets.token_hex(24)
         admin = None
@@ -518,15 +790,18 @@ class WindowBackup:
             created = self._prepare_clone(admin, roles, password)
             admin.close()
             admin = None
+            self._prepare_clone_extensions(address, password, extensions)
             restore_started = self.clock()
             removed = self._restore(name, path, password, run_dir)
-            restore_seconds = round(self.clock() - restore_started, 1)
+            restore_seconds = float(round(self.clock() - restore_started, 3))
             restored = self._state(address, password)
             require(restored['ledger'] == self.plan.baseline, 'window-backup-restore-ledger')
             require(restored['invalid'] == 0, 'window-backup-restore-invalid-index')
             require(restored['catalog'] == self.expected.catalog, 'window-backup-restore-catalog')
-            applied = self._replay(request_digest, address, password)
+            applicator_role, migration_timings, migrations_seconds, max_migration_seconds = self._replay(
+                request_digest, address, password)
             final = self._state(address, password)
+            rls_grants_verified = self._verify_runtime_rls_and_grants(address, password)
         finally:
             if admin is not None:
                 admin.close()
@@ -540,10 +815,16 @@ class WindowBackup:
                     request_digest=request_digest, backup_id=backup_id, backup_bytes=size, backup_path=str(path),
                     clone_rehearsal=dict(
                         migrations_verified=True, clone_identity=clone_identity, cluster_global_ddl_possible=True,
-                        applied=applied, final_ledger=len(final['ledger']),
+                        applied=len(migration_timings), final_ledger=len(final['ledger']),
                         concurrent=sum(m.concurrent for m in self.plan.pending),
                         sql_digest=digest([(m.name, m.sha256) for m in self.plan.pending]),
                         final_schema_digest=final['catalog'], restored_catalog=restored['catalog'],
                         roles_created=created, restore_excluded=removed, clone_image=self.config.clone_image,
-                        dump_image=self.config.dump_image),
-                    restore_seconds=restore_seconds, seconds=round(self.clock() - started, 1))
+                        dump_image=self.config.dump_image,
+                        dump_seconds=dump_seconds, restore_seconds=restore_seconds,
+                        migrations_seconds=migrations_seconds, max_migration_seconds=max_migration_seconds,
+                        migration_timings=migration_timings, applicator_role=applicator_role,
+                        rls_grants_verified=rls_grants_verified),
+                    dump_seconds=dump_seconds, restore_seconds=restore_seconds,
+                    migrations_seconds=migrations_seconds, max_migration_seconds=max_migration_seconds,
+                    seconds=float(round(self.clock() - started, 3)))

@@ -95,6 +95,9 @@ PROCEDURES = {
 BACKUP_REQUEST_SCHEMA = 'igreja12.first-transition-window-backup-request/1'
 CLONE_FIELDS = ('migrations_verified', 'clone_identity', 'cluster_global_ddl_possible', 'applied', 'final_ledger',
                 'concurrent', 'sql_digest', 'final_schema_digest')
+OPTIONAL_CLONE_SECONDS = ('dump_seconds', 'restore_seconds', 'migrations_seconds', 'max_migration_seconds')
+APPLICATOR_ROLE_FIELDS = ('role', 'restore_role', 'rolsuper', 'rolbypassrls', 'rolcreaterole', 'rolcreatedb',
+                          'rolinherit', 'rolcanlogin', 'rolreplication', 'statement_timeout')
 PROCESS_ENV = frozenset({'PATH', 'LC_ALL', 'LANG', 'PYTHON_DOTENV_DISABLED', 'MIGRATION_DATABASE_URL', 'PGAPPNAME',
                          'PGCONNECT_TIMEOUT'})
 
@@ -310,10 +313,34 @@ class FirstTransition(A10Step):
         require(isinstance(receipt.get('backup_id'), str) and re.fullmatch('[0-9a-f]{64}', receipt['backup_id']),
                 'transition-backup-unbound')
         clone = receipt['clone_rehearsal']
+        sanitized = {key: clone[key] for key in CLONE_FIELDS}
+        for key in OPTIONAL_CLONE_SECONDS:
+            if key in clone:
+                sanitized[key] = float(clone[key])
+        if 'migration_timings' in clone:
+            sanitized['migration_timings'] = [
+                dict(name=str(item['name']), seconds=float(item['seconds']), concurrent=bool(item['concurrent']))
+                for item in clone['migration_timings']
+            ]
+        if 'applicator_role' in clone:
+            role = clone['applicator_role']
+            sanitized['applicator_role'] = {k: role[k] for k in APPLICATOR_ROLE_FIELDS}
+        if 'rls_grants_verified' in clone:
+            rls = clone['rls_grants_verified']
+            sanitized['rls_grants_verified'] = dict(
+                runtime_roles=[str(r) for r in rls['runtime_roles']],
+                service_role_bypassrls=bool(rls['service_role_bypassrls']),
+                non_service_roles_bypassrls=bool(rls['non_service_roles_bypassrls']),
+                tables={
+                    str(tbl): dict(rls=bool(info['rls']), force_rls=bool(info['force_rls']),
+                                   policy_roles=[str(p) for p in info['policy_roles']])
+                    for tbl, info in rls['tables'].items()
+                },
+            )
         return dict(plan_digest=receipt['plan_digest'], source_identity=receipt['source_identity'],
                     baseline_digest=receipt['baseline_digest'], restore_verified=True,
                     request_digest=request_digest, backup_id=receipt['backup_id'],
-                    clone_rehearsal={key: clone[key] for key in CLONE_FIELDS})
+                    clone_rehearsal=sanitized)
 
     def _backup(self):
         """The window backup, requested exactly once after this run's quiescence."""

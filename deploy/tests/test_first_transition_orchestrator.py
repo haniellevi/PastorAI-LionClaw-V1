@@ -473,6 +473,8 @@ def test_window_backup_is_requested_once_after_quiescence_and_bound_in_the_marke
     assert marker['window_backup_id'] == backup['backup_id'] == 'b' * 63 + '1'
     assert marker['backup_digest'] == backup['receipt_digest'] == digest(backup['receipt'])
     assert 'archive_path' not in backup['receipt'] and 'synthetic-private' not in world.text()
+    if 'applicator_role' in world.backup['clone_rehearsal']:
+        assert backup['receipt']['clone_rehearsal']['applicator_role']['rolsuper'] is False
     recovery = transition.recovery()
     assert recovery['window_backup_id'] == marker['window_backup_id'] and recovery['automatic_restore'] is False
     assert 'A6' not in PROCEDURES['ddl-failed'].replace('never the A6', '')

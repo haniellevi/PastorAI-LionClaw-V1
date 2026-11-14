@@ -429,6 +429,41 @@ def validate_clone_receipt(backup, plan, identity, baseline):
             and all(isinstance(clone.get(key), str) and re.fullmatch('[0-9a-f]{64}', clone[key])
                     for key in ('final_schema_digest', 'clone_identity')),
             'clone-receipt-invalid')
+    if 'applicator_role' in clone:
+        role = clone['applicator_role']
+        require(isinstance(role, dict)
+                and isinstance(role.get('role'), str) and role['role']
+                and isinstance(role.get('restore_role'), str) and role['restore_role']
+                and role['role'] != role['restore_role']
+                and role.get('rolsuper') is False and role.get('rolbypassrls') is True
+                and role.get('rolcreaterole') is True and role.get('rolcreatedb') is True
+                and role.get('rolinherit') is True and role.get('rolcanlogin') is True
+                and role.get('rolreplication') is False
+                and role.get('statement_timeout') == '2min',
+                'clone-receipt-invalid')
+    for key in ('dump_seconds', 'restore_seconds', 'migrations_seconds', 'max_migration_seconds'):
+        if key in clone:
+            val = clone[key]
+            require(isinstance(val, (int, float)) and not isinstance(val, bool) and val >= 0, 'clone-receipt-invalid')
+            if key == 'max_migration_seconds':
+                require(val <= 60, 'clone-receipt-invalid')
+    if 'migration_timings' in clone:
+        timings = clone['migration_timings']
+        require(isinstance(timings, list) and len(timings) == len(plan.pending)
+                and all(isinstance(item, dict) and item.get('name') == m.name
+                        and item.get('concurrent') is bool(m.concurrent)
+                        and isinstance(item.get('seconds'), (int, float))
+                        and not isinstance(item['seconds'], bool) and 0 <= item['seconds'] <= 60
+                        for item, m in zip(timings, plan.pending)),
+                'clone-receipt-invalid')
+    if 'rls_grants_verified' in clone:
+        rls = clone['rls_grants_verified']
+        require(isinstance(rls, dict)
+                and rls.get('service_role_bypassrls') is True
+                and rls.get('non_service_roles_bypassrls') is False
+                and isinstance(rls.get('runtime_roles'), list) and len(rls['runtime_roles']) == 7
+                and isinstance(rls.get('tables'), dict) and len(rls['tables']) >= 2,
+                'clone-receipt-invalid')
 
 
 class LocalTransition:
