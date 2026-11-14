@@ -46,11 +46,11 @@ Painel: recusa chamar de integração na main um merge em base temporária ou de
 
 Pip-audit dos dois locks sem vulnerabilidades conhecidas. Audit npm de produção limpo. Reconsulta do grafo completo em 10/10 mantém cinco alertas altos de ferramentas de desenvolvimento, derivados de `GHSA-vfj7-8cjw-p6xm` (braces). O reparo automático sugere downgrade major de eslint-config-next; não foi aplicado. O aviso permanece explícito, sem desligar gate ou alegar zero vulnerabilidades no grafo completo.
 
-## Próximas operações
+## Próximas operações previstas à época
 
-Decisão T08: executor exclusivo, região/teto e verificação nominal do projeto DEV. O workflow online está desativado por padrão. Depois de integrar e revalidar os candidatos, provisionar/configurar somente com autorização; executar login, duas igrejas e fluxo de produto online antes do aceite. T11 continua uma operação própria: preflight vivo, versão anterior comprovada, bundle de compatibilidade revisado, backup restaurável, consumidores contidos e publicação coordenada autorizada. S1 mantém hipótese histórica sem causa nova provada nesta execução.
+A decisão T08 previa executor exclusivo, região/teto e verificação nominal do projeto DEV. O workflow online vinha desativado por padrão. Após a integração e a revalidação dos candidatos, o provisionamento dependia de autorização, e o aceite previa login, duas igrejas e fluxo de produto online. T11 continua uma operação própria: preflight vivo, versão anterior comprovada, bundle de compatibilidade revisado, backup restaurável, consumidores contidos e publicação coordenada autorizada. S1 mantém hipótese histórica sem causa nova provada nesta execução.
 
-Guias: [pipeline DEV](../ops/DEV-PIPELINE-SINTETICO.md), [compatibilidade](../ops/COMPATIBILIDADE-RELEASE-REVISADA.md) e [plano histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/refatoracao-modular-plano.md).
+Guias: [ensaio sintético](../ops/DEV-PIPELINE-SINTETICO.md), [compatibilidade](../ops/COMPATIBILIDADE-RELEASE-REVISADA.md) e [plano histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/a812b9a6ef68b8757fda9e776e4f149cc2913722/docs/ops/refatoracao-modular-plano.md).
 
 
 ## Correção do isolamento observada no CI final

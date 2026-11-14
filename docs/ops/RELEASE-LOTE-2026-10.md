@@ -257,12 +257,12 @@ não estão autorizados; revisão externa permanece com Sarah Opus 5.5 high.
 São cinco linhas `workflow_dispatch:`, uma em cada arquivo:
 `backend-tests.yml`, `frontend-ci.yml`, `rls-integration.yml`,
 `tooling-static.yml`, `synthetic-release.yml`. E2E já permite disparo manual.
-O conjunto completo de CI continua sendo seis workflows: os cinco acima mais
-E2E já existente. Estes cinco gatilhos novos não mudam a elegibilidade de DEV:
-`check_integrated_candidate.py` consulta `event=push`; dispatch verde não
-substitui push ausente/falho para promoção. Esse gate foi mantido byte-exato. Tooling-static integra os seis workflows
-acompanhados, mas não integra a lista de cinco exigida pelo gate DEV existente.
-Dispatch aprovado fornece evidência para revisão humana, sem tornar DEV elegível.
+O CI continuava com seis workflows. À época, o verificador de promoção do
+DEV consultava as execuções de `push` na `main` para os quatro checks
+obrigatórios e o ensaio sintético. O `tooling-static` completava o CI.
+Uma execução manual aprovada servia de evidência para revisão humana. A
+promoção ainda exigia sucesso nas cinco execuções de `push`.
+[Verificador no histórico](https://github.com/haniellevi/PastorAI-LionClaw-V1/tree/6c31932fcf06c23f19b0c26da562cbb84d34d372/deploy)
 Jobs, scripts, versões, permissions `contents: read`, timeouts, triggers de
 push/PR e concorrência ficam iguais. Nenhum workflow de publicação/monitor
 é habilitado, editado ou disparado; não há encadeamento `workflow_run`.
@@ -485,25 +485,23 @@ vercel git disconnect --project prj_e0hSMDbhUty2OK372oPcSQBXBKGE --scope raniel-
 ```
 
 Mudança versionada: `frontend/vercel.json` com `git.deploymentEnabled=false`
-(todas as branches, incluindo previews); `dev-synthetic.yml` sem `workflow_run`,
-apenas `workflow_dispatch`, mantendo main, variável habilitadora e verificação
-dos checks do candidato. Workflows de CI não são modificados. Isso não interrompe
+(todas as branches, incluindo previews). O workflow de publicação DEV passou a exigir
+acionamento manual, mantendo a exigência de main, a variável habilitadora e a
+verificação dos checks do candidato. Workflows de CI não são modificados. Isso não interrompe
 o painel já servido nem os serviços existentes. Não bloqueia publicação manual
 via CLI/API/deploy hooks; esses caminhos continuam fora da autorização.
 
-### Procedimento autorizado e executado — registro e reconferência
+### Registro histórico da suspensão
+
+A sequência abaixo registra a operação executada em 28/10/2026.
 
 1. Confirmar por metadados o projeto Vercel do painel
    `prj_e0hSMDbhUty2OK372oPcSQBXBKGE`, equipe `raniel-levis-projects`, vínculo Git,
    configuração do workflow DEV e execuções de publicação em fila/andamento.
    Não ler variáveis secretas, logs pastorais, VPS ou dados de domínio. Registrar
    o estado anterior da variável booleana e se ela estava ausente.
-2. Suspender somente o workflow de publicação DEV e definir a variável como false:
-
-   ```bash
-   gh workflow disable dev-synthetic.yml --repo haniellevi/PastorAI-LionClaw-V1
-   gh variable set DEV_PIPELINE_ENABLED --body false --repo haniellevi/PastorAI-LionClaw-V1
-   ```
+2. O workflow de publicação DEV foi desabilitado e a variável `DEV_PIPELINE_ENABLED`
+   passou a `false`. [Comandos executados à época](https://github.com/haniellevi/PastorAI-LionClaw-V1/blob/f78cbf44bdccef5b830878c6ee105c58137c7489/docs/ops/RELEASE-LOTE-2026-10.md?plain=1#L503-L505)
 
    Não desabilitar GitHub Actions globalmente. Isso não cancela execução já
    iniciada: se houver uma, parar a sequência e apresentar ID, estado e impacto
@@ -1096,10 +1094,10 @@ sobreposição de documentos/workflows e rodar os quatro checks no novo candidat
 Não transportar aprovação de CI entre SHAs. A autorização precisa tratar também
 situação histórica de 28/10, superada pela suspensão global: o bloqueio então de preview
 vale somente para as branches #600/#601 e desta fatia, não desabilita deploy da
-main. `dev-synthetic.yml` também pode promover DEV após CI da main se
-`DEV_PIPELINE_ENABLED` estiver habilitado; estado não verificado e nenhum acesso
-DEV autorizado. Backend permanece manual (`workflow_dispatch`). A decisão de
-merge deve tratar esses efeitos antes de qualquer integração. Não repinar silenciosamente o SQL `afdfb78d`
+main. Na avaliação da época, o workflow de publicação DEV podia promover após
+o CI da main se `DEV_PIPELINE_ENABLED` estivesse habilitado. O estado ainda não
+tinha sido verificado, e o acesso ao DEV aguardava autorização. O backend
+seguia manual (`workflow_dispatch`). A decisão de merge precisava considerar esses efeitos. Não repinar silenciosamente o SQL `afdfb78d`
 ou executor `37c7d68d` após merges; mudança de artefatos exige revisão/ensaio.
 
 ### Fases e condições

@@ -310,7 +310,7 @@ remover do Git exige PR, CI verde e SIM.
 
 | Caminho | Estado | Ajuste necessário |
 |---|---|---|
-| `acompanhar.sh` | rastreado | remover junto `backend/tests/test_acompanhar_script.py`, que roda no CI |
+| Entrada do acompanhamento antigo | arquivada | O script aposentado e seu teste estão no [histórico do Git](https://github.com/haniellevi/PastorAI-LionClaw-V1/tree/16be7829e429671bbbef643afc6f45b92c9a48e1). O planejamento atual fica no ROADMAP. |
 | `tools/render_progress.py` | rastreado | o ROADMAP manda rodá-lo; só sai se o painel local for encerrado e o ROADMAP editado |
 | `backend/scripts/apply_migrations.py` | rastreado | proibido pelo AGENTS, mas citado em `docs/ai/AI-BOOTSTRAP.md` e na cobertura |
 | `output/painel` | ignorado | saída do `render_progress.py`; ajustar o ROADMAP |
@@ -323,7 +323,8 @@ remover do Git exige PR, CI verde e SIM.
 | `.git/cursor` | 35 MB | cache de editor de 07/10 |
 | `output/release` (parte ignorada) | ~3,5 MB | evidência do lote e da primeira virada; a sessão da janela pode usar |
 | ~35 scripts de governança de migrations em `backend/scripts/` | ~1 MB, rastreados | sem uso em teste, CI ou app; citados em `docs/governance` e `docs/decisions`. `new_migration.py` e `migrate.py` ficam |
-| `docs/Docs20260704_173116` e `docs/Docs20260704_173658` | 248 KB, rastreados | PRD antigo sem referência; candidato a `docs/historico` |
+| PRD do PR2 de Células e anexos (04/07) | 10 arquivos, 208.541 bytes | Arquivados na [versão histórica de `docs/`](https://github.com/haniellevi/PastorAI-LionClaw-V1/tree/9b0ee2fb0fc31c08ac9276ccac54121a166080c9/docs). O pacote é a subárvore `c17d81d904f5e65df63a2012fd22a78ed78ffa20`. A [PR #99](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/99) integrou reuniões, presença e expectativa nominal de visitantes. |
+| Discovery do PR2 de Células (04/07) | 13.827 bytes | Planejamento encerrado na [PR #99](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/99). A [decisão de Células](../design/CELULAS-DECISOES-FINAIS.md#35--ocorrência--reunião-resolve-45--estrutural) e o [contrato de UX](../design/CONTRATO-UX-CELULAS-CENTRAL.md) preservam a reunião materializada e os fluxos de presença e expectativa nominal. A migration do PR2 e os testes `test_cell_meetings.py` e `test_celulas_pr2_models.py` registram autorização, dia da semana, estados de presença e unicidade com hora nula. O original é recuperável pelo blob Git `2b5bf51c1083e24bde05abf8ec8ebe4dd4e8deb8` em `a510ea9d`. |
 | `.maestro`, `.maestri`, `.devin` | < 100 KB cada | configurações locais de ferramentas; não abertas |
 
 ### 4.4 Manter

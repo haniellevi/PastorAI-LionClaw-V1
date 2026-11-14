@@ -8,9 +8,11 @@
 
 ## 1. Contexto
 
-O redesign #8 (fases **F0→F4**) está **encerrado** e mesclado em `origin/main` — ver
-[`RECONCILIACAO-igreja12.md`](RECONCILIACAO-igreja12.md) (mapa de tokens, navegação, conflitos)
-e os sprints `docs/sprints/2026-06-25-redesign-f0…f4-*.md`. Não há F5.
+O redesign #8 (fases **F0 a F4**) foi encerrado no merge `36db492`.
+O [contrato F0–F4](RECONCILIACAO-igreja12.md) reúne tokens, navegação e conflitos.
+Os [registros das cinco fases](https://github.com/haniellevi/PastorAI-LionClaw-V1/tree/0da6efd776db7f4531e1e8ed6daef3a0e0afdbaa/docs/sprints)
+documentam a entrega. O smoke com papel não admin ficou sem verificação em F2 e F3.
+Na F4, houve validação estática e build, sem smoke autenticado em navegador. Não houve F5.
 
 Ao rodar o app pós-F4, sobraram **divergências entre o protótipo `Igreja12-Prototipo.standalone.html`
 e a tela real** + problemas de **usabilidade no mobile**. Esta onda (PRs **#50–#56**, todas
@@ -234,8 +236,9 @@ no domínio público após cada deploy. Monitorar recorrência antes de investir
 
 Camadas de memória deste projeto e o papel de cada uma:
 
-- **`docs/sprints/`** = **snapshots** versionados ("o que fizemos e por quê", por bloco). Não muda
-  depois de escrito. Cobre F0–F4 + B1/B2.
+- **Registros de sprint** preservam o que foi feito em cada bloco. As fases F0 a F4 estão no
+  histórico do Git indicado na seção 1. O [registro B1/B2](../sprints/2026-06-25-ambientes-b1-b2-staging-guard.md)
+  preserva a evidência da época.
 - **Este doc** (`docs/design/REDESIGN-UX-AJUSTES-POS-F4.md`) = **índice vivo da onda UX pós-F4**.
   Recebe novas entradas conforme as próximas frentes (§6) forem fechando.
 - **GitHub PRs (#50–#56)** = **detalhe completo** (antes/depois, diff, gates, smoke). É a fonte
