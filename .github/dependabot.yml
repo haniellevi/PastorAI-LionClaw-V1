@@ -1,0 +1,62 @@
+# PRs automaticas de versao pausadas durante o Plano Casa Limpa (tarefa 2.6).
+# Agenda e grupos ficam configurados para a retomada.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 0
+    labels: [dependencies]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  # CLI do Supabase (package.json da raiz, usado por tooling-static.yml).
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 0
+    labels: [dependencies]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      root-minor-patch:
+        update-types: [minor, patch]
+
+  # Le backend/requirements.txt (faixas). O requirements.lock com hashes
+  # e gerado por uv e NAO e atualizado pelo Dependabot.
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 0
+    labels: [dependencies]
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      backend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Sao_Paulo
+    open-pull-requests-limit: 0
+    labels: [dependencies]
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
