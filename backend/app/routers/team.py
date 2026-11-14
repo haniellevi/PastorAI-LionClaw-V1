@@ -47,6 +47,10 @@ from app.services.invite_identity import (
     assert_invite_email_available,
     get_invite_identity_db,
 )
+from app.services.platform_membership import (
+    PlatformAdminChecker,
+    get_platform_admin_checker,
+)
 
 logger = logging.getLogger("pastorai.team")
 
@@ -852,6 +856,7 @@ def revoke_member(
     usuario_id: str,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
+    is_platform_admin: PlatformAdminChecker = Depends(get_platform_admin_checker),
 ) -> RevokeResponse:
     """Revoke a member and all persisted panel sessions (RF-04 / US-03).
 
@@ -893,6 +898,18 @@ def revoke_member(
         if revoked_sessions:
             db.commit()
         return RevokeResponse(usuarioId=str(user_uuid), status=REVOKED_USER_STATUS)
+
+    # P1.1: a platform operator (platform_admins) is refused with 409. A church
+    # admin must not set the global app_users.status that also gates the
+    # platform console; platform offboarding stays a platform-plane action.
+    if is_platform_admin(user_uuid):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Este acesso pertence a um operador da plataforma e não pode "
+                "ser revogado pela igreja"
+            ),
+        )
 
     if getattr(app_user, "pessoa_id", None) is not None:
         leads_active = db.execute(

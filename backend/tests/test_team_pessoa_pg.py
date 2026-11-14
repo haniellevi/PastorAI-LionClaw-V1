@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from dataclasses import replace
 from threading import Event, local
 from types import SimpleNamespace
@@ -21,6 +22,7 @@ from app.db.session import get_db
 from app.deps import get_current_user
 from app.routers import auth, team
 from app.routers.team import router
+from app.services.platform_membership import platform_admin_exists_with_backend_role
 from tests.test_uv_turmas_pg import migrated_database, seeded, scoped, principal
 from tests.conftest_rls import assert_disposable_database
 
@@ -583,7 +585,11 @@ def test_activation_existing_person_serializes_before_team_mutation(database, se
                         principal(v),
                     )
                 else:
-                    team.revoke_member(str(v['outsider']), db, principal(v))
+                    team.revoke_member(
+                        str(v['outsider']), db, principal(v),
+                        partial(platform_admin_exists_with_backend_role,
+                                session_factory=lambda: Session(database)),
+                    )
                 return ('ok', 200)
             except HTTPException as exc:
                 db.rollback()
