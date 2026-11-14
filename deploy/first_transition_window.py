@@ -28,7 +28,7 @@ import first_transition_database as fdb
 from first_transition_adapter import digest, prepare
 from first_transition_candidate import (CLOSED_GATES, CandidatePort, CandidateRunner, topology_contract,
                                         verify_candidate_release, write_candidate_release, write_hold_override)
-from first_transition_orchestrator import assemble, load_config
+from first_transition_orchestrator import assemble, classify_recovery, load_config
 from first_transition_window_backup import BACKUP_CODES, REHEARSAL_SCHEMA, WindowBackup, WindowBackupConfig
 from first_transition_window_bindings import (UnknownWriters, bindings_from_dict, validate_bindings_config)
 from initial_transition_files import Journal, read_regular
@@ -64,7 +64,7 @@ CODES = frozenset({
     'window-executor-role', 'window-candidate-database', 'database-libpq-environment',
     'window-backup-image-unpinned', 'window-backup-paths', 'window-backup-timeouts',
     'package-identity-mismatch', 'candidate-layout-not-prepared', 'candidate-hold-mismatch', 'layout-mismatch',
-    'window-a10-token',
+    'window-a10-token', 'window-resume-token', 'journal-torn', 'journal-invalid', 'state-not-directory',
 }) | BACKUP_CODES  # literal, secret-free codes of the backup provider (cause of a failed rehearsal/window)
 
 
@@ -358,28 +358,46 @@ def prepare_layout(args, out=print):
     return 0
 
 
-def run(args, out=print, *, a10=False):
+def _init_inputs(args):
     fdb.require_explicit_environment()
     require(args.expect_plan_digest and args.expect_window_digest, 'window-run-prerequisites')
-    token = getattr(args, 'a10_token', None)
-    require(bool(token) == a10 and (not a10 or re.fullmatch('[0-9a-f]{64}', token)), 'window-a10-token')
     prepared = prepare_window(args)
-    # Before any journal, quiescence or host effect: a window without the pinned restore exclusions is lost late.
-    require(prepared.backup.restore_excluded_expected, 'window-backup-restore-excluded')
     require(args.expect_plan_digest == prepared.plan.digest, 'window-plan-digest')
     require(args.expect_window_digest == prepared.window_digest, 'window-window-digest')
+    return prepared
+
+
+def _open_bindings(args, prepared):
     io, c = args._io, prepared.config
     secret = env_file_secret(args.env_file, args.env_var, fstat=io.get('secret_fstat'))
     secret()  # Validate the one explicit provider before any journal or host effect.
     database = fdb.ReadOnlyDatabase(fdb.psycopg2_connector(secret, connect=io.get('connect')),
                                     lease_columns=c.lease_columns, observer_applications=c.observer_applications)
     ingress, writers = _bindings(prepared.bindings, c, secret, database, io)
-    require(isinstance(writers, UnknownWriters) and callable(writers.bind_candidate), 'window-writer-required')
-    _readiness(args, prepared, secret, database, ingress)
+    return secret, database, ingress, writers
+
+
+def _assemble_transition(args, prepared, journal, secret, database, ingress, writers):
+    io, c = args._io, prepared.config
     expected = fdb.DatabaseExpectation(c.identity, prepared.plan.baseline, c.catalog).validated()
     backup = WindowBackup(prepared.backup, prepared.plan, expected, secret=secret, connect=database.connect,
                           run=io.get('run'), clone_connect=io.get('clone_connect'), migrate_run=io.get('run'),
                           sleep=io.get('sleep'))
+    return assemble(c, plan=prepared.plan, journal=journal, connect=database.connect, secret=secret,
+                    ingress=ingress, writers=writers, backup_proof=backup, popen=io.get('popen'),
+                    run=io.get('run'), sleep=io.get('sleep') or time.sleep, git=io.get('git'))
+
+
+def run(args, out=print, *, a10=False):
+    prepared = _init_inputs(args)
+    token = getattr(args, 'a10_token', None)
+    require(bool(token) == a10 and (not a10 or re.fullmatch('[0-9a-f]{64}', token)), 'window-a10-token')
+    io, c = args._io, prepared.config
+    # Before any journal, quiescence or host effect: a window without the pinned restore exclusions is lost late.
+    require(prepared.backup.restore_excluded_expected, 'window-backup-restore-excluded')
+    secret, database, ingress, writers = _open_bindings(args, prepared)
+    require(isinstance(writers, UnknownWriters) and callable(writers.bind_candidate), 'window-writer-required')
+    _readiness(args, prepared, secret, database, ingress)
     with Journal(Path(c.state_dir) / 'journal') as journal:
         init = journal.last('window-init')
         values = {**prepared.record, 'window_digest': prepared.window_digest}
@@ -389,11 +407,50 @@ def run(args, out=print, *, a10=False):
         else:
             require(journal.events[0] is init and all(init.get(k) == v for k, v in values.items()),
                     'window-inputs-changed')
-        transition = assemble(c, plan=prepared.plan, journal=journal, connect=database.connect, secret=secret,
-                              ingress=ingress, writers=writers, backup_proof=backup, popen=io.get('popen'),
-                              run=io.get('run'), sleep=io.get('sleep') or time.sleep, git=io.get('git'))
+        transition = _assemble_transition(args, prepared, journal, secret, database, ingress, writers)
         try:
             result = transition.a10(token) if a10 else transition.run()
+        except BaseException as exc:
+            code = 'window-transition-refused' if isinstance(exc, Exception) else 'window-transition-interrupted'
+            out(json.dumps(dict(refused=code, recovery=transition.recovery(),
+                                assertions_are_authorization=False), sort_keys=True))
+            return 2
+    out(json.dumps({**result, 'assertions_are_authorization': False}, sort_keys=True))
+    return 0
+
+
+def status(args, out=print):
+    """Read-only journal state and recovery classification; touches no DB, host, or journal."""
+    raw = _json(args.config)
+    config = load_config(Path(args.config))
+    require(config.digest == digest(raw), 'window-config-invalid')
+    journal = Journal(Path(config.state_dir) / 'journal').read()
+    recovery = classify_recovery(journal)
+    init = journal.last('observed-host-init')
+    token = ('RESUME:' + init['fingerprint']) if (recovery['legacy_resume_allowed'] and init is not None) else None
+    out(json.dumps({**recovery, 'resume_token': token, 'journal_present': os.path.lexists(journal.path),
+                    'assertions_are_authorization': False}, sort_keys=True))
+    return 0
+
+
+def resume_legacy(args, out=print):
+    """Pre-DDL resume of the legacy containers through the same journal."""
+    token = getattr(args, 'resume_token', None)
+    require(isinstance(token, str) and bool(token), 'window-resume-token')
+    prepared = _init_inputs(args)
+    c = prepared.config
+    secret, database, ingress, writers = _open_bindings(args, prepared)
+    journal_dir = Path(c.state_dir) / 'journal'
+    require(Journal(journal_dir).read().last('window-init') is not None, 'window-journal-unbound')
+    with Journal(journal_dir) as journal:
+        init = journal.last('window-init')
+        values = {**prepared.record, 'window_digest': prepared.window_digest}
+        require(init is not None, 'window-journal-unbound')
+        require(journal.events[0] is init and all(init.get(k) == v for k, v in values.items()),
+                'window-inputs-changed')
+        transition = _assemble_transition(args, prepared, journal, secret, database, ingress, writers)
+        try:
+            result = transition.resume_legacy(token, allow_queue_drift=bool(getattr(args, 'allow_queue_drift', False)))
         except BaseException as exc:
             code = 'window-transition-refused' if isinstance(exc, Exception) else 'window-transition-interrupted'
             out(json.dumps(dict(refused=code, recovery=transition.recovery(),
@@ -445,7 +502,7 @@ class _Parser(argparse.ArgumentParser):
 def main(argv=None, out=print, *, io=None):
     parser = _Parser(prog='first_transition_window', description='Expected digests are NOT human authorization.')
     parser.add_argument('mode', choices=('prepare', 'prepare-layout', 'check', 'rehearse-backup', 'check-bindings',
-                                         'run', 'a10'))
+                                         'status', 'resume-legacy', 'run', 'a10'))
     parser.add_argument('--config', required=True)
     parser.add_argument('--env-file')
     parser.add_argument('--env-var', help='Explicit variable in the private file; required for prepare/run.')
@@ -454,6 +511,9 @@ def main(argv=None, out=print, *, io=None):
     parser.add_argument('--expect-plan-digest', help='Exact typo guard, NOT human authorization.')
     parser.add_argument('--expect-window-digest', help='Exact typo guard, NOT human authorization.')
     parser.add_argument('--a10-token', help='Only for a10: token printed by the A9 result, NOT human authorization.')
+    parser.add_argument('--resume-token', help='Only for resume-legacy: token from status/journal, NOT human authorization.')
+    parser.add_argument('--allow-queue-drift', action='store_true',
+                        help='Only for resume-legacy: accept queue drift observed since settlement.')
     try:
         args = parser.parse_args(argv)
         args._io = io or {}
@@ -465,6 +525,10 @@ def main(argv=None, out=print, *, io=None):
             return 0
         if args.mode == 'prepare-layout':
             return prepare_layout(args, out)
+        if args.mode == 'status':
+            return status(args, out)
+        if args.mode == 'resume-legacy':
+            return resume_legacy(args, out)
         if args.mode in ('run', 'a10'):
             return run(args, out, a10=args.mode == 'a10')
         if args.mode == 'check-bindings':

@@ -387,7 +387,9 @@ def test_replay_held_ingress_revalidates_without_repeating_effects(entry):
     assert entry.execute()[0] == 0
     before = (list(entry.world.legacy_effects()), list(entry.world.cdocker.effects()),
               list(entry.world.migrate.applied), list(entry.backup_io.calls))
-    assert entry.execute()[0] == 0
+    status, lines = entry.execute()
+    assert status == 2 and lines[-1]['refused'] == 'window-transition-refused'
+    assert lines[-1]['recovery']['state'] == 'a9-complete'
     assert (entry.world.legacy_effects(), entry.world.cdocker.effects(), entry.world.migrate.applied,
             entry.backup_io.calls) == before
     entry.world.consumers_held()
@@ -770,3 +772,85 @@ def test_run_without_the_pinned_restore_exclusions_refuses_before_any_effect(ent
     assert exit_code == 2 and lines == [{'refused': 'window-backup-restore-excluded'}]
     assert entry.calls == [] and entry.connections == [] and entry.assembly.popen_calls == []
     entry.assert_no_journal_or_effects()
+
+
+def test_status_is_readonly_before_and_after_failures_without_db_or_journal_writes(entry):
+    lines = []
+    assert window.main(['status', '--config', str(entry.paths['config'])], out=lines.append, io=entry.io) == 0
+    initial = json.loads(lines[-1])
+    assert initial['state'] == 'not-started'
+    assert initial['journal_present'] is False and initial['legacy_resume_allowed'] is False
+    assert initial['resume_token'] is None and initial['assertions_are_authorization'] is False
+    entry.assert_no_journal_or_effects()
+    assert entry.connections == [] and entry.calls == []
+
+    # Pre-DDL failure: backup refuses after containment; status classifies without touching DB or journal.
+    entry.backup_io.fail = {'dump'}
+    assert entry.execute()[0] == 2
+    before_journal = entry.journal_text()
+    entry.connections.clear()
+    entry.calls.clear()
+    lines.clear()
+    assert window.main(entry.args('status'), out=lines.append, io=entry.io) == 0
+    pre_ddl = json.loads(lines[-1])
+    assert pre_ddl['state'] == 'backup-window-used' and pre_ddl['journal_present'] is True
+    assert pre_ddl['legacy_resume_allowed'] is True and pre_ddl['resume_token'].startswith('RESUME:')
+    assert entry.journal_text() == before_journal
+    assert entry.connections == [] and entry.calls == []
+
+
+def test_status_after_abrupt_ddl_marker_crash_does_not_mutate_journal(entry):
+    from initial_transition_files import Journal
+    d = entry.prepare()
+    with Journal(Path(entry.raw['state_dir']) / 'journal') as j:
+        j.append('ddl-marker', irrevocable=True, window_backup_id='a' * 64)
+    before_journal = entry.journal_text()
+    lines = []
+    assert window.main(['status', '--config', str(entry.paths['config'])], out=lines.append, io=entry.io) == 0
+    report = json.loads(lines[-1])
+    assert report['state'] == 'post-ddl-failed' and report['legacy_resume_allowed'] is False
+    assert report['resume_token'] is None and report['window_backup_id'] == 'a' * 64
+    assert entry.journal_text() == before_journal
+    assert entry.connections == [] and entry.calls == [] and d['plan_digest']
+
+
+def test_cli_resume_legacy_pre_marker_and_post_marker_refusal(entry):
+    entry.backup_io.fail = {'dump'}
+    assert entry.execute()[0] == 2
+    lines = []
+    assert window.main(['status', '--config', str(entry.paths['config'])], out=lines.append, io=entry.io) == 0
+    tok = json.loads(lines[-1])['resume_token']
+    d = entry.prepare()
+    digests = ['--expect-plan-digest', d['plan_digest'], '--expect-window-digest', d['window_digest']]
+
+    # Missing resume token fails cleanly before opening journal effects.
+    bad = []
+    assert window.main([*entry.args('resume-legacy'), *digests], out=bad.append, io=entry.io) == 2
+    assert json.loads(bad[-1]) == {'refused': 'window-resume-token'}
+
+    out = []
+    assert window.main([*entry.args('resume-legacy'), *digests, '--resume-token', tok],
+                       out=out.append, io=entry.io) == 0
+    assert json.loads(out[-1])['status'] == 'legacy-resumed'
+
+    after = []
+    assert window.main(['status', '--config', str(entry.paths['config'])], out=after.append, io=entry.io) == 0
+    assert json.loads(after[-1])['state'] == 'legacy-resumed'
+    assert json.loads(after[-1])['legacy_resume_allowed'] is False
+
+
+def test_cli_resume_legacy_refuses_after_ddl_marker(entry):
+    tx = next(m for m in entry.world.plan.pending if not m.concurrent)
+    entry.world.migrate.faults[tx.name] = 'fail'
+    assert entry.execute()[0] == 2
+    d = entry.prepare()
+    digests = ['--expect-plan-digest', d['plan_digest'], '--expect-window-digest', d['window_digest']]
+    out = []
+    assert window.main([*entry.args('resume-legacy'), *digests, '--resume-token', 'RESUME:' + '0' * 64],
+                       out=out.append, io=entry.io) == 2
+    result = json.loads(out[-1])
+    assert result['refused'] == 'window-transition-refused'
+    assert result['recovery']['state'] == 'ddl-failed' and result['recovery']['legacy_resume_allowed'] is False
+    assert all(b.observe(b.scope, timeout=5) == 'blocked' for b in entry.assembly.ingress.values())
+    assert all(entry.world.rig.docker.containers[i]['State']['Running'] is False for i in LEGACY.values())
+    assert not any(a[:2] == ('docker', 'start') for a in entry.world.rig.docker.calls)

@@ -26,7 +26,7 @@ from first_transition_host_contract import ObservedHostContract
 from first_transition_host_driver import INFO_ARGV, NETWORK_TEMPLATE, ObservedHostDriver
 from first_transition_host_transport import ObservedHostTransport, host_command
 from first_transition_orchestrator import (PROCEDURES, FirstTransition, MigrationExecutor, ProcessRunner, assemble,
-                                           load_config, parse_config)
+                                           classify_recovery, load_config, parse_config)
 from initial_transition_files import Journal, git_tree
 import package_backend_release
 from test_first_transition_database import FakePg
@@ -356,12 +356,49 @@ def test_replay_after_a9_re_proves_and_repeats_no_effect(world):
     world.transition().run()
     world.journal.close()
     effects = (list(world.legacy_effects()), list(world.cdocker.effects()), list(world.migrate.applied))
-    smokes = sum(1 for a in world.cdocker.calls if a[:2] == ('docker', 'exec'))
-    result = world.transition().run()
-    assert result['status'] == 'a9-backend-smoked'
+    replay = world.transition()
+    with pytest.raises(Refused, match='^transition-stopped$'):
+        replay.run()
     assert (world.legacy_effects(), world.cdocker.effects(), world.migrate.applied) == effects
-    assert sum(1 for a in world.cdocker.calls if a[:2] == ('docker', 'exec')) == smokes + 1
-    assert len(world.layouts) == 2  # verified byte for byte, not rewritten
+    assert len(world.layouts) == 1
+    assert replay.recovery() == classify_recovery(world.journal)
+    assert replay.recovery()['state'] == 'a9-complete'
+
+
+def test_sudden_crash_with_ddl_marker_without_failed_event_refuses_and_never_migrates(world, monkeypatch):
+    first = world.transition()
+
+    def sigkill_before_migrate():
+        raise BaseException('simulated SIGKILL after ddl-marker before any transition-failed')
+
+    # Simulate an abrupt kill right as DDL begins, bypassing the transition-failed append.
+    original_append = world.journal.append
+
+    def drop_failed(kind, **fields):
+        if kind == 'transition-failed':
+            raise SystemExit(137)
+        return original_append(kind, **fields)
+
+    monkeypatch.setattr(first, '_migrate', sigkill_before_migrate)
+    monkeypatch.setattr(world.journal, 'append', drop_failed)
+    with pytest.raises(SystemExit):
+        first.run()
+    world.journal.close()
+
+    assert world.journal.last('ddl-marker') is not None
+    assert world.journal.last('transition-failed') is None
+    assert world.migrate.applied == []
+    before_text = world.text()
+
+    replay = world.transition()
+    monkeypatch.setattr(replay, '_migrate', lambda: pytest.fail('_migrate must not run after ddl-marker'))
+    with pytest.raises(Refused, match='^transition-stopped$'):
+        replay.run()
+    assert world.text() == before_text
+    assert world.journal.last('transition-failed') is None
+    assert replay.recovery()['state'] == 'post-ddl-failed'
+    assert replay.recovery()['legacy_resume_allowed'] is False
+    assert world.migrate.applied == []
 
 
 # --- pre-DDL refusals ------------------------------------------------------------------------------
@@ -670,7 +707,7 @@ def test_controller_killed_after_intent_is_ambiguous_on_replay(world):
     world.journal.close()
     applied = list(world.migrate.applied)
     replay = world.transition()
-    with pytest.raises(Refused, match='^migration-outcome-ambiguous$'):
+    with pytest.raises(Refused, match='^transition-stopped$'):
         replay.run()
     assert world.migrate.applied == applied
     recovery = replay.recovery()
@@ -831,7 +868,7 @@ def test_crash_after_backend_start_intent_is_ambiguous(world):
     world.cdocker.on_start = None
     replay = world.transition()
     starts = len(world.cdocker.effects())
-    with pytest.raises(Refused, match='^candidate-start-ambiguous$'):
+    with pytest.raises(Refused, match='^transition-stopped$'):
         replay.run()
     assert len(world.cdocker.effects()) == starts
     assert replay.recovery()['state'] == 'candidate-ambiguous'

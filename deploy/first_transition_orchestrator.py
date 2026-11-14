@@ -56,7 +56,7 @@ import stat
 import subprocess
 import time
 
-from first_transition_a10 import A10_PROCEDURES, A10Step
+from first_transition_a10 import A10_PROCEDURES, A10Step, a10_recovery_state
 from first_transition_adapter import APPLICATION_SHA, EXECUTOR_SHA, ROLES, Plan, digest, validate_clone_receipt
 from first_transition_candidate import (CONSUMERS, CandidatePort, CandidateRunner, CandidateSpec, check_backend_running,
                                         check_held, check_identity, write_candidate_release, write_hold_override)
@@ -219,8 +219,7 @@ class FirstTransition(A10Step):
 
     def _open(self, step):
         """Intent without receipt: the outcome is unknown and never retried automatically."""
-        return (self.j.last('transition-intent', step) is not None
-                and self.j.last('transition-done', step) is None)
+        return _open_step(self.j, step)
 
     def _observe(self):
         return self.db.observe(timeout=self.t['observe_s'])
@@ -241,16 +240,16 @@ class FirstTransition(A10Step):
         require(self.j.last('observed-host-intent', 'legacy-resume') is None, 'transition-legacy-resume-started')
         require(self.j.last('transition-failed') is None, 'transition-stopped')  # first failure is final
         require(not self._a10_started(), 'transition-a10-started')  # after A10 only a10() may continue
+        require(self.j.last('ddl-marker') is None, 'transition-stopped')  # post-marker refusal is unconditional
         try:
-            if self.j.last('ddl-marker') is None:
-                self._window_unused()
-                self._baseline()
-                self._gate_snapshot()  # pre-window gate values, while the legacy still runs
-                self.host.contain()
-                self._quiesce()
-                self._pending_baseline()
-                self._backup()
-                self._mark_ddl()
+            self._window_unused()
+            self._baseline()
+            self._gate_snapshot()  # pre-window gate values, while the legacy still runs
+            self.host.contain()
+            self._quiesce()
+            self._pending_baseline()
+            self._backup()
+            self._mark_ddl()
             self._migrate()
             self._release_layout()
             return self._a9()
@@ -544,42 +543,50 @@ class FirstTransition(A10Step):
     # -- recovery --------------------------------------------------------------------------------
     def recovery(self):
         """Objective classification of the journal; never performs an action."""
-        j = self.j
-        open_steps = [e['step'] for e in j.find('transition-intent') if self._open(e['step'])]
-        failed = j.last('transition-failed')
-        a10 = self._a10_recovery()
-        if a10 is not None:
-            state = a10
-        elif j.last('transition-a9-complete') is not None and failed is None:
-            state = 'a9-complete'
-        elif j.last('ddl-marker') is not None:
-            migrations = [s for s in open_steps if s.startswith('migration:')]
-            if migrations:
-                outcome = j.last('transition-migration-failed', migrations[-1])
-                state = 'ddl-failed' if outcome is not None and outcome['definite'] is True else 'ddl-ambiguous'
-            elif any(s.startswith('a9:') for s in open_steps):
-                state = 'candidate-ambiguous'
-            elif j.last('transition-done', 'layout') is not None and failed is not None:
-                state = 'candidate-failed'
-            else:
-                state = 'post-ddl-failed'
-        elif j.last('observed-host-resumed') is not None:
-            state = 'legacy-resumed'
-        elif j.last('observed-host-intent', 'legacy-resume') is not None:
-            state = 'resume-partial'
-        elif j.last('transition-backup-request') is not None:
-            state = 'backup-window-used'
-        elif j.last('observed-host-contained') is not None:
-            state = 'contained-pre-ddl'
-        elif j.find('observed-host-intent'):
-            state = 'containment-partial'
+        return classify_recovery(self.j)
+
+
+def _open_step(journal, step):
+    return journal.last('transition-intent', step) is not None and journal.last('transition-done', step) is None
+
+
+def classify_recovery(journal):
+    """Objective classification of the journal without touching DB, host, or journal state."""
+    open_steps = [e['step'] for e in journal.find('transition-intent') if _open_step(journal, e['step'])]
+    failed = journal.last('transition-failed')
+    a10 = a10_recovery_state(journal)
+    if a10 is not None:
+        state = a10
+    elif journal.last('transition-a9-complete') is not None and failed is None:
+        state = 'a9-complete'
+    elif journal.last('ddl-marker') is not None:
+        migrations = [s for s in open_steps if s.startswith('migration:')]
+        if migrations:
+            outcome = journal.last('transition-migration-failed', migrations[-1])
+            state = 'ddl-failed' if outcome is not None and outcome['definite'] is True else 'ddl-ambiguous'
+        elif any(s.startswith('a9:') for s in open_steps):
+            state = 'candidate-ambiguous'
+        elif journal.last('transition-done', 'layout') is not None and failed is not None:
+            state = 'candidate-failed'
         else:
-            state = 'not-started'
-        marker = j.last('ddl-marker')
-        return dict(state=state, procedure=PROCEDURES[state], open_steps=open_steps,
-                    legacy_resume_allowed=state in ('contained-pre-ddl', 'backup-window-used', 'resume-partial'),
-                    window_backup_id=None if marker is None else marker.get('window_backup_id'),
-                    automatic_undo=False, destructive_retry=False, automatic_restore=False)
+            state = 'post-ddl-failed'
+    elif journal.last('observed-host-resumed') is not None:
+        state = 'legacy-resumed'
+    elif journal.last('observed-host-intent', 'legacy-resume') is not None:
+        state = 'resume-partial'
+    elif journal.last('transition-backup-request') is not None:
+        state = 'backup-window-used'
+    elif journal.last('observed-host-contained') is not None:
+        state = 'contained-pre-ddl'
+    elif journal.find('observed-host-intent'):
+        state = 'containment-partial'
+    else:
+        state = 'not-started'
+    marker = journal.last('ddl-marker')
+    return dict(state=state, procedure=PROCEDURES[state], open_steps=open_steps,
+                legacy_resume_allowed=state in ('contained-pre-ddl', 'backup-window-used', 'resume-partial'),
+                window_backup_id=None if marker is None else marker.get('window_backup_id'),
+                automatic_undo=False, destructive_retry=False, automatic_restore=False)
 
 
 # -- configuration ----------------------------------------------------------------------------------
