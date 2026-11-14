@@ -800,7 +800,7 @@ autorização.
 Ferramenta: `deploy/first_transition_window.py` (modos somente leitura `status`,
 `prepare`, `check`, `check-bindings`, além de `prepare-layout`, `rehearse-backup`,
 `resume-legacy`, `run` e `a10`). Alvo desta virada (Fase 4/5): SHA **A** =
-`1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc` (`130` migrations = `78` de base +
+`4318a07afb97b835a9c54931e6951a326af28ff3` (`130` migrations = `78` de base +
 `52` pendentes, sendo `44` transacionais e `8` `CONCURRENTLY`). O modo `run` vai
 da contenção até a A9 numa execução só, parando sempre após gravar `ddl-marker`
 em qualquer queda ou recusa (`transition-stopped`). O modo `a10` é uma execução
@@ -881,7 +881,7 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 | V5 | Pré-requisitos do painel (seção 12.5): Vercel CLI logada na conta certa, checkout limpo do SHA **A** ligado ao projeto, variáveis conferidas por nome, publicação automática desligada e ID do deployment atual anotado (verificar compatibilidade na seção 12.7 antes de considerar volta). | dentro do SIM 1 (só leitura) |
 | V6 | Edição única do site nginx da API: pasta vazia `/etc/nginx/igreja12-window` (root, 0755) e a linha `include /etc/nginx/igreja12-window/*.conf;` logo após `server_name` no bloco 443, com backup, `nginx -t` e reload. Certificado, IPv6, cabeçalhos de proxy e o bloco de redirecionamento da porta 80 continuam como estão: a ferramenta aceita esse formato do certbot (seção "Topologia nginx nominal" do `RELEASE-LOTE-2026-10.md`). Na configuração dos bindings: `site_path` = `/etc/nginx/sites-available/pastorai-api-http` e `enabled_path` = `/etc/nginx/sites-enabled/pastorai-api-http` (é atalho na VPS, conferido em 12/11). | **SIM próprio** (edição na VPS) |
 | V7 | Foto dos outros sistemas da VPS (seção 12.0): contêineres, saúde e código HTTP de cada um. Tudo precisa estar respondendo antes de abrir a janela. | dentro do SIM 1 (só leitura) |
-| V8 | Preparar a VPS com o kit (seção 12.6): ferramenta **T**, transferência e conferência dos objetos Git de **A** (`1e9817b2...`) e `EXECUTOR_SHA` (`37c7d68d...`) em `/opt/pastorai-releases/repo` (4.2 h), três arquivos de configuração, pastas do backup, imagem do Postgres, arquivo privado do aplicador, correção da linha repetida se aplicável e `prepare-layout`. Não toca no sistema antigo, no banco, no nginx nem nos gates. | **SIM próprio** (escrita na VPS) |
+| V8 | Preparar a VPS com o kit (seção 12.6): ferramenta **T**, transferência e conferência dos objetos Git de **A** (`4318a07a...`) e `EXECUTOR_SHA` (`37c7d68d...`) em `/opt/pastorai-releases/repo` (4.2 h), três arquivos de configuração, pastas do backup, imagem do Postgres, arquivo privado do aplicador, correção da linha repetida se aplicável e `prepare-layout`. Não toca no sistema antigo, no banco, no nginx nem nos gates. | **SIM próprio** (escrita na VPS) |
 | V9 | Conferências sem efeito com o kit instalado: `prepare`, `check` (duas leituras do banco) e `check-bindings`; ensaio do backup da janela (`rehearse-backup`: cópia do banco, restore em clone com role aplicadora sem `SUPERUSER` e `statement_timeout = '2min'`, replay das **52 migrations** com conferência de RLS/grants e `final_schema_digest`). Regra de parada D9 (item 4.2 d): mede cópia, restore e **cada migration**; barra apenas se alguma migration individual (`max_migration_seconds`) passar de **60 s** (o total do ensaio não barra). Cópia externa do `window.dump` dispensada (D13). | dentro do SIM V8 |
 
 ### 12.2 Janela
@@ -995,7 +995,7 @@ janela**:
 Sem modificar `deploy/backend-release.sh` (Decisão 9 e contrato com
 `deploy/BACKEND-RELEASE-MANUAL.md`):
 
-- **Topologia e Compose efetivos após a virada (`A` = `1e9817b2`):**
+- **Topologia e Compose efetivos após a virada (`A` = `4318a07a`):**
   - Link ativo `/opt/pastorai-current` apontando para o diretório do release
     ativo de **A** (fora do legado `/opt/pastorai-lionclaw`), onde reside o
     Compose efetivo `/opt/pastorai-current/deploy/docker-compose.yml` (projeto
@@ -1124,7 +1124,7 @@ primeira migration); o 5 é limite técnico registrado.
 ### 12.5 J8: publicar o painel (SIM 5)
 
 Na Fase 4/5, backend e painel são publicados no **mesmo SHA A**
-(`1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc`): o J8 publica o painel de **A**
+(`4318a07afb97b835a9c54931e6951a326af28ff3`): o J8 publica o painel de **A**
 logo depois que a A10 terminar verde. Não mexe no backend, no banco nem nos
 gates.
 
@@ -1133,7 +1133,7 @@ gates.
 1. Vercel CLI instalada no computador do operador (`vercel --version`) e
    logada na conta/equipe dona do projeto `pastorai-frontend-prod`
    (`vercel whoami`; conferir a equipe com `vercel teams ls`).
-2. Checkout limpo do SHA **A** (`1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc`),
+2. Checkout limpo do SHA **A** (`4318a07afb97b835a9c54931e6951a326af28ff3`),
    fora do checkout de trabalho, por exemplo
    `git worktree add --detach <pasta> <SHA>`; `git status` sem alterações. Em
    `<pasta>/frontend`, `vercel link` escolhendo o projeto
@@ -1147,10 +1147,10 @@ gates.
    registrar se a volta para esse deployment é utilizável segundo a conferência
    estática da seção 12.7.
 
-**Verificação estática do contrato do painel anterior vs API de A (`1e9817b2`,
+**Verificação estática do contrato do painel anterior vs API de A (`4318a07a`,
 item 4.4):**
 
-- **Contra `afdfb78d`:** `A` (`1e9817b2`) expõe **233 paths / 282 operações
+- **Contra `afdfb78d`:** `A` (`4318a07a`) expõe **233 paths / 282 operações
   OpenAPI** contra **230 paths / 279 operações** em `afdfb78d`. Nenhuma rota
   existente foi removida (`removed_in_A = []`), e **3** rotas foram adicionadas
   (`GET /cell-alert-rules`, `PUT /cell-alert-rules/{tipo}`,
@@ -1217,14 +1217,14 @@ necessário.
 ### 12.6 Kit e roteiro do dia
 
 Referência atualizada na Fase 4 para **A** =
-`1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc` (`EXECUTOR_SHA` =
+`4318a07afb97b835a9c54931e6951a326af28ff3` (`EXECUTOR_SHA` =
 `37c7d68d60b6f86cfb1fe75d4c720530537845d6`). Os valores de runtime da VPS
 (IDs dos contêineres, gates, arquivo privado efetivo, digest do catálogo e
 imagem do candidato) são revalidados e fixados no kit durante os blocos `5.1`
 e `5.2`.
 
 - **Backend e painel publicados:** SHA **A**
-  (`1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc`), fixo na ferramenta
+  (`4318a07afb97b835a9c54931e6951a326af28ff3`), fixo na ferramenta
   (`TARGET_COMMIT_SHA` / `APPLICATION_SHA`; aplicador `EXECUTOR_SHA` =
   `37c7d68d60b6f86cfb1fe75d4c720530537845d6`). Outro SHA é recusado
   (`unreviewed-release`). O plano soma **130 migrations** (`78` de base +
@@ -1240,15 +1240,15 @@ e `5.2`.
 | Item | Local na VPS | Observação |
 |---|---|---|
 | Ferramenta no `<SHA_T>` (só a pasta `deploy/`) | `/opt/pastorai-releases/tool-<SHA_T>/deploy` | copiada no V8 |
-| Repositório com os blobs e objetos Git de **A** (`1e9817b2`) e `EXECUTOR_SHA` (`37c7d68d`) | `/opt/pastorai-releases/repo` | atualizar e conferir `git cat-file -e` de **A** e `37c7d68d` no V8 (`4.2 h`) |
+| Repositório com os blobs e objetos Git de **A** (`4318a07a`) e `EXECUTOR_SHA` (`37c7d68d`) | `/opt/pastorai-releases/repo` | atualizar e conferir `git cat-file -e` de **A** e `37c7d68d` no V8 (`4.2 h`) |
 | Python 3.13 com psycopg2 2.x | `/var/lib/pastorai-first-transition/venv/bin/python` | venv isolada da ferramenta |
-| Configuração da transição | `/var/lib/pastorai-first-transition/window/first-transition.json` | gerada no kit com `sha` = `1e9817b2...`, fora do Git |
+| Configuração da transição | `/var/lib/pastorai-first-transition/window/first-transition.json` | gerada no kit com `sha` = `4318a07a...`, fora do Git |
 | Configuração do backup da janela | `/var/lib/pastorai-first-transition/window/backup.json` | gerada no kit; `restore_excluded_expected` fixado após V9 |
 | Configuração das entradas e escritores | `/var/lib/pastorai-first-transition/window/bindings.json` | atualizada após fechamento de envios da `5.2` se os IDs mudarem |
 | Pastas do backup e do clone (root, 0700) | `/var/lib/pastorai-first-transition/window-backups` e `.../clone-work` | criadas no V8 |
 | Imagem do backup e do clone | `postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929` (a mesma do CI) | `docker pull` no V8 |
-| Imagem e pacote do candidato **A** (`1e9817b2...`) | construídos/empacotados para `1e9817b2...` | layout e tarball conferidos antes do `prepare-layout` |
-| Layout do candidato e arquivo de espera da A9 | `/opt/pastorai-releases/1e9817b2.../` e `/var/lib/pastorai-first-transition/state/a9-hold.override.yml` | criados por `prepare-layout` no V8 |
+| Imagem e pacote do candidato **A** (`4318a07a...`) | construídos/empacotados para `4318a07a...` | layout e tarball conferidos antes do `prepare-layout` |
+| Layout do candidato e arquivo de espera da A9 | `/opt/pastorai-releases/4318a07a.../` e `/var/lib/pastorai-first-transition/state/a9-hold.override.yml` | criados por `prepare-layout` no V8 |
 | Arquivo privado efetivo do runtime (`0600`, `root`) | caminho efetivo externo ao layout verificado (ex.: `/etc/pastorai/.env.v2` ou `/etc/pastorai-private/runtime.env`) | conferir variáveis obrigatórias de **A** só por nome (`12.7`) e gates fechados no `V2`/`5.2` |
 | Arquivo privado do aplicador | `/root/igreja12-janela.conf` (`root`, `0600`, uma linha `MIGRATION_DATABASE_URL=`) | derivado da `DATABASE_URL` efetiva sem imprimir valor |
 | Diário da janela | `/var/lib/pastorai-first-transition/state/journal` | vazio no início (não pode existir diário velho) |
@@ -1284,12 +1284,12 @@ e `5.2`.
 #### Preparação (V8, SIM próprio; V9 dentro dele)
 
 No computador do operador, com o checkout contendo os objetos de `<SHA_T>`,
-**A** (`1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc`) e `EXECUTOR_SHA`
+**A** (`4318a07afb97b835a9c54931e6951a326af28ff3`) e `EXECUTOR_SHA`
 (`37c7d68d60b6f86cfb1fe75d4c720530537845d6`):
 
 ```bash
 git archive --format=tar <SHA_T> deploy | ssh vps "sudo install -d -m 755 /opt/pastorai-releases/tool-<SHA_T> && sudo tar -x --no-same-owner -C /opt/pastorai-releases/tool-<SHA_T>"
-git bundle create - 1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc 37c7d68d60b6f86cfb1fe75d4c720530537845d6 | ssh vps "sudo git -C /opt/pastorai-releases/repo fetch /dev/stdin && sudo git -C /opt/pastorai-releases/repo cat-file -e 1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc^{commit} && sudo git -C /opt/pastorai-releases/repo cat-file -e 37c7d68d60b6f86cfb1fe75d4c720530537845d6^{commit}"
+git bundle create - 4318a07afb97b835a9c54931e6951a326af28ff3 37c7d68d60b6f86cfb1fe75d4c720530537845d6 | ssh vps "sudo git -C /opt/pastorai-releases/repo fetch /dev/stdin && sudo git -C /opt/pastorai-releases/repo cat-file -e 4318a07afb97b835a9c54931e6951a326af28ff3^{commit} && sudo git -C /opt/pastorai-releases/repo cat-file -e 37c7d68d60b6f86cfb1fe75d4c720530537845d6^{commit}"
 ```
 
 ```bash
@@ -1329,7 +1329,7 @@ $PY -E -s $T check-bindings $ARGS
 $PY -E -s $T rehearse-backup $ARGS
 ```
 
-Esperado: `prepare-layout` grava o pacote exato de **A** (`1e9817b2...`);
+Esperado: `prepare-layout` grava o pacote exato de **A** (`4318a07a...`);
 `prepare` imprime `plan_digest` e `window_digest` (anotar os dois; o
 `window_digest` de referência para o SIM 2 é o do `prepare` refeito **depois**
 de gravar `restore_excluded_expected`, com `restore_excluded_pinned: true`);
@@ -1366,20 +1366,20 @@ root com as variáveis acima.
 | 10:07 | **SIM 3** — J3 a J6 (`run`, inclui o ponto de não retorno) | 20–35 min | `$PY -E -s $T run $ARGS --expect-plan-digest <plan> --expect-window-digest <window>` | Consultar `$PY -E -s $T status --config $W/first-transition.json`. Pré-marcador (`contained-pre-ddl`, `backup-window-used`): `resume-legacy` se autorizado. Pós-marcador (`ddl-marker`): `run` recusa sempre (`transition-stopped`); seguir tabela 12.2.1. |
 | 10:40 | anotar `a10_token` do resultado | 1 min | — | Resultado sem `a10_token`: não seguir para a A10. |
 | 10:42 | **SIM 4** — J7 A10 | 5–10 min | `$PY -E -s $T a10 $ARGS --expect-plan-digest <plan> --expect-window-digest <window> --a10-token <a10_token>` | Se `a10-partial`, repetir o mesmo comando `a10`. Se `a10-contained` ou `a10-containment-incomplete`, seguir tabela 12.2.1 sem reabrir sozinho. |
-| 10:52 | **SIM 5** — J8 painel de **A** (`1e9817b2`) | 15 min | no computador do operador: `cd <pasta>/frontend` e `vercel --prod` (seção 12.5) | Avaliar rollback na tabela de compatibilidade 12.5/12.7 antes de decidir `vercel rollback` vs correção adiante; backend e gates ficam como estão. |
+| 10:52 | **SIM 5** — J8 painel de **A** (`4318a07a`) | 15 min | no computador do operador: `cd <pasta>/frontend` e `vercel --prod` (seção 12.5) | Avaliar rollback na tabela de compatibilidade 12.5/12.7 antes de decidir `vercel rollback` vs correção adiante; backend e gates ficam como estão. |
 | 11:07 | J9 configurar `/opt/pastorai-current`, provar 1 backup manual e religar cron | 10 min | comandos da seção 12.2.2 (`PASTORAI_ENV_FILE=... /usr/local/sbin/pastorai-backup.sh`, `sha256sum -c`, `backup-status.json`, `docker inspect`, depois restaurar `/etc/cron.d/pastorai-backup`) | Sem `BACKUP_OK`, `"status":"verified"` e apoio despausados, não religar cron nem fechar janela. |
 | 11:17 | J10 foto dos outros sistemas e `diff` com a das 09:30 | 10 min | bloco da seção 12.0 | Diferença: não mexer em outro sistema; avisar o Raniel. |
 | 11:27 | Encerramento | — | registrar horários, resultado do `run`, da A10, do J8, do J9 e `window_backup_id` | — |
 
 **Painel (J8):** publicar **somente** no projeto Vercel
 `pastorai-frontend-prod`, a partir de um checkout limpo do SHA **A**
-(`1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc`) ligado a ele por `vercel link`
+(`4318a07afb97b835a9c54931e6951a326af28ff3`) ligado a ele por `vercel link`
 (seção 12.5). Nunca criar projeto novo nem usar o projeto antigo
 `pastorai-frontend`.
 
-### 12.7 Conferências estáticas da fase 4.4 (SHA **A** = `1e9817b23d7f098de77dc17e5a53cb5ad2f44bfc`)
+### 12.7 Conferências estáticas da fase 4.4 (SHA **A** = `4318a07afb97b835a9c54931e6951a326af28ff3`)
 
-Resultado das conferências estáticas no código de **A** (`1e9817b2`), para uso
+Resultado das conferências estáticas no código de **A** (`4318a07a`), para uso
 nas validações `V1`/`5.1`/`5.2` (nenhum acesso ou alteração em produção):
 
 1. **Variáveis obrigatórias do backend em produção (`backend/app/config.py`, `Settings.assert_production_ready()` e `_validate_whatsapp_transporte()` — apenas NOMES, nunca valores):**
