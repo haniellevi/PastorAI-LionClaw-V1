@@ -47,6 +47,7 @@ from app.services.cell_leadership import sync_role_after_activation
 from app.services.clerk import (
     ClerkAuthError,
     ClerkClient,
+    ClerkPasswordPolicyError,
     ClerkUnavailableError,
     get_clerk_client,
 )
@@ -239,6 +240,10 @@ def _authentication_unavailable() -> HTTPException:
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail=_AUTH_UNAVAILABLE,
     )
+
+
+def _password_policy_error(exc: ClerkPasswordPolicyError) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -437,20 +442,33 @@ def reset_password(
     except ClerkAuthError:
         raise invalid from None
 
-    token_row = db.execute(
+    token_jti = uuid.UUID(jti)
+    token_query = (
         select(PasswordResetToken)
-        .where(PasswordResetToken.jti == uuid.UUID(jti))
+        .where(PasswordResetToken.jti == token_jti)
         .with_for_update()
-    ).scalar_one_or_none()
+    )
+    token_row = db.execute(token_query).scalar_one_or_none()
     now = datetime.now(timezone.utc)
     if token_row is None or token_row.used_at is not None or token_row.expires_at <= now:
         raise invalid
-    # Security trade-off: claim before Clerk call prevents replay; a downstream Clerk failure burns the link and user must request a new one.
+    # Commit the claim before calling Clerk so an uncertain outcome cannot
+    # make the link reusable.
     token_row.used_at = now
     db.commit()
 
     try:
         clerk.set_user_password(clerk_user_id, payload.password)
+    except ClerkPasswordPolicyError as exc:
+        # Clerk confirmed it did not change the password. Release only this
+        # request's claim so the user can retry with a different password.
+        claimed_row = db.execute(
+            token_query.where(PasswordResetToken.used_at == now)
+        ).scalar_one_or_none()
+        if claimed_row is not None:
+            claimed_row.used_at = None
+            db.commit()
+        raise _password_policy_error(exc) from None
     except ClerkAuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -753,6 +771,9 @@ def activate(
 
     try:
         clerk_user_id = clerk.create_user(app_user.email, payload.password)
+    except ClerkPasswordPolicyError as exc:
+        db.rollback()
+        raise _password_policy_error(exc) from None
     except ClerkAuthError as exc:
         db.rollback()
         # Fecha a corrida lookup -> create sem reutilizar/redefinir senha.
@@ -897,6 +918,8 @@ def change_password(
         ) from None
     try:
         clerk.set_user_password(current_user.clerk_user_id, payload.newPassword)
+    except ClerkPasswordPolicyError as exc:
+        raise _password_policy_error(exc) from None
     except ClerkAuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
