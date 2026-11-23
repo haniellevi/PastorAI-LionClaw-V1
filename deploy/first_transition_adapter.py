@@ -22,7 +22,7 @@ from uuid import UUID
 from initial_transition_files import Journal, git_tree, read_regular
 from initial_transition_ops import BACKFILL_SQL, Refused, require
 
-APPLICATION_SHA = '4318a07afb97b835a9c54931e6951a326af28ff3'  # Base A da primeira virada (origin/main apos #678 e #689, Casa Limpa 3.1).
+APPLICATION_SHA = '6af9f75c8d673cb3454de1f8740a0acc509937ff'  # Base A da primeira virada (merge da PR #697 na main).
 EXECUTOR_SHA = '37c7d68d60b6f86cfb1fe75d4c720530537845d6'
 ROLES = ('backend', 'cron-worker', 'broadcast-worker', 'queue-worker')
 MISSING = frozenset({

@@ -104,6 +104,7 @@ class PlatformDB:
         self,
         *,
         gate_app_user=None,
+        target_app_user=None,
         admin_marker=None,
         igrejas=None,
         igreja_scalar=None,
@@ -130,6 +131,9 @@ class PlatformDB:
         subscription_ops=None,
     ) -> None:
         self.gate_app_user = gate_app_user
+        # Optional AppUser returned for non-gate lookups (by id), so a test can
+        # target an account whose status differs from the console operator's.
+        self.target_app_user = target_app_user
         self.admin_marker = admin_marker
         self.igrejas = igrejas or []
         self.igreja_scalar = igreja_scalar
@@ -226,6 +230,11 @@ class PlatformDB:
                     )
                 )
             # scalar -> gate (clerk_user_id lookup); scalars -> admins da igreja.
+            if (
+                self.target_app_user is not None
+                and "app_users.clerk_user_id =" not in sql
+            ):
+                return _Result(scalar=self.target_app_user, scalars=self.igreja_admins)
             return _Result(scalar=self.gate_app_user, scalars=self.igreja_admins)
         if ent is PlatformAdmin:
             return _Result(scalar=self.admin_marker)
@@ -378,6 +387,30 @@ def test_admin_me_keeps_detached_platform_admin_access(app) -> None:
 
     assert resp.status_code == 200
     assert resp.json()["email"] == "master@example.test"
+
+
+def test_admin_me_blocks_revoked_platform_admin(app) -> None:
+    # P1.1: allowlisted, valid JWT and live auth_sessions row, but the account
+    # was revoked -> the BYPASSRLS console must refuse it.
+    db = PlatformDB(gate_app_user=make_app_user(status="revogado"), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    for path in ("/admin/me", "/admin/igrejas"):
+        resp = client.get(path, headers=_AUTH)
+        assert resp.status_code == 403, path
+        assert "plataforma" in resp.json()["detail"].lower()
+    assert db.committed is False
+
+
+def test_admin_me_blocks_revoked_detached_platform_admin(app) -> None:
+    user = make_app_user(email="master@example.test", status="revogado")
+    user.igreja_id = None
+    user.igreja = None
+    db = PlatformDB(gate_app_user=user, admin_marker="pa1")
+
+    resp = _wire(app, db=db, clerk=FakeClerk()).get("/admin/me", headers=_AUTH)
+
+    assert resp.status_code == 403
 
 
 def test_admin_me_blocks_non_admin(app) -> None:
@@ -881,7 +914,8 @@ def test_admin_set_dono_requires_usable_admin_access(
     )
     target = make_app_user(status=user_status, clerk_user_id=clerk_user_id)
     db = PlatformDB(
-        gate_app_user=target,
+        gate_app_user=make_app_user(),
+        target_app_user=target,
         admin_marker="pa1",
         igreja_scalar=igreja,
         user_role=SimpleNamespace(id="r1"),
@@ -944,6 +978,32 @@ def test_admin_login_keeps_detached_platform_admin_access(app) -> None:
 
     assert resp.status_code == 200
     assert resp.json()["token"]
+
+
+@pytest.mark.parametrize("detached", [False, True])
+def test_admin_login_rejects_revoked_master(app, detached) -> None:
+    # P1.1: valid Clerk credential and allowlisted, but the account is revoked.
+    user = make_app_user(email="master@example.test", status="revogado")
+    if detached:
+        user.igreja_id = None
+        user.igreja = None
+    db = PlatformDB(gate_app_user=user, admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.post(
+        "/admin/login", json={"email": "master@example.test", "password": "x"}
+    )
+    non_master = _wire(
+        app,
+        db=PlatformDB(gate_app_user=make_app_user(), admin_marker=None),
+        clerk=FakeClerk(),
+    ).post("/admin/login", json={"email": "master@example.test", "password": "x"})
+
+    assert resp.status_code == 401
+    # Same generic body as any other denial: no account enumeration.
+    assert resp.json() == non_master.json()
+    assert not any(isinstance(obj, AuthSession) for obj in db.added)
+    assert db.committed is False
 
 
 def test_admin_login_blocks_non_master(app) -> None:
@@ -1764,7 +1824,12 @@ def test_admin_resend_blocks_non_pending_identity(
     u = make_app_user()
     u.status = user_status
     u.clerk_user_id = clerk_user_id
-    db = PlatformDB(gate_app_user=u, admin_marker="pa1", igreja_scalar=_igreja_ns())
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        target_app_user=u,
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+    )
 
     resp = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer()).post(
         f"/admin/igrejas/{_IG_ID}/admins/{u.id}/reenviar", headers=_AUTH

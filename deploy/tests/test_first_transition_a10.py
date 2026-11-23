@@ -367,6 +367,30 @@ def test_interrupted_start_resumes_without_second_start(world, role):
         assert starts.count(A10_IDS[r]) == 1
 
 
+@pytest.mark.parametrize('interrupted_at', ['backend-receipt', 'backend-adoption', 'before-ingress'])
+def test_resume_checks_catalog_before_new_effects(world, monkeypatch, interrupted_at):
+    transition, result = a9(world)
+    if interrupted_at == 'backend-receipt':
+        world.cdocker.smoke_crash = KeyboardInterrupt()
+    elif interrupted_at == 'backend-adoption':
+        world.cdocker.start_crash = (A10_IDS['backend'], KeyboardInterrupt())
+    else:
+        def interrupt_before_open():
+            raise KeyboardInterrupt
+        monkeypatch.setattr(transition, '_open_ingress', interrupt_before_open)
+    with pytest.raises(KeyboardInterrupt):
+        transition.a10(result['a10_token'])
+    assert world.journal.last('transition-intent', 'a10:start:backend')
+    assert bool(world.journal.last('transition-done', 'a10:start:backend')) == (interrupted_at != 'backend-adoption')
+    world.pg.extra_ddl.append('synthetic_schema_drift')
+    calls = len(world.cdocker.calls)
+    with pytest.raises(Refused, match='^clone-source-schema-divergence$'):
+        world.reopen().a10(result['a10_token'])
+    assert not any(a[:2] == ('docker', 'start') for a in world.cdocker.calls[calls:])
+    assert all(binding.opens == 0 for binding in world.rig.ingress.values())
+    assert world.journal.last('transition-a10-contained')['complete'] is True
+
+
 def test_interrupted_recreation_is_adopted_on_exact_proof(world):
     transition, result = a9(world)
     world.cdocker.recreate_crash = KeyboardInterrupt()

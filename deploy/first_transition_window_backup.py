@@ -470,6 +470,7 @@ BACKUP_CODES = frozenset({
     'window-backup-clone-inspect', 'window-backup-clone-is-source', 'window-backup-clone-migration-failed',
     'window-backup-clone-not-ready', 'window-backup-clone-role', 'window-backup-clone-shape', 'window-backup-command',
     'window-backup-config', 'window-backup-config-keys', 'window-backup-dump-failed', 'window-backup-dump-format',
+    'window-backup-durability',
     'window-backup-final-invalid-index', 'window-backup-final-ledger', 'window-backup-image-unpinned',
     'window-backup-migration-slow', 'window-backup-network', 'window-backup-network-failed', 'window-backup-output',
     'window-backup-paths', 'window-backup-plan', 'window-backup-request', 'window-backup-restore-catalog',
@@ -566,9 +567,22 @@ class WindowBackup:
                                   'sh', '-c', 'exec pg_dump "$' + SOURCE_ENV + '" --format=custom '
                                   '--lock-wait-timeout=10s --no-password'),
                                  timeout=self.config.timeout('dump_s'), env={SOURCE_ENV: url}, stdout=handle)
-            handle.flush()
-            os.fsync(handle.fileno())
-        require(rc == 0, 'window-backup-dump-failed')
+            require(rc == 0, 'window-backup-dump-failed')
+            try:
+                handle.flush()
+                os.fsync(handle.fileno())
+            except OSError:
+                raise Refused('window-backup-durability') from None
+        # Persist the dump name, then the request-directory name in the pre-provisioned backup root.
+        try:
+            for directory in (run_dir, run_dir.parent):
+                dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+        except OSError:
+            raise Refused('window-backup-durability') from None
         data_hash, size = hashlib.sha256(), 0
         with open(path, 'rb') as handle:
             head = handle.read(5)

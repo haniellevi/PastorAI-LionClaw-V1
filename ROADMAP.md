@@ -28,12 +28,12 @@ As regras de produto deste registro seguem vigentes onde o plano não as altera.
   (runbook §12.4).
 - Leitura técnica de produção (sem dados de pessoas) autorizada.
 - A VPS de produção é compartilhada com outros sistemas do Raniel (olaki, sites-api, emcorr, GravAI, Fowler, hermes): a janela e os releases tocam só a Igreja 12 (runbook §12.0).
-- Painel (frontend) novo vai ao ar na mesma janela, logo após a A10, com SIM
-  próprio (SIM 5); passo e volta: runbook §12.5. SHA do painel: ver a linha
-  da decisão de 12/11 abaixo.
+- Painel (frontend) novo vai ao ar no Cloudflare Workers logo após a A10,
+  com SIM 5. A decisão vigente no Item 3 fixa o painel no mesmo SHA A do
+  backend. Procedimento e versão de volta no runbook §12.5.
 - Antes de PROD, rodar o ensaio sintético existente; DEV online fica para depois.
-- SHA da janela, decisão de 12/11 tomada pelo orquestrador com delegação do
-  Raniel (opção A, sem repinar): backend em `afdfb78d` com o executor fixo
+- Registro histórico de 12/11, anterior à decisão vigente do Item 3.
+  A opção A daquela data mantinha o backend em `afdfb78d` com o executor fixo
   `37c7d68d`; ferramenta e painel no SHA da `main`. O painel só vai ao ar se o
   contrato da API for igual ao de `afdfb78d`; se não for, o J8 não publica nada
   (runbook §12.5). Conferido em 12/11 com a `main` que já tem a #665: contrato
@@ -111,7 +111,8 @@ No fim, cada item precisa estar provado com comando e saída, não declarado:
    aceitos só se não mudarem o que vai ao ar, provado por dois comandos vazios:
    `git diff --stat A origin/main -- backend/app backend/migrations backend/Dockerfile backend/.dockerignore backend/requirements.lock backend/scripts/migrate.py deploy/backend-release.sh deploy/check_backend_schema.py deploy/emit_schema_check.py deploy/schema_compatibility.py deploy/release_topology.py deploy/docker-compose.yml`
    e `git diff --stat A origin/main -- frontend`. Na prova final, conferir os
-   contêineres ativos e o alias de produção da Vercel contra o recibo da virada.
+   contêineres ativos, a versão do Worker e os três Custom Domains contra o
+   recibo da virada.
 3. No GitHub só existem a branch `main` e a tag `v1.0.0` (as `refs/pull/*` são
    do GitHub e não se apagam). No computador: só `main`, sem worktrees,
    stashes, tags de backup ou referências de arquivo.
@@ -392,11 +393,11 @@ teste, a data é qualquer dia em que o dono disser.
 
 | ID | Bloco | O que acontece | SIM | Pronto quando |
 |---|---|---|---|---|
-| 5.1 | Leitura | V1, V2, V3, V5, V7: aproveitar a 1.2 e atualizar estado, gates, IDs, ledger, deployment ativo da Vercel e foto dos vizinhos | **SIM 1** | saídas anotadas |
+| 5.1 | Leitura | V1, V2, V3, V5, V7: aproveitar a 1.2 e atualizar estado, gates, IDs, ledger, versão ativa e Custom Domains do Worker e foto dos vizinhos | **SIM 1** | saídas anotadas |
 | 5.2 | Preparo e fechamento dos envios | V6: instalar o include do nginx se faltar, com backup, `nginx -t` e reload. Mostrar a fila por tipo e situação e fechar os envios pelo procedimento da 4.4. Conferir os gates e a imagem dos 4 processos. Em V8/V9, preparar o kit, validar banco e vínculos com os IDs resultantes e ensaiar. Fixar `restore_excluded_expected` pelo recibo e rodar `prepare` na configuração final. Repetir o replay se mudar algum insumo que afete a restauração | **SIM do bloco**, com o efeito sobre a fila | 52 aplicadas, ledger 130, maior migration de até 60 s, role e timeout conforme a 4.2; `plan_digest` e `window_digest` finais anotados; vizinhos iguais à foto |
 | 5.3 | Abrir | J1–J2: conferir os digests e que os gates seguem fechados; abrir a janela e pausar só o backup da Igreja 12 | **SIM 2** | registro de início |
 | 5.4 | Mudar o banco (**sem retorno automático**) | J3–J6 `run`: registrar gates, conter a aplicação, registrar a fila no J4, fazer o backup da janela, gravar o marcador, aplicar as 52 migrations e testar o backend de A com envios fechados | **SIM 3**, exclusivo | saída sem `refused`; `window_backup_id` anotado; `sha256sum` do `window.dump` igual a ele |
-| 5.5 | Fechar | J7 (A10), J8 (painel de A pela Vercel; fumaça de leitura: login, Hoje, Conversas, `/gestao`, console sem violação de CSP), J9 (backup da 4.3, com leitura de Supabase/Storage, pull de imagens, pausa dos três serviços de apoio e escrita dos artefatos) e J10 (saúde, ledger, gates, contagem da fila e vizinhos) | **SIM 4 e 5**, dados juntos com a lista de efeitos | recibos anotados; fim do congelamento |
+| 5.5 | Fechar | J7 (A10), J8 (painel de A no Worker `igreja12-frontend-prod`; smoke autorizado nos três hosts, com zero violações de CSP, conforme §12.5), J9 (backup da 4.3, com leitura de Supabase/Storage, pull de imagens, pausa dos três serviços de apoio e escrita dos artefatos) e J10 (saúde, ledger, gates, contagem da fila e vizinhos) | **SIM 4 e 5**, dados juntos com a lista de efeitos | recibos anotados; fim do congelamento |
 
 Se algo recusar, seguir o `recovery.state` no runbook §12. Antes do marcador,
 retomar o legado com `resume_legacy` quando o estado permitir. Em
@@ -405,8 +406,8 @@ conferir o resultado da etapa interrompida. Em falha de DDL ou contenção,
 manter ou completar a contenção, diagnosticar ledger, catálogo e host e
 decidir entre correção adiante e restore do `window.dump` com SIM próprio.
 O restore exige avaliar escritas posteriores ao backup. Em falha do painel,
-usar o deployment da 5.1 se a 4.4 confirmou compatibilidade, ou corrigir
-adiante. Em falha do backup diário, confirmar os serviços despausados e
+usar a versão anterior do mesmo Worker registrada na 5.1 se a 4.4 confirmou
+compatibilidade, ou corrigir adiante. Em falha do backup diário, confirmar os serviços despausados e
 corrigir J9 antes de fechar a janela.
 
 #### Fase 6 — Depois da virada

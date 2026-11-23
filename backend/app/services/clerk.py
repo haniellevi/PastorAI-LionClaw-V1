@@ -52,6 +52,23 @@ _INVITE_ISSUER = "pastorai-invite"
 _INVITE_TTL_DAYS = 7
 _CLERK_RESOURCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
 
+_PASSWORD_POLICY_MESSAGES = {
+    "form_password_pwned": "Esta senha apareceu em vazamentos. Escolha uma senha diferente.",
+    "form_password_not_strong_enough": (
+        "Escolha uma senha mais forte, com uma combinação menos previsível."
+    ),
+    "form_password_length_too_short": "A senha é curta demais. Escolha uma senha com mais caracteres.",
+    "form_password_length_too_long": "A senha é longa demais. Escolha uma senha mais curta.",
+    "form_password_size_in_bytes_exceeded": "A senha é longa demais. Escolha uma senha mais curta.",
+    "form_password_no_uppercase": "Inclua pelo menos uma letra maiúscula na senha.",
+    "form_password_no_lowercase": "Inclua pelo menos uma letra minúscula na senha.",
+    "form_password_no_number": "Inclua pelo menos um número na senha.",
+    "form_password_no_special_char": "Inclua pelo menos um caractere especial na senha.",
+    "form_password_matches_identifier": (
+        "Escolha uma senha diferente do seu e-mail, telefone ou nome de usuário."
+    ),
+}
+
 
 class ClerkAuthError(Exception):
     """Raised when a Clerk token is invalid or credentials fail.
@@ -61,8 +78,33 @@ class ClerkAuthError(Exception):
     """
 
 
+class ClerkPasswordPolicyError(ClerkAuthError):
+    """A confirmed Clerk rejection with a locally defined user-facing message."""
+
+
 class ClerkUnavailableError(Exception):
     """Raised when Clerk cannot reliably accept or reject credentials."""
+
+
+def _raise_if_password_rejected(response: httpx.Response) -> None:
+    if response.status_code != 422:
+        return
+    try:
+        body = response.json()
+    except ValueError:
+        return
+    errors = body.get("errors") if isinstance(body, dict) else None
+    if not isinstance(errors, list) or not errors:
+        return
+    messages: list[str] = []
+    for error in errors:
+        code = error.get("code") if isinstance(error, dict) else None
+        message = _PASSWORD_POLICY_MESSAGES.get(code) if isinstance(code, str) else None
+        if message is None:
+            # A mixed response is not a confirmed policy rejection.
+            return
+        messages.append(message)
+    raise ClerkPasswordPolicyError(messages[0])
 
 
 def is_valid_clerk_user_id(value: object) -> bool:
@@ -392,9 +434,10 @@ class ClerkClient:
         try:
             resp = self._http_client().patch(
                 f"/users/{clerk_user_id}",
-                json={"password": password, "skip_password_checks": True},
+                json={"password": password},
                 headers=headers,
             )
+            _raise_if_password_rejected(resp)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Clerk set-password failed: %s", type(exc).__name__)
@@ -422,10 +465,10 @@ class ClerkClient:
                 json={
                     "email_address": [email],
                     "password": password,
-                    "skip_password_checks": True,
                 },
                 headers=headers,
             )
+            _raise_if_password_rejected(resp)
             if resp.status_code in (200, 201):
                 return str(resp.json()["id"])
         except httpx.HTTPError as exc:

@@ -608,7 +608,9 @@ def get_platform_admin(
         .options(lazyload(AppUser.roles), lazyload(AppUser.igreja))
         .where(AppUser.clerk_user_id == identity.clerk_user_id)
     ).scalar_one_or_none()
-    if app_user is None:
+    if app_user is None or app_user.status == REVOKED_USER_STATUS:
+        # P1.1: a revoked account must not keep the BYPASSRLS console, even
+        # with a still-valid JWT and a live auth_sessions row.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=_PLATFORM_DENIED
         )

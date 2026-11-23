@@ -187,8 +187,7 @@ class A10Step:
                 check_restored_running(state, code='a10-start-ambiguous')
             else:
                 check_created(state, created[role])
-                if role == 'backend':
-                    self._a10_final_database()
+                self._a10_final_database()
                 # Never two of a kind: the legacy twin of this role must still be stopped (restart=no).
                 self.host.legacy_stopped()
                 self._intent(step, id=ids[role])
@@ -197,6 +196,7 @@ class A10Step:
                 check_restored_running(state)
             self._done(step, started=state['started'])
         if self.j.last('transition-done', 'a10:ingress') is None:
+            self._a10_final_database()
             self.host.legacy_stopped()
             self._intent('a10:ingress')
             self._open_ingress()

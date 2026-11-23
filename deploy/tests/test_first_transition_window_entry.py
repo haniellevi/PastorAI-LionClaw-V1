@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import first_transition_window as window
 import first_transition_database as fdb
-from first_transition_adapter import prepare
+from first_transition_adapter import digest, prepare
 from first_transition_candidate import CLOSED_GATES, write_hold_override
 from test_first_transition_candidate_writers import Assembly, WriterCursor, WriterConnection
 from test_first_transition_orchestrator import (APPLICATION_SHA, CANDIDATE_IDS, LEGACY, SUPPORT, ROOT, SECRET_URL, World, RecordingGit,
@@ -233,7 +233,15 @@ def test_prepare_is_pure_and_run_composes_real_backup_and_controller(entry):
                for binding in entry.assembly.ingress.values())
     assert entry.assembly.nginx_io.live is True
     journal = Path(entry.raw['state_dir']) / 'journal' / 'journal.jsonl'
-    assert 'SENTINEL' not in journal.read_text() and 'SENTINEL' not in json.dumps(lines)
+    journal_text = journal.read_text()
+    assert 'SENTINEL' not in journal_text and 'SENTINEL' not in json.dumps(lines)
+    init, request, marker = (next(event for event in map(json.loads, journal_text.splitlines())
+                                  if event['kind'] == kind)
+                             for kind in ('window-init', 'transition-backup-request', 'ddl-marker'))
+    assert init['window_digest'] == d['window_digest']
+    assert init['backup_digest'] == digest(asdict(backup_module.WindowBackupConfig.from_dict(entry.backup)))
+    assert request['request']['config_digest'] == init['transition_digest']
+    assert marker['backup_request_digest'] == request['request_digest']
     assert entry.world.cdocker.starts == 1
 
 
@@ -399,7 +407,7 @@ def test_replay_held_ingress_revalidates_without_repeating_effects(entry):
     entry.world.consumers_held()
 
 
-@pytest.mark.parametrize('changed', ['transition', 'backup', 'bindings', 'provider', 'provider-variable'])
+@pytest.mark.parametrize('changed', ['transition', 'backup', 'exclusions', 'bindings', 'provider', 'provider-variable'])
 def test_window_init_prevents_config_adoption_on_replay(entry, changed):
     assert entry.execute()[0] == 0
     journal = entry.journal_text()
@@ -407,6 +415,8 @@ def test_window_init_prevents_config_adoption_on_replay(entry, changed):
               list(entry.world.migrate.applied), list(entry.backup_io.calls))
     if changed == 'backup':
         entry.backup['timeouts'] = {'dump_s': 121}
+    elif changed == 'exclusions':
+        entry.backup['restore_excluded_expected']['vault_schema'] += 1
     elif changed == 'bindings':
         entry.bindings['writers']['readonly_roles'] = ['fictional_readonly']
     elif changed == 'transition':
@@ -436,10 +446,19 @@ def test_old_journal_cannot_be_adopted(entry):
     assert entry.journal_text() == before and entry.world.legacy_effects() == []
 
 
-@pytest.mark.parametrize('failure', ['backup', 'migration', 'create', 'start'])
-def test_failures_keep_containment_and_never_repeat_ambiguous_effect(entry, failure):
+@pytest.mark.parametrize('failure', ['backup', 'backup-durability', 'migration', 'create', 'start'])
+def test_failures_keep_containment_and_never_repeat_ambiguous_effect(entry, failure, monkeypatch):
     if failure == 'backup':
         entry.backup_io.fail = {'dump'}
+    elif failure == 'backup-durability':
+        fsync = os.fsync
+
+        def fail_backup_root_sync(fd):
+            if os.readlink(f'/proc/self/fd/{fd}') == entry.backup['backup_root']:
+                raise OSError('synthetic fsync failure')
+            fsync(fd)
+
+        monkeypatch.setattr(os, 'fsync', fail_backup_root_sync)
     elif failure == 'migration':
         tx = next(m for m in entry.world.plan.pending if not m.concurrent)
         entry.world.migrate.faults[tx.name] = 'fail'
@@ -450,7 +469,13 @@ def test_failures_keep_containment_and_never_repeat_ambiguous_effect(entry, fail
     status, lines = entry.execute()
     assert status == 2 and lines[-1]['recovery']['automatic_undo'] is False
     assert lines[-1]['recovery']['automatic_restore'] is False
-    assert lines[-1]['recovery']['legacy_resume_allowed'] is (failure == 'backup')
+    pre_marker = failure in ('backup', 'backup-durability')
+    assert lines[-1]['recovery']['legacy_resume_allowed'] is pre_marker
+    if pre_marker:
+        events = [json.loads(line)['kind'] for line in entry.journal_text().splitlines()]
+        assert 'transition-backup-request' in events
+        assert 'transition-backup' not in events and 'ddl-marker' not in events
+        assert entry.world.migrate.applied == []
     if failure in ('create', 'start'):
         assert lines[-1]['recovery']['state'] == 'candidate-ambiguous'
         entry.world.consumers_held()

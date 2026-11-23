@@ -352,6 +352,35 @@ def test_dump_failure_starts_no_clone(plan, tmp_path):
     assert verbs(host) == [('run', '--rm')] and host.migrations == []
 
 
+@pytest.mark.parametrize('failure_at', [None, 'window.dump', 'request', 'backups'])
+def test_dump_path_is_synchronized_before_clone(plan, tmp_path, monkeypatch, failure_at):
+    host, expected = Host(plan), expectation(plan)
+    req = request(plan, expected)
+    backup = provider(plan, tmp_path, host, expected)
+    syncs = []
+    fsync = os.fsync
+
+    def observe_sync(fd):
+        name = Path(os.readlink(f'/proc/self/fd/{fd}')).name
+        step = 'request' if name == digest(req) else name
+        syncs.append(step)
+        assert verbs(host) == [('run', '--rm')]
+        if step == failure_at:
+            raise OSError('synthetic fsync failure')
+        fsync(fd)
+
+    monkeypatch.setattr(wb.os, 'fsync', observe_sync)
+    expected_syncs = ['window.dump', 'request', 'backups']
+    if failure_at is None:
+        assert backup(req)['restore_verified'] is True
+    else:
+        with pytest.raises(Refused, match='^window-backup-durability$'):
+            backup(req)
+        assert verbs(host) == [('run', '--rm')] and host.migrations == []
+        expected_syncs = expected_syncs[:expected_syncs.index(failure_at) + 1]
+    assert syncs == expected_syncs
+
+
 @pytest.mark.parametrize('kwargs, code', [
     (dict(fail={'restore'}), 'window-backup-restore-failed-extension'),
     (dict(fail={'list'}), 'window-backup-restore-list-failed'),
