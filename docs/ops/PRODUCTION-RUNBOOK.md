@@ -16,8 +16,8 @@ Backup, teste de restauração e firewall: consulte
 | Backend público | `https://api.igreja12.com.br` |
 | Releases na VPS | `/opt/pastorai-releases/<sha>` |
 | Release ativo | `/opt/pastorai-current` (symlink para um release imutável) |
-| Frontend Vercel | projeto `pastorai-frontend-prod`, escopo `raniel-levis-projects` |
-| Frontends públicos | `app.`, `admin.` e `painel.igreja12.com.br` |
+| Frontend Cloudflare Workers | Worker `igreja12-frontend-prod` (V5/J8, §12.5) |
+| Frontends públicos | `app.igreja12.com.br`, `admin.igreja12.com.br` e `painel.igreja12.com.br` |
 
 O Clerk está na instância PROD. Publishable key, secret key, issuer e JWKS
 precisam pertencer à mesma instância; nunca misture prefixos `pk_test_` ou
@@ -452,25 +452,11 @@ consome o orçamento de retry.
 
 ## 7. Deploy do frontend
 
-Implantar a partir do mesmo SHA exato de `main` usado como evidência:
-
-```bash
-cd <checkout-limpo>/frontend
-vercel --prod
-```
-
-No projeto Vercel `pastorai-frontend-prod`, confirmar sem revelar valores:
-
-- `NEXT_PUBLIC_API_URL` presente em Production, apontando para
-  `https://api.igreja12.com.br`. É a única variável que o código do painel lê;
-  sem ela o build de produção falha de propósito;
-- aliases `app.`, `admin.` e `painel.igreja12.com.br`;
-- publicação automática continua desligada (`frontend/vercel.json`,
-  `git.deploymentEnabled: false`). Não religar.
-
-O painel envia o login à API por `Authorization: Bearer`, sem cookie; a CSP
-(só relatório) é definida pelo próprio painel. Na primeira virada, a publicação
-do painel é o passo J8, com SIM próprio (seção 12.5).
+Para a primeira virada, seguir V5/J8 no Cloudflare Workers (§12.5). O
+painel usa `NEXT_PUBLIC_API_URL=https://api.igreja12.com.br` no build e envia
+`Authorization: Bearer` à API. No SHA A, o middleware do próprio painel
+define a CSP bloqueante de documento e o nonce da resposta. Manter
+desligada a publicação automática da antiga integração Vercel.
 
 ## 8. Smokes sem efeitos externos
 
@@ -756,7 +742,8 @@ correntes e não autorizados.
   fechados e exige plano adiante revisado. Conferir Compose e gates dos
   contêineres parados antes de iniciar; conferir novamente depois. Symlink só
   muda após saúde comprovada; preservar configuração ativa e volumes.
-- Frontend: promover o deployment Vercel anterior.
+- Frontend na primeira virada: se a compatibilidade for confirmada, promover
+  a versão anterior no mesmo Worker (§12.5 e §12.7).
 - Banco: migrations aditivas não são revertidas automaticamente. Corrigir por
   nova migration revisada; não executar rollback destrutivo improvisado.
 - Asaas: fechar imediatamente `ASAAS_BILLING_ENABLED=false` em todos os
@@ -783,7 +770,7 @@ Registrar:
 - liveness/readiness local e pública;
 - timers do monitor/backup e data do último backup válido;
 - CORS e login;
-- deployment/aliases Vercel;
+- versão e deployment do Worker e conferência dos três Custom Domains no J8;
 - estado explícito de `ALLOW_REAL_SENDS`, `ASAAS_BILLING_ENABLED` e
   `BROADCAST_ASYNC_ENABLED`, incluindo a prova pós-restart de que billing
   permaneceu fechado por padrão, sem imprimir o `.env`.
@@ -797,9 +784,14 @@ chat, para aquela ação, aquele ambiente e aquele horário. Os códigos impress
 pela ferramenta (digests e `a10_token`) só evitam erro de digitação; não são
 autorização.
 
-Ferramenta: `deploy/first_transition_window.py` (modos `prepare`, `check`,
-`check-bindings`, `rehearse-backup`, `run` e `a10`). O modo `run` vai da
-contenção até a A9 numa execução só. O modo `a10` é uma execução separada.
+Ferramenta: `deploy/first_transition_window.py` (modos somente leitura `status`,
+`prepare`, `check`, `check-bindings`, além de `prepare-layout`, `rehearse-backup`,
+`resume-legacy`, `run` e `a10`). Alvo desta virada (Fase 4/5): SHA **A** =
+`6af9f75c8d673cb3454de1f8740a0acc509937ff` (`130` migrations = `78` de base +
+`52` pendentes, sendo `44` transacionais e `8` `CONCURRENTLY`). O modo `run` vai
+da contenção até a A9 numa execução só, parando sempre após gravar `ddl-marker`
+em qualquer queda ou recusa (`transition-stopped` no orquestrador; JSON da CLI com `"refused": "window-transition-refused"` e estado em `recovery.state`). O modo `a10` é uma execução
+separada, e `resume-legacy` atua exclusivamente antes do marcador.
 
 ### 12.0 A VPS é compartilhada: a janela para só a Igreja 12
 
@@ -869,15 +861,15 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 
 | Passo | O que acontece | SIM do Raniel |
 |---|---|---|
-| V1 | Leitura só de metadados do alvo: serviços e IDs, gates **por nome e valor** dos quatro processos antigos, cron do host, Redis, `release_preflight.py`, `migrate.py status`, duplicidades = 0. Na sessão do aplicador (mesma DSN de `MIGRATION_DATABASE_URL`, sem `SET`): `SHOW statement_timeout` e `rolsuper`/`rolbypassrls` da role; a janela não confere nenhum dos dois e `migrate.py` herda o padrão da role. Timeout curto pode cortar backfill ou índice depois do ponto de não retorno: valor diferente de `0` exige decisão antes do SIM 3, sem alterar nada no SIM 1. | **SIM 1** (leitura no alvo) |
-| V2 | Conferir que o arquivo privado do candidato tem os mesmos gates por finalidade do antigo (piloto, agenda, V1a, V3). Os quatro gates principais ficam fechados nele; a A10 os sobrepõe com os valores antigos. Se algum gate por finalidade diferir, a verificação da A10 pode acusar cancelamento e conter. | dentro do SIM 1 |
-| V3 | Ensaio sintético verde no SHA escolhido e os quatro checks do CI. | — |
-| V4 | Aviso à equipe: todos serão deslogados; painel e WhatsApp ficam pausados durante a janela. | Raniel envia |
-| V5 | Pré-requisitos do painel (seção 12.5): Vercel CLI logada na conta certa, checkout limpo do SHA ligado ao projeto, variáveis conferidas por nome, publicação automática desligada e ID do deployment atual anotado. | dentro do SIM 1 (só leitura) |
+| V1 | Leitura só de metadados do alvo: serviços e IDs, gates **por nome e valor** dos quatro processos antigos, cron do host, Redis, `release_preflight.py`, `migrate.py status`, duplicidades = 0 e inventário das variáveis obrigatórias de A por nome (seção 12.7). Na sessão do aplicador (mesma DSN de `MIGRATION_DATABASE_URL`, sem `SET`): `SHOW statement_timeout`, `SHOW lock_timeout`, `pg_roles` (`rolsuper`, `rolbypassrls`, `rolcreaterole`, `rolcreatedb`, `rolinherit`), `pg_auth_members` (inclui `ADMIN OPTION` nas roles `anon`, `authenticated`, `service_role`), `server_version_num`, roles de runtime e proprietários dos objetos afetados. O clone da `T` replica role aplicadora sem `SUPERUSER` e com `statement_timeout = '2min'`; o V1 confirma equivalência no alvo antes do SIM 3, sem alterar nada no SIM 1. | **SIM 1** (leitura no alvo) |
+| V2 | Conferir que o arquivo privado efetivo do candidato tem os mesmos gates por finalidade do antigo (piloto, agenda, V1a, V3). Os quatro gates principais ficam fechados nele; a A10 os sobrepõe com os valores antigos. Se algum gate por finalidade diferir, a verificação da A10 pode acusar cancelamento e conter. | dentro do SIM 1 |
+| V3 | Ensaio sintético verde no SHA escolhido (`synthetic-release`), ensaio Docker das 52 migrations (`test_first_transition_window_backup_docker`, item 4.6) e os quatro checks do CI. | — |
+| V4 | Aviso à equipe **dispensado** nesta janela (`ROADMAP` Decisão D13 / item 4.2 d: instalação interna com dados de teste, sem prejuízo a usuário final externo); a janela ainda mantém manutenção 503 durante `J4`–`A10`. | dispensado (D13) |
+| V5 | Pré-requisitos do painel (§12.5): confirmar conta, Worker `igreja12-frontend-prod`, três Custom Domains e versão ativa anterior. Conferir artefato de **A** e contrato OpenAPI, com compatibilidade parcial de volta na §12.7. | dentro do SIM 1 (só leitura no alvo) |
 | V6 | Edição única do site nginx da API: pasta vazia `/etc/nginx/igreja12-window` (root, 0755) e a linha `include /etc/nginx/igreja12-window/*.conf;` logo após `server_name` no bloco 443, com backup, `nginx -t` e reload. Certificado, IPv6, cabeçalhos de proxy e o bloco de redirecionamento da porta 80 continuam como estão: a ferramenta aceita esse formato do certbot (seção "Topologia nginx nominal" do `RELEASE-LOTE-2026-10.md`). Na configuração dos bindings: `site_path` = `/etc/nginx/sites-available/pastorai-api-http` e `enabled_path` = `/etc/nginx/sites-enabled/pastorai-api-http` (é atalho na VPS, conferido em 12/11). | **SIM próprio** (edição na VPS) |
 | V7 | Foto dos outros sistemas da VPS (seção 12.0): contêineres, saúde e código HTTP de cada um. Tudo precisa estar respondendo antes de abrir a janela. | dentro do SIM 1 (só leitura) |
-| V8 | Preparar a VPS com o kit (seção 12.6): ferramenta no SHA aprovado, três arquivos de configuração, pastas do backup, imagem do Postgres, arquivo privado do aplicador, correção da linha repetida no arquivo do candidato e `prepare-layout`. Não toca no sistema antigo, no banco, no nginx nem nos gates. | **SIM próprio** (escrita na VPS) |
-| V9 | Conferências sem efeito com o kit instalado: `prepare`, `check` (duas leituras do banco) e `check-bindings`; ensaio do backup da janela (`rehearse-backup`: cópia do banco, restore e as 51 migrations num clone isolado, na própria VPS). Regra de parada do timeout: o `seconds` do recibo precisa ficar abaixo de 60 (§12.6, fato 2). | dentro do SIM V8 |
+| V8 | Preparar a VPS com o kit (seção 12.6): ferramenta **T**, transferência e conferência dos objetos Git de **A** (`6af9f75c...`), **T integrado** e `EXECUTOR_SHA` do aplicador (`37c7d68d...`) em `/opt/pastorai-releases/repo` (4.2 h), três arquivos de configuração, pastas do backup, imagem do Postgres, arquivo privado do aplicador, correção da linha repetida se aplicável e `prepare-layout`. Não toca no sistema antigo, no banco, no nginx nem nos gates. | **SIM próprio** (escrita na VPS) |
+| V9 | Conferências sem efeito com o kit instalado: `prepare`, `check` (duas leituras do banco) e `check-bindings`; ensaio do backup da janela (`rehearse-backup`: cópia do banco, restore em clone com role aplicadora sem `SUPERUSER` e `statement_timeout = '2min'`, replay das **52 migrations** com conferência de RLS/grants e `final_schema_digest`). Regra de parada D9 (item 4.2 d): mede cópia, restore e **cada migration**; barra apenas se alguma migration individual (`max_migration_seconds`) passar de **60 s** (o total do ensaio não barra). Cópia externa do `window.dump` dispensada (D13). | dentro do SIM V8 |
 
 ### 12.2 Janela
 
@@ -887,12 +879,12 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 | J2 | Pausar o backup automático do host (cron M02) **só da Igreja 12**: `sudo mv /etc/cron.d/pastorai-backup /root/pastorai-backup.cron.pausado` (nunca parar o serviço `cron` nem os timers dos outros sistemas) e confirmar que ninguém mais usa console, SQL Editor, MCP ou CLI do Supabase. | dentro do SIM 2 |
 | J3 | `run`: antes de tocar no sistema antigo, a ferramenta **fotografa os quatro gates de cada processo antigo** (`transition-gate-snapshot`). Valor desconhecido recusa aqui, antes de qualquer efeito. | **SIM 3** (o `run` inteiro, J3 a J6, inclui o ponto de não retorno) |
 | J4 | Bloqueia as duas entradas (site 503 e Evolution→backend), `restart=no`, SIGTERM e saída 0 dos quatro processos antigos; duas observações sem nenhuma escrita; linha de base das pendências (`transition-pending-baseline`); backup da janela com restore e replay em clone. | dentro do SIM 3 |
-| — | **Até aqui ainda dá para voltar ao sistema antigo** (`resume_legacy`). | — |
-| J5 | **PONTO DE NÃO RETORNO:** marcador da DDL e primeira migration. Depois dele o sistema antigo nunca volta (`post-ddl-resume-forbidden`). | dentro do SIM 3 |
-| J6 | 51 migrations, uma por vez; candidato criado parado; só o backend sobe, com envios fechados, e passa no smoke; workers continuam parados; entradas continuam bloqueadas (A9). O resultado imprime `a10_token`. | dentro do SIM 3 |
-| J7 | A10 (seção 12.3). | **SIM 4** (religar workers e envios como estavam) |
-| J8 | Publicar o painel no mesmo SHA do backend e fazer o smoke dele (seção 12.5). Se falhar, voltar só o painel ao deployment anterior. | **SIM 5** (publicar o painel; inclui voltar o painel se o smoke falhar) |
-| J9 | Religar o backup do host (`sudo mv /root/pastorai-backup.cron.pausado /etc/cron.d/pastorai-backup`, dono root e modo 644), conferir `AgentConfig` e Jev, registrar o encerramento. | — |
+| — | **Até aqui ainda dá para voltar ao sistema antigo** (`resume-legacy`). | — |
+| J5 | **PONTO DE NÃO RETORNO:** marcador da DDL (`ddl-marker`) e primeira migration. Depois dele, o sistema antigo nunca volta (`post-ddl-resume-forbidden`) e qualquer nova chamada a `run()` recusa incondicionalmente com `transition-stopped` (inclusive após queda brusca sem evento de falha posterior). | dentro do SIM 3 |
+| J6 | **52 migrations** (`44` transacionais + `8` `CONCURRENTLY`), uma por vez; ao final compara o catálogo vivo (`final['catalog']`, query `Q_CATALOG`) ao `final_schema_digest` do clone vinculado ao `ddl-marker` (recusando divergências com `clone-source-schema-divergence`); candidato criado parado; só o backend de **A** sobe, com envios fechados, e passa no smoke; workers continuam parados; entradas continuam bloqueadas (A9). O resultado imprime `a10_token`. | dentro do SIM 3 |
+| J7 | A10 (seção 12.3; revalida `final_schema_digest` antes de liberar o tráfego). | **SIM 4** (religar workers e envios como estavam) |
+| J8 | Com A10 verde, publicar o painel no **mesmo SHA A** do backend no Worker e fazer o smoke nos três hosts (§12.5). Se falhar, confirmar a compatibilidade da §12.7 antes de voltar o painel ou corrigir adiante. | **SIM 5** (publicar o painel e autorizar eventual volta compatível) |
+| J9 | Configurar `/opt/pastorai-current` para **A**, confirmar Compose efetivo, overrides externos e arquivo privado modo `0600` fora do layout verificado (`PASTORAI_ENV_FILE`), executar **manualmente uma vez** o comando do backup provando `BACKUP_OK`, `sha256sum -c`, status `"verified"` e os três serviços de apoio despausados, e então religar `/etc/cron.d/pastorai-backup` (`root:root`, `0644`); conferir `AgentConfig` e Jev e registrar o encerramento (seção 12.2.2). | — |
 | J10 | Repetir a foto dos outros sistemas (seção 12.0) e comparar com a do V7: nenhuma diferença. | — |
 
 **SIM 3** cobre o `run` inteiro: contenção, backup, migrations e A9. Como o
@@ -900,18 +892,294 @@ arquivo não tem segredo nem dado de pessoa; fica só na VPS.
 ponto de não retorno. Decisão do Raniel em 12/11/2026: um SIM 3 único
 basta; não haverá SIM separado para as migrations.
 
-**Se o smoke falhar depois da primeira migration (J6):** não há volta ao
-sistema antigo. A ferramenta para e mantém tudo contido: site em manutenção,
-entradas bloqueadas, workers nunca iniciados, processos antigos parados. Nada
-é enviado e nada é cancelado. Preservar diário, backup da janela e evidências.
-Decidir, por SIM próprio: corrigir adiante (novo SHA revisado e testado) ou
-restaurar o **backup da janela** (`window_backup_id` do marcador, nunca o do
-A6). Nunca restaurar de improviso.
+**Se o smoke ou qualquer etapa falhar depois da primeira migration (J5–J6):**
+não há volta ao sistema antigo, e qualquer repetição de `run()` é recusada com
+`transition-stopped` (mesmo após interrupção abrupta com `ddl-marker` gravado).
+A ferramenta mantém tudo contido: site em manutenção, entradas bloqueadas,
+workers nunca iniciados, processos antigos parados. Nada é enviado e nada é
+cancelado. Preservar diário, backup da janela e evidências. Decidir, por SIM
+próprio: corrigir adiante (novo SHA revisado e testado) ou restaurar o **backup
+da janela** (`window_backup_id` do marcador, nunca o do A6). Nunca restaurar de
+improviso.
 
 O "rollback imediato pré-autorizado se o smoke falhar" (ROADMAP, 12/11) só
 pode significar, depois do J5, essa contenção automática: voltar ao sistema
 antigo com o banco já migrado não é seguro e a ferramenta recusa. Corrigir
 adiante ou restaurar o backup da janela continuam exigindo SIM próprio.
+
+**Escopo da comparação de schema (`final_schema_digest`, item 4.2 g):** antes
+de criar a A9 e novamente na A10, a ferramenta compara `final['catalog']` com
+`window_backup['clone_rehearsal']['final_schema_digest']` vinculado ao
+`ddl-marker` (erro `clone-source-schema-divergence`). A query `Q_CATALOG` agrega
+apenas objetos do schema `public` (relações, índices, constraints, policies,
+triggers, funções, colunas) e `pg_default_acl` dos namespaces `0` ou `public`.
+Portanto, as exclusões esperadas do restore (`restore_excluded_expected`: extensão
+`supabase_vault`, schema `vault` e event triggers de superusuário fora de
+`public`) ficam **fora** do escopo comparado e não causam falso divergência.
+
+#### 12.2.1 Estados de recuperação (`classify_recovery`) e rotas pré/pós-marcador
+
+Consulta somente leitura do estado atual do diário (não muta diário, banco nem
+host; preenche `resume_token` apenas quando `legacy_resume_allowed` é `true`):
+
+```bash
+$PY -E -s $T status --config $W/first-transition.json
+```
+
+Retomada pré-marcador do sistema antigo pelo mesmo diário (`resume_legacy` /
+subcomando CLI `resume-legacy`, permitida somente nos estados
+`contained-pre-ddl`, `backup-window-used` e `resume-partial`; recusa com
+`post-ddl-resume-forbidden` no orquestrador — emitido pela CLI como
+`"refused": "window-transition-refused"` com `legacy_resume_allowed: false` —
+se houver `ddl-marker`):
+
+```bash
+$PY -E -s $T resume-legacy $ARGS --expect-plan-digest <plan> --expect-window-digest <window> --resume-token <RESUME:...> [--allow-queue-drift]
+```
+
+Estados exatos retornados por `classify_recovery()` (`status` e campo
+`recovery` de recusas) e ação operacional correspondente (`automatic_undo`,
+`destructive_retry` e `automatic_restore` são sempre `false`):
+
+| `recovery.state` | Fase | `legacy_resume_allowed` | Comportamento da CLI e rota operacional |
+|---|---|---|---|
+| `not-started` | Pré-marcador | `false` | Nada gravado. Conferir inputs e executar `run`. |
+| `containment-partial` | Pré-marcador | `false` | Queda durante a contenção (antes de `observed-host-contained`). Re-executar `run` se saída limpa; saída suja requer inspeção humana. |
+| `contained-pre-ddl` | Pré-marcador | `true` | Legado contido, sem backup solicitado. Pode prosseguir com `run` ou reverter o legado via `resume-legacy --resume-token ...`. |
+| `backup-window-used` | Pré-marcador | `true` | Solicitação/backup da janela já registrada (`run` recusa reusar a solicitação). Executar `resume-legacy`; nova tentativa exige novo diário. |
+| `resume-partial` | Pré-marcador | `true` | Retomada pré-marcador interrompida no meio. Repetir `resume-legacy` com o mesmo `--resume-token` (usar `--allow-queue-drift` só se houver autorização explícita para drift após assentamento). |
+| `legacy-resumed` | Pré-marcador | `false` | Sistema antigo religado e ingress aberto. Qualquer nova janela exige novo diário limpo. |
+| `ddl-ambiguous` | Pós-marcador | `false` | Migration aberta ou resultado ambíguo (`run` recusa no orquestrador com `transition-stopped`; JSON da CLI `"refused": "window-transition-refused"` + `recovery.state`). Sem retry e sem legado. Inspecionar ledger e índices inválidos em leitura; decidir por SIM próprio entre correção adiante ou restore manual de `window_backup_id`. |
+| `ddl-failed` | Pós-marcador | `false` | Falha transacional definitiva (`definite=true`, `run` recusa no orquestrador com `transition-stopped`; JSON da CLI `"refused": "window-transition-refused"` + `recovery.state`). Sem retry e sem legado. Decidir por SIM próprio entre restore manual do `window.dump` ligado ao `window_backup_id` do marcador ou correção adiante. |
+| `post-ddl-failed` | Pós-marcador | `false` | Falha ou queda brusca pós-`ddl-marker` fora de migration/layout (inclui divergência `clone-source-schema-divergence` ou queda antes do layout). `run` recusa no orquestrador com `transition-stopped` (JSON da CLI `"refused": "window-transition-refused"` + `recovery.state`); manter ingress bloqueado e inspecionar ledger/catálogo em leitura. |
+| `candidate-failed` | Pós-marcador | `false` | Falha após criação do layout do candidato (`transition-done: layout` + `transition-failed`). Consumidores permanecem held, ingress bloqueado; decisão humana. |
+| `candidate-ambiguous` | Pós-marcador | `false` | Passo `a9:*` interrompido/ambíguo. Nada é reiniciado ou removido automaticamente; inspecionar o projeto candidato em leitura. |
+| `a9-complete` | Pós-marcador | `false` | 130 migrations aplicadas, catálogo conferido, backend **A** no ar com envios fechados e smoke verde, workers held e ingress bloqueado. Seguir para `a10` após **SIM 4**. |
+| `a10-partial` | A10 | `false` | Passo `a10:*` interrompido sem fechamento (`run` recusa com `transition-a10-started`). Repetir o **mesmo comando `a10`** com o mesmo diário e `--a10-token`: passos com recibo são re-verificados e passo aberto só é adotado com prova exata; caso contrário recusa e contém. |
+| `a10-complete` | A10 | `false` | Os quatro contêineres de **A** ativos com os gates da foto e ingress aberto. Repetir `a10` apenas re-verifica sem reiniciar processos. |
+| `a10-contained` | A10 | `false` | A10 falhou e a contenção automática completou (entradas bloqueadas; cron, broadcast, queue e backend com `restart=no` e parados, **sem** reescrever gates para fechado). Sem legado e sem reabertura automática; corrigir adiante por decisão humana e novo diário. |
+| `a10-containment-incomplete` | A10 | `false` | **Ação humana urgente:** contenção automática da A10 falhou parcialmente; bloquear ambas as entradas e parar manualmente cron, broadcast, queue e backend. Nunca reabrir nem voltar ao legado. |
+
+**Rota para falhas de DDL (4.2 e–f):** em `ddl-failed`, `ddl-ambiguous` ou
+`post-ddl-failed`, manter as entradas bloqueadas e os consumidores contidos.
+Preservar diário e dump da janela. `status` mostra o estado e os passos
+abertos. Conferir em leitura o ledger, o catálogo e os índices inválidos
+em `pg_index`. Em `ddl-ambiguous`, conferir também se a migration aberta
+está no ledger e se deixou objetos ou índices. Mesmo uma migration
+confirmada no ledger pode ter perdido o recibo. `run` e `resume-legacy`
+continuam proibidos após o marcador. Para falhas de candidato e A10,
+seguir as linhas próprias da tabela acima.
+
+Se o dono aprovar **restore do backup da janela** com **SIM próprio**:
+
+1. Localizar `window.dump` pelo recibo da mesma janela, vinculado a
+   `backup_request_digest` e `backup_digest` no `ddl-marker`. O
+   `sha256sum` do dump deve ser igual ao `window_backup_id` do marcador.
+   Qualquer divergência exige parar e preservar as evidências.
+   Para as exclusões, preservar o `backup.json` final de V9 junto aos
+   demais insumos usados pela janela. No checkout do executor original,
+   rodar `prepare $ARGS` em leitura com os mesmos caminhos e comparar
+   `window_digest` e `plan_digest` com o primeiro evento `window-init`
+   do mesmo diário. O `backup_digest` de `window-init` cobre a
+   configuração de backup normalizada, inclusive `restore_excluded_expected`.
+   Esse digest de configuração tem finalidade distinta do `backup_digest`
+   do marcador, que identifica o recibo. Conferir também se
+   `transition-backup-request.request.config_digest` bate com
+   `window-init.transition_digest` e se o digest do pedido bate com
+   `backup_request_digest` do marcador. O provedor compara as exclusões
+   observadas com o pin antes de emitir o recibo. Usar o pin conferido
+   como fonte das exclusões, pois o recibo no diário não as projeta.
+   Se faltar o JSON exato ou algum vínculo divergir, parar.
+2. Registrar e avaliar escritas posteriores ao dump e a situação das filas.
+   A aprovação precisa identificar o alvo e sua identidade, o mecanismo e
+   a role de restauração, as exclusões verificadas no passo 1 que se aplicam ao alvo e o
+   artefato de serviço legado com proveniência conferida. O mecanismo
+   precisa garantir a ausência de objetos que só surgiram após o backup.
+3. Executar o procedimento aprovado mantendo o alvo isolado e sem
+   redirecionar tráfego. Antes de apontar qualquer serviço para ele,
+   conferir a lista nominal das 78 migrations de base, zero índices
+   inválidos, `Q_CATALOG` idêntico ao baseline pré-janela e as verificações
+   de dados acordadas para o escopo da restauração.
+4. Validar a saúde e uma leitura funcional do serviço legado contido com
+   o alvo restaurado, mantendo ingress bloqueado, consumidores contidos e
+   gates de efeito fechados. Verificar filas e ausência de reenvio, guardar
+   os recibos e submeter qualquer reabertura a decisão própria.
+
+O ensaio sintético `test_recovers_legacy_service_from_marker_dump_after_committed_ddl`
+usa o orquestrador, o backup da janela e PG17 reais. Injeta perda do resultado
+depois do commit de DDL, confirma as recusas e restaura o mesmo dump em
+outro PG17 limpo com rede interna. Prova ledger, catálogo, dados fictícios e
+retomada de um processo de serviço sintético com envio bloqueado. O alvo
+e o mecanismo desse teste são descartáveis. A escolha operacional do alvo,
+da forma de restauração e do artefato legado continua sob aprovação própria.
+
+#### 12.2.2 J9: backup diário e topologia efetiva após a virada (4.3)
+
+Sem modificar `deploy/backend-release.sh` (Decisão 9 e contrato com
+`deploy/BACKEND-RELEASE-MANUAL.md`):
+
+- **Topologia e Compose efetivos após a virada (`A` = `6af9f75c`):**
+  - Link ativo `/opt/pastorai-current` apontando para o diretório do release
+    ativo de **A** (fora do legado `/opt/pastorai-lionclaw`), onde reside o
+    Compose efetivo `/opt/pastorai-current/deploy/docker-compose.yml` +
+    `/opt/pastorai-current/deploy/docker-compose.override.yml` (projeto
+    `candidate.project` do `first-transition.json`, fixado em `name:` pelo
+    override; os apoios continuam no projeto legado).
+  - **Overrides:** `/opt/pastorai-current/deploy/docker-compose.override.yml`
+    **faz parte obrigatória do layout verificado do release**
+    (`initial_transition_files.layout_files()` / `release_topology.overlay`,
+    carregado por `CandidateSpec.compose_argv()` e `a10_compose_argv()`) e
+    **deve ser preservado** dentro de `/opt/pastorai-current/deploy/`. Apenas
+    os overrides **transitórios da janela** (`a9-hold.override.yml` e
+    `a10-gates.override.yml`) ficam fora desse layout (em
+    `/var/lib/pastorai-first-transition/state/`), e nenhum outro override
+    manual/avulso pode existir dentro do release.
+  - **Dependências de runtime:** serviços de apoio `redis` (`pastorai_redis`),
+    `evolution-postgres` (`pastorai_evo_postgres`) e `evolution-api`
+    (`pastorai_evolution`), além dos 4 processos da aplicação (`backend`,
+    `queue-worker`, `cron-worker`, `broadcast-worker`) na mesma rede do Compose
+    efetivo (`pastorai_default`).
+- **Arquivo privado efetivo (`0600`, fora do layout verificado):**
+  - O arquivo privado com as credenciais e gates do runtime (no arranjo de
+    Decisão 9, `--env-file /etc/pastorai/.env.v2`, ou
+    `/etc/pastorai-private/runtime.env` após consolidação do modo externo em
+    `deploy/BACKEND-RELEASE-MANUAL.md`) permanece fora de
+    `/opt/pastorai-current`, pertencente a `root:root`, arquivo regular com
+    `nlink=1` e modo `0600` (diretório pai `0700`). É o mesmo
+    `candidate.env_file` do `first-transition.json`, e o `backup-production.sh`
+    só confere que ele não está vazio: conferir dono, modo e `nlink` com
+    `stat -c '%U:%G %a %h'` (esperado `root:root 600 1`) e contar com
+    `grep -c '^DATABASE_URL=' <arquivo>` (idem `SUPABASE_URL` e
+    `SUPABASE_SERVICE_ROLE_KEY`) exatamente `1` de cada, pois o auxiliar do
+    banco usa a primeira ocorrência e o leitor do Storage a última. Estes
+    comandos só imprimem contagens e modos, nunca valores; não usar `cat`,
+    `grep` sem `-c`, `env`, `set -x` nem `docker compose config` sem
+    `--quiet` sobre esse arquivo.
+  - `deploy/docker-compose.yml` lê `env_file: ${PASTORAI_ENV_FILE:-.env}` e
+    `deploy/backup-production.sh` (instalado em
+    `/usr/local/sbin/pastorai-backup.sh`) lê
+    `ENV_FILE="${PASTORAI_ENV_FILE:-/opt/pastorai-current/deploy/.env}"` e
+    `COMPOSE_FILE="${PASTORAI_COMPOSE_FILE:-/opt/pastorai-current/deploy/docker-compose.yml}"`.
+  - Portanto, conferir o Compose efetivo com o mesmo argv de
+    `CandidateSpec.a10_compose_argv()` (`--env-file /dev/null` só para
+    interpolação; o arquivo privado entra por `PASTORAI_ENV_FILE`):
+    `sudo PASTORAI_ENV_FILE=/etc/pastorai/.env.v2 docker compose --project-name <candidate.project> --env-file /dev/null --project-directory /opt/pastorai-current/deploy -f /opt/pastorai-current/deploy/docker-compose.yml -f /opt/pastorai-current/deploy/docker-compose.override.yml -f /var/lib/pastorai-first-transition/state/a10-gates.override.yml config --quiet`
+    (ou com o caminho externo efetivo confirmado no V1/1.2).
+  - O cron novo **não é** o arquivo pausado: `/root/pastorai-backup.cron.pausado`
+    é o cron antigo e fica preservado como evidência. Preparar
+    `/root/pastorai-backup.cron.novo` (`umask 077`) com **uma** linha
+    terminada em newline, copiando literalmente os cinco campos de
+    agendamento do `.pausado` (`<MIN> <HORA> <DIA> <MES> <DOW>`; o roteiro J9
+    cita `15 6 * * *`). Não converter nem inferir fuso: o `cron` interpreta
+    esses campos no fuso do host, que se registra com `date +%Z` (o `STAMP`
+    do backup é sempre UTC, independente disso). `<ENV>` = o caminho `0600`
+    efetivo (só caminho, sem valores):
+    `<MIN> <HORA> <DIA> <MES> <DOW> root /usr/bin/env -i HOME=/root SHELL=/bin/sh LC_ALL=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin PASTORAI_ENV_FILE='<ENV>' PASTORAI_COMPOSE_FILE=/opt/pastorai-current/deploy/docker-compose.yml /usr/local/sbin/pastorai-backup.sh >>/var/log/pastorai-backup.log 2>&1`
+    Conferir o arquivo sem imprimir valores: `wc -l` = `1`,
+    `tail -c1 /root/pastorai-backup.cron.novo | od -An -c` = `\n` (o `cron.d`
+    ignora entrada sem newline final) e `grep -c 'PASTORAI_ENV_FILE='` = `1`.
+    O `umask 077` **não** reduz o modo de um log que já existe: antes de
+    religar, exigir que `/var/log/pastorai-backup.log` seja arquivo regular,
+    sem symlink, `root:root`, `0600`, `nlink=1`:
+    `test ! -L /var/log/pastorai-backup.log && { test -e /var/log/pastorai-backup.log || install -m 0600 -o root -g root /dev/null /var/log/pastorai-backup.log; } && stat -c '%F %U:%G %a %h' /var/log/pastorai-backup.log`
+    (esperado `regular file root:root 600 1`, ou `regular empty file …` se
+    novo). Se divergir, parar: corrigir com `chmod 0600`/`chown root:root`
+    (ou mover o log antigo para `_lixeira`) só dentro do SIM da 5.5, sem
+    abrir o conteúdo. Exigir também `prepare-database-service.py` + sidecar
+    `.sha256` válidos em `/usr/local/libexec/pastorai-backup/`.
+  - Com o cron ainda pausado e dentro do SIM da 5.5, usar
+    `deploy/install-legacy-backup.sh` do executor **T integrado** para
+    instalar o pacote revisado. Conferir que o SHA-256 do
+    `/usr/local/sbin/pastorai-backup.sh` é o do `deploy/backup-production.sh`
+    de T. A prova manual e o cron precisam executar essa mesma versão.
+- **Execução manual única e critérios de prova antes de religar o cron.**
+  Todos os comandos abaixo agem na VPS e só rodam na 5.5, depois do SIM 4 e
+  do SIM 5; fora disso, nada aqui é executado.
+  0. Antes de rodar: anotar a hora UTC e, do manifesto atual
+     `/var/lib/pastorai-backup/backup-status.json` (ou "ausente"), só
+     `archive` e `completed_at`. Anotar também o alvo atual de
+     `/opt/pastorai-current`, e o ID de cada um dos três apoios
+     (`docker inspect --format '{{.Name}} {{.Id}}' pastorai_evolution pastorai_evo_postgres pastorai_redis`;
+     só nome e ID). Rodar também o `inspect` do passo 5 e exigir os três
+     em `running` e `paused=false` antes de iniciar. Um `"verified"` antigo
+     não prova o backup novo.
+  1. Em shell `root` (seção 12.6; os redirecionamentos abaixo abrem o log
+     como root, por isso sem `sudo` no meio), com `/opt/pastorai-current`
+     apontando para **A** e os serviços de apoio em execução, criar um log
+     **exclusivo da tentativa** e exigir que seja regular, sem symlink,
+     `root:root`, `0600`:
+     `LOG_J9=/root/j9-backup-$(date -u +%Y%m%dT%H%M%SZ).log; test ! -e "$LOG_J9" && test ! -L "$LOG_J9" && install -m 0600 -o root -g root /dev/null "$LOG_J9" && stat -c '%F %U:%G %a %h' "$LOG_J9"`
+     (esperado `regular empty file root:root 600 1`; qualquer outra coisa:
+     parar). Em seguida rodar **uma vez** exatamente o argv e o ambiente
+     mínimo do cron (o mesmo `env -i`), mudando só o destino da saída
+     (`>>"$LOG_J9"` em vez do log do cron):
+     `/usr/bin/env -i HOME=/root SHELL=/bin/sh LC_ALL=C PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin PASTORAI_ENV_FILE='<ENV>' PASTORAI_COMPOSE_FILE=/opt/pastorai-current/deploy/docker-compose.yml /usr/local/sbin/pastorai-backup.sh >>"$LOG_J9" 2>&1; echo "rc=$?"`
+     (`<ENV>` = o caminho `0600` efetivo; `/etc/pastorai-private/runtime.env`
+     se consolidado). Anotar o rc e a hora UTC final e fazer o `inspect`
+     do passo 5 imediatamente, inclusive se `rc != 0`. Se o rc ou a inspeção
+     falhar, seguir o passo 7 antes de qualquer nova tentativa. O comando lê
+     banco e Storage reais, faz pull de imagens, pausa os três apoios e
+     grava artefatos: é um efeito real da 5.5. Nunca abrir, colar nem
+     anexar o log; se for preciso mostrar, filtrar apenas os marcadores
+     `BACKUP_OK` do passo 2 ou os marcadores de pausa do passo 7.
+  2. Exigir no log da tentativa a linha final `BACKUP_OK stamp=<STAMP> archive=<ARCHIVE>`
+     (`grep -F -- 'BACKUP_OK stamp=' "$LOG_J9" | tail -n 1`). Com `rc=0` mas sem
+     essa linha (ex.: `INFO: outro backup já está em execução`, lock
+     ocupado: o script sai com 0 sem criar pacote), não há backup novo:
+     aguardar o outro backup terminar e repetir. Exigir `<STAMP>` dentro do
+     intervalo UTC anotado e `<ARCHIVE>` diferente do anotado no passo 0.
+  3. Validar integridade dos checksums:
+     `sudo sha256sum -c <ARCHIVE>.sha256` e
+     `(cd /root/pastorai-backups/<STAMP> && sudo sha256sum -c SHA256SUMS)`.
+  4. Conferir o manifesto de monitoramento `/var/lib/pastorai-backup/backup-status.json`
+     com `"version":1`, `"status":"verified"`, `archive` = `basename` de
+     `<ARCHIVE>`, `sha256` igual ao do `.sha256` e `completed_at` dentro do
+     intervalo UTC da tentativa (só esses campos; o manifesto não tem segredo).
+  5. Confirmar que os três serviços de apoio pausados temporariamente durante o
+     snapshot dos volumes foram **despausados** pelo script:
+     `sudo docker inspect --format '{{.Name}} {{.Id}} paused={{.State.Paused}} status={{.State.Status}}' pastorai_evolution pastorai_evo_postgres pastorai_redis`
+     (exatamente os três nomes e os mesmos IDs anotados no passo 0, todos
+     `paused=false`, `status=running`).
+  6. Só com `rc=0` e os passos 2–5 aprovados, religar o cron **com a entrada nova**
+     (nunca devolver o `.pausado` com `mv`, que repõe o cron antigo sem
+     `PASTORAI_ENV_FILE` e faria o backup ler `.env` do release). A linha
+     deve ser idêntica ao comando do passo 1, trocando só o destino da saída
+     (log do cron já conferido acima):
+     `sudo install -m 0644 -o root -g root /root/pastorai-backup.cron.novo /etc/cron.d/pastorai-backup`
+     (publicação por arquivo temporário no mesmo diretório e `mv` atômico é
+     aceitável). Manter `/root/pastorai-backup.cron.pausado` intacto. Conferir
+     `stat -c '%U:%G %a' /etc/cron.d/pastorai-backup` = `root:root 644`,
+     `grep -c 'PASTORAI_ENV_FILE=' /etc/cron.d/pastorai-backup` = `1`, o
+     serviço `cron` ativo e o `pastorai-backup.timer` inativo e desabilitado.
+  7. Se `rc != 0` ou qualquer prova falhar, manter o cron pausado e
+     conferir os três apoios pelo `inspect` do passo 5. O script manual e
+     o cron verificam nome, ID e estado antes de pausar por ID, um por vez.
+     Em falha parcial ou erro posterior, o cleanup verifica os IDs e
+     desfaz apenas as pausas que a própria tentativa confirmou. Cada
+     `BACKUP_PAUSE_OWNED name=... id=...` registra essa confirmação.
+     `BACKUP_PAUSE_RELEASED name=... id=...` registra que o mesmo apoio
+     voltou a ser observado em execução e sem pausa.
+     `BACKUP_PAUSE_UNCONFIRMED` ou falta de confirmação não autoriza
+     despausar. Um apoio já pausado, parado, ausente ou com outro ID
+     exige inspeção humana, sem iniciar ou recriar serviço aqui.
+     Se restar pausa comprovadamente dessa tentativa, tratar no SIM
+     correspondente, conferindo nome, ID do passo 0, estado pausado e o
+     marcador de ownership sem marcador de liberação desse ID antes de
+     qualquer `docker unpause <ID>` individual. Se houver dúvida sobre
+     outro operador, avisar o Raniel.
+     Ao final exigir os três `paused=false`, `status=running`, preservar
+     backup, kit, diário e `.pausado` e tratar a causa antes de pedir
+     uma nova tentativa. No cron, erro de cleanup também fica registrado
+     e a tentativa falha.
+  8. Recuperação: o pacote arquiva só `docker-compose.yml` e o arquivo privado
+     (`deploy.env`, modo `0600`), **não** os overrides. Guardar à parte, com
+     SHA-256 e ligados ao SHA **A** e ao `<STAMP>`, os arquivos de
+     `docker-compose.override.yml` e `a10-gates.override.yml` (e
+     `release-topology.json`) e a ordem dos `-f` acima; só caminhos e hashes
+     entram no recibo, nunca valores.
+  9. Retenção: `14 dias` locais em `/root/pastorai-backups` (`-mtime +14` em
+     `deploy/backup-production.sh`); **nenhuma cópia externa** é feita ou
+     exigida dentro da janela (Decisão D13).
 
 ### 12.3 A10: workers e envios de volta como estavam
 
@@ -984,178 +1252,223 @@ primeira migration); o 5 é limite técnico registrado.
 5. **Proteção das pendências é por contagem:** a verificação olha dois
    contadores. Ela não substitui o inventário por finalidade do item V1.
 
-### 12.5 J8: publicar o painel (SIM 5)
+### 12.5 V5 e J8: painel no Cloudflare Workers (SIM 5)
 
-Decisão do Raniel em 12/11/2026: o painel novo vai ao ar logo depois da A10,
-na mesma janela e com o **mesmo SHA** do backend. Só começa depois que a A10
-terminou verde. Não mexe no backend, no banco nem nos gates.
+O backend e o painel desta virada usam o SHA **A**
+(`6af9f75c8d673cb3454de1f8740a0acc509937ff`). J8 publica o painel assim
+que a A10 de A estiver verde. O backend, o banco e os gates continuam como
+foram deixados pela A10.
 
-**Pré-requisitos (V5, na véspera, só leitura):**
+#### V5: conferências e preparo
 
-1. Vercel CLI instalada no computador do operador (`vercel --version`) e
-   logada na conta/equipe dona do projeto `pastorai-frontend-prod`
-   (`vercel whoami`; conferir a equipe com `vercel teams ls`).
-2. Checkout limpo do SHA do backend, fora do checkout de trabalho, por
-   exemplo `git worktree add --detach <pasta> <SHA>`; `git status` sem
-   alterações. Em `<pasta>/frontend`, `vercel link` escolhendo o projeto
-   `pastorai-frontend-prod` (nunca criar projeto novo).
-3. Variáveis de Production conferidas **só por nome**
-   (`vercel env ls production`): `NEXT_PUBLIC_API_URL` presente. Não usar
-   `vercel env pull` nem imprimir valores.
-4. Publicação automática segue desligada (`git.deploymentEnabled: false` em
-   `frontend/vercel.json` do SHA) e nenhum deploy por Git foi religado.
-5. Anotar o ID/URL do deployment de produção atual (hoje: o de 27/10, SHA
-   `afdfb78d`). É o alvo da volta.
+1. No SIM 1, confirmar em leitura a conta Cloudflare
+   `f3e9829232eb12ca3142d704d9455ce2`, o Worker `igreja12-frontend-prod` e
+   os três Custom Domains `app.igreja12.com.br`, `admin.igreja12.com.br` e
+   `painel.igreja12.com.br`. Registrar a versão ativa a 100% e o ID do
+   deployment. A versão esperada de retorno é
+   `edee314b-7be2-4d49-86ce-f4d9ceb0bb1a`, do SHA
+   `afdfb78d71a53f2861632806e13cdda4662d7d63`. Se a versão ou os vínculos
+   mudarem, parar, confirmar a proveniência e a compatibilidade da nova
+   versão de volta, atualizar o recibo e reconfirmar o SIM 5.
+2. Preparar o pacote de produção em cópia isolada do frontend de A com o
+   patch de infraestrutura Workers revisado, SHA-256
+   `7d4c5cf121577800b1206d02c2038206f470962b0c7b5eeea0d39d87b500f274`.
+   A #697 preservou a árvore `frontend/`, portanto o mesmo patch se aplica
+   ao archive de `6af9f75c`. O manifesto e a tag de publicação devem
+   identificar este A. Guardar o recibo anterior com seu SHA original.
+   O build Next/OpenNext e o `npm ci` do ensaio usaram Node 24.19.0. Usar
+   `cf` fixado pelo lock (1.0.0-rc.2) com Node 26.13.1 para preparar e
+   enviar o prebuilt. Conferir os hashes do manifesto do pacote autorizado
+   em `frontend/cloudflare/.cloudflare/output/v1` e registrar SHA de A,
+   hash do patch e manifesto no recibo. O `j8-artifact-manifest.json`
+   do prebuilt local de `6af9f75c` tem SHA-256
+   `d726c7f9166c8d157d7756d3dda58f47b1e013487edded1bc7992e6f5723f789`.
+   Um novo build exige nova conferência dos hashes e recibo do artefato.
+   A origem pública de build é
+   `NEXT_PUBLIC_API_URL=https://api.igreja12.com.br`. Conferir somente o
+   binding `ASSETS`, `workersDev=false` e `previewUrls=false`, sem
+   domínios, rotas ou triggers no pacote. O prefixo `frontend/` do Git em
+   T continua no SHA A. O patch de infraestrutura é aplicado apenas na
+   cópia de build.
+3. Conferir a integridade de OpenAPI em checkout isolado de A, com as
+   dependências de A. Da raiz, rodar
+   `python backend/scripts/export_openapi.py --check` e confirmar SHA-256
+   `384b3b93606c9ff7e81221214fd08d01fe87d527f4c31fbee780fe31f8209aa8`
+   no `frontend/openapi.json`. Conferir também a compatibilidade parcial
+   da versão anterior com A (§12.7). O smoke com mock do build é uma prova
+   local de frontend. A volta exige o contrato conferido e smoke nos três
+   hosts contra A.
+4. Antes de publicar, confirmar **SIM 5 nominal** para upload, promoção
+   e eventual volta da versão do painel. Registrar operador, contas e
+   conversa de teste autorizadas, papéis e efeitos permitidos. O login
+   pode gravar sessão e auditoria, e abrir Conversas pode marcar leitura.
+   Ausência de autorização, A10 verde ou prova de compatibilidade
+   suspende J8.
 
-**Regra do painel sobre o backend `afdfb78d` (decisão de 12/11/2026):** o
-backend da janela é `afdfb78d` e o painel vem do SHA da `main`. O J8 só
-publica se o contrato da API do backend `afdfb78d` for igual ao que tipa o
-painel (`frontend/openapi.json` do SHA do painel). Se houver **qualquer**
-diferença, o J8 não publica nada: o painel atual fica no ar e o novo vai junto
-com o backend no release seguinte. Conferência (no V5, no computador do
-operador, na raiz do checkout, com a venv do backend ativa; sem acesso a
-produção):
+#### J8: dry run, upload e promoção
+
+Com a A10 verde e o SIM 5 confirmado, apontar `J8_FRONTEND` para o diretório
+`frontend` da cópia revisada. O dry run do prebuilt é obrigatório.
+Conferir a tag `j8-6af9f75c` e somente `ASSETS` na saída. O comando
+`cf deploy` direto fica fora deste procedimento.
 
 ```bash
-D=$(mktemp -d) && git archive afdfb78d backend/app | tar -x -C $D && mkdir -p $D/backend/scripts && git show <SHA>:backend/scripts/export_openapi.py > $D/backend/scripts/export_openapi.py && git show <SHA>:frontend/openapi.json > $D/painel.json && (cd $D/backend && python scripts/export_openapi.py --check --output $D/painel.json)
+cd "${J8_FRONTEND:?informe o diretório frontend da cópia revisada}/cloudflare" || exit 1
+cf_node=/home/raniel-linux/.local/share/mise/installs/node/26.13.1/bin/node
+cf_cli=../node_modules/cf/bin/cf
+export CLOUDFLARE_ACCOUNT_ID=f3e9829232eb12ca3142d704d9455ce2
+export CLOUDFLARE_SEND_METRICS=false
+"$cf_node" "$cf_cli" workers versions create --prebuilt --dry-run --tag j8-6af9f75c
 ```
 
-Esperado: `OPENAPI_OK`. Resultado de 12/11 (`afdfb78d` x `e9a8fc4a`):
-idêntico byte a byte (sha256 `751108f0…70aa`). As mudanças de backend entre
-os dois SHAs são internas (paginação do histórico feita no banco com a mesma
-resposta, "dia da igreja" na data do DPA do Jev, tipos e consultas), sem rota,
-parâmetro ou campo de resposta novo ou alterado. O E2E do painel roda contra
-API simulada, então não testa o backend real; a prova é o contrato.
-
-**Passo (depois do SIM 5):**
+Só avançar após o dry run passar e a conferência confirmar o prebuilt.
 
 ```bash
-cd <pasta>/frontend
-vercel --prod
+"$cf_node" "$cf_cli" workers versions create --prebuilt --tag j8-6af9f75c --message "J8 frontend A 6af9f75c"
 ```
 
-Conferir que o deployment novo ficou em Production e que `app.`, `admin.` e
-`painel.igreja12.com.br` apontam para ele.
+Conferir em leitura o UUID retornado, sua conta, Worker, tag e o binding.
+Antes de promover, confirmar que a versão anterior registrada no V5 ainda
+recebe 100%. Usar o UUID novo conferido:
 
-**Smoke do painel contra a API nova (o Raniel entra com a conta dele; ninguém
-digita senha por ele):** abrir `app.` e `admin.`; entrar; a tela inicial
-carrega nome, igreja e menus do papel, sem "sessão indisponível"; abrir as
-telas principais do menu (inclusive `/gestao`) só para leitura; sair e
-confirmar que voltou ao login. Não enviar mensagem, não confirmar ações e não
-mudar configurações durante o smoke. Registrar horário, deployment e resultado.
+```bash
+read -r -p "UUID da nova versão conferida: " j8_version
+[[ "$j8_version" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || exit 1
+j8_versions=$(printf '[{"version_id":"%s","percentage":100}]' "$j8_version")
+"$cf_node" "$cf_cli" workers deployments create --worker igreja12-frontend-prod --strategy percentage --versions "$j8_versions"
+```
 
-**Se o smoke falhar:** voltar só o painel ao deployment anotado no V5, pelo
-Instant Rollback da Vercel (painel do projeto ou `vercel rollback <url>`).
-É reversível e está coberto pelo SIM 5. Não mexer no backend, nos workers nem
-nos gates: a A10 já terminou e continua valendo. Depois de um rollback, a
-Vercel deixa de apontar os domínios para deploys novos até um "undo"/promote;
-a próxima tentativa exige SIM próprio. Registrar o motivo.
+Confirmar o deployment e a versão a 100%, os três domínios existentes e
+`workers.dev` e previews desligados. Registrar o UUID da versão e o ID do
+deployment. Preservar DNS, domínios, rotas e triggers.
 
-**Janela de incompatibilidade entre o SIM 3 e o J8:** a comparação do código
-de `afdfb78d` (painel no ar) com o SHA da janela não achou mudança no login
-nem na sessão: as rotas `/auth/*` usadas pelo painel antigo e pelo novo são as
-mesmas; `routers/auth.py`, `main.py` (CORS) e `config.py` do backend não
-mudaram; nenhuma rota foi criada ou removida; o token vai por `Bearer`, sem
-cookie; a CSP é do próprio painel, em modo relatório; e a única variável do
-painel continua `NEXT_PUBLIC_API_URL`. Do J4 até a A10 a API responde 503 e o
-painel antigo só mostra indisponibilidade. Entre a A10 (que reabre o site) e o
-fim do J8, o painel antigo fala com a API nova: pelo código deve funcionar,
-mas não foi testado ao vivo e não tem as correções de tela feitas depois de
-`afdfb78d`. Para encurtar esse intervalo: V5 feito na véspera, J8 logo depois
-da A10 e o aviso V4 pedindo que a equipe só use o painel depois do smoke do J8.
-Manter o site em manutenção até o J8 não é possível sem mudar a A10, que reabre
-as entradas do WhatsApp e do site juntas; pelo resultado acima, não é
-necessário.
+#### Smoke pós-J8 e volta do painel
+
+1. Nos três hosts públicos, verificar HTTPS/TLS, o destino Cloudflare e
+   HTML, JS, CSS e manifesto. Conferir o redirect legado `app/admin`
+   (`https://app.igreja12.com.br/admin`) para `painel.igreja12.com.br`.
+   Na API de A, verificar `/health`, `/ready` e preflight CORS a partir
+   das três origens.
+2. Em sessões novas com papéis autorizados, verificar login e sessão,
+   Hoje, Conversas, `/gestao`, detalhe e alerta de célula e Console Master.
+   Usar somente a conversa e as contas aprovadas. Preservar os gates e
+   evitar envios ou outras mutações fora do smoke autorizado.
+3. Provar CSP nos documentos. Registrar **zero eventos
+   `securitypolicyviolation` e zero mensagens de violação de CSP no
+   console**. Registrar horários, versão, deployment e resultados antes
+   de seguir para J9/J10.
+
+Se o smoke falhar, a volta só do painel requer que V5/5.1 e §12.7 tenham
+confirmado a compatibilidade da versão anterior e que o SIM 5 cubra a
+volta. No mesmo Worker, promover a 100% a versão anterior anotada no V5.
+Para o UUID esperado:
+
+```bash
+"$cf_node" "$cf_cli" workers deployments create --worker igreja12-frontend-prod --strategy percentage --versions '[{"version_id":"edee314b-7be2-4d49-86ce-f4d9ceb0bb1a","percentage":100}]'
+```
+
+A troca cria um novo deployment. DNS e Custom Domains permanecem, e a
+Vercel fica fora da rota de retorno. Repetir o smoke nos três hosts e em
+sessão nova, considerando a propagação e caches de abas abertas. Registrar
+o ID do deployment de volta. Sem compatibilidade confirmada ou se a
+volta falhar, parar para decisão de correção adiante. O backend, os
+workers e os gates da A10 permanecem.
+
+Entre J4 e A10 a API responde `503`. Entre A10 e J8, a versão anterior
+opera com as limitações da §12.7. Deixar V5 pronto para executar J8 logo
+depois da A10.
 
 ### 12.6 Kit e roteiro do dia
 
-Preparado em 12/11/2026 com leitura só de metadados da VPS e do banco (nada
-alterado). **Dois SHAs diferentes, por desenho:**
+Referência atualizada na Fase 4 para **A** =
+`6af9f75c8d673cb3454de1f8740a0acc509937ff` (`EXECUTOR_SHA` =
+`37c7d68d60b6f86cfb1fe75d4c720530537845d6`). Os valores de runtime da VPS
+(IDs dos contêineres, gates, arquivo privado efetivo, digest do catálogo e
+imagem do candidato) são revalidados e fixados no kit durante os blocos `5.1`
+e `5.2`.
 
-- **Backend publicado:** `afdfb78d71a53f2861632806e13cdda4662d7d63`, fixo na
-  ferramenta (`APPLICATION_SHA`; aplicador `37c7d68d`). Outro SHA é recusado
-  (`unreviewed-release`). As 51 migrations são as mesmas da `main`; as
-  correções de backend feitas depois de `afdfb78d` só entram no release
-  seguinte.
-- **Ferramenta e painel:** o SHA da `main` que contém esta seção (`<SHA>`
-  abaixo). Os quatro checks e o `synthetic-release` precisam estar verdes nele
-  (V3).
+- **Backend e painel publicados:** SHA **A**
+  (`6af9f75c8d673cb3454de1f8740a0acc509937ff`), fixo na ferramenta
+  (`TARGET_COMMIT_SHA` / `APPLICATION_SHA`; aplicador `EXECUTOR_SHA` =
+  `37c7d68d60b6f86cfb1fe75d4c720530537845d6`). Outro SHA é recusado
+  (`unreviewed-release`). O plano soma **130 migrations** (`78` de base +
+  **52 pendentes**: `44` transacionais e `8` `CONCURRENTLY`, terminando em
+  `20261112_160000_celula_alerta_regras.sql`).
+- **Ferramenta da virada:** SHA integrado da PR **T** sobre **A** na `main`
+  (`<SHA_T>`). Os checks `backend-tests`, `frontend-ci`, `e2e-critical`,
+  `rls-integration` e `synthetic-release`, além do ensaio Docker da 4.6
+  (`test_first_transition_window_backup_docker`), precisam estar verdes antes
+  de gerar e copiar o kit.
 
 **Kit (onde cada item fica na VPS):**
 
-| Item | Local na VPS | Estado em 12/11 |
+| Item | Local na VPS | Observação |
 |---|---|---|
-| Ferramenta no `<SHA>` (só a pasta `deploy/`) | `/opt/pastorai-releases/tool-<SHA>/deploy` | falta copiar (V8) |
-| Repositório com os blobs de `afdfb78d` e `37c7d68d` | `/opt/pastorai-releases/repo` | pronto (clone de 31/10) |
-| Python 3.13 com psycopg2 2.x | `/var/lib/pastorai-first-transition/venv/bin/python` | pronto (3.13.15, 2.9.12) |
-| Configuração da transição | `/var/lib/pastorai-first-transition/window/first-transition.json` | gerado no kit; falta copiar |
-| Configuração do backup da janela | `/var/lib/pastorai-first-transition/window/backup.json` | gerado no kit; falta copiar |
-| Configuração das entradas e escritores | `/var/lib/pastorai-first-transition/window/bindings.json` | gerado no kit; falta copiar |
-| Pastas do backup e do clone (root, 0700) | `/var/lib/pastorai-first-transition/window-backups` e `.../clone-work` | falta criar |
-| Imagem do backup e do clone | `postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929` (a mesma do CI) | falta baixar |
-| Imagem do candidato | `sha256:b795374e…501c` (`pastorai-backend:afdfb78d`, revisão `afdfb78d`) | pronta |
-| Pacote do backend | igual ao gerado pela ferramenta do repositório; manifesto `08c7696f…cbb`, tarball `5780362531fc8550c3e71cb6a99f4c4170694999263b1d86edf2b2d948116b7d` | pronto (`/var/lib/pastorai-first-transition/package`) |
-| Layout do candidato e arquivo de espera da A9 | `/opt/pastorai-releases/afdfb78d…/` e `/var/lib/pastorai-first-transition/state/a9-hold.override.yml` | falta (`prepare-layout`, V8) |
-| Arquivo privado do candidato | `/opt/pastorai-lionclaw/deploy/.env.v2` (root 0600) | existe; tem `ALLOW_REAL_SENDS=false` repetido: corrigir no V8 |
-| Arquivo privado do aplicador | `/root/igreja12-janela.conf` (root 0600, uma linha `MIGRATION_DATABASE_URL=`) | falta; criado no V8 a partir do `DATABASE_URL` do `.env.v2`, sem ninguém ver o valor |
-| Diário da janela | `/var/lib/pastorai-first-transition/state/journal` | vazio (não pode existir diário velho) |
+| Ferramenta no `<SHA_T>` (só a pasta `deploy/`) | `/opt/pastorai-releases/tool-<SHA_T>/deploy` | copiada no V8 |
+| Repositório com os objetos Git de **A** (`6af9f75c`), **T integrado** e `EXECUTOR_SHA` do aplicador (`37c7d68d`) | `/opt/pastorai-releases/repo` | atualizar e conferir os três commits com `git cat-file -e` no V8 (`4.2 h`) |
+| Python 3.13 com psycopg2 2.x | `/var/lib/pastorai-first-transition/venv/bin/python` | venv isolada da ferramenta |
+| Configuração da transição | `/var/lib/pastorai-first-transition/window/first-transition.json` | gerada no kit com `sha` = `6af9f75c...`, fora do Git |
+| Configuração do backup da janela | `/var/lib/pastorai-first-transition/window/backup.json` | gerada no kit; `restore_excluded_expected` fixado após V9 |
+| Configuração das entradas e escritores | `/var/lib/pastorai-first-transition/window/bindings.json` | atualizada após fechamento de envios da `5.2` se os IDs mudarem |
+| Pastas do backup e do clone (root, 0700) | `/var/lib/pastorai-first-transition/window-backups` e `.../clone-work` | criadas no V8 |
+| Imagem do backup e do clone | `postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929` (a mesma do CI) | `docker pull` no V8 |
+| Imagem e pacote do candidato **A** (`6af9f75c...`) | construídos/empacotados para `6af9f75c...` | layout e tarball conferidos antes do `prepare-layout` |
+| Layout do candidato e arquivo de espera da A9 | `/opt/pastorai-releases/6af9f75c.../` e `/var/lib/pastorai-first-transition/state/a9-hold.override.yml` | criados por `prepare-layout` no V8 |
+| Arquivo privado efetivo do runtime (`0600`, `root`) | caminho efetivo externo ao layout verificado (ex.: `/etc/pastorai/.env.v2` ou `/etc/pastorai-private/runtime.env`) | conferir variáveis obrigatórias de **A** só por nome (`12.7`) e gates fechados no `V2`/`5.2` |
+| Arquivo privado do aplicador | `/root/igreja12-janela.conf` (`root`, `0600`, uma linha `MIGRATION_DATABASE_URL=`) | derivado da `DATABASE_URL` efetiva sem imprimir valor |
+| Diário da janela | `/var/lib/pastorai-first-transition/state/journal` | vazio no início (não pode existir diário velho) |
 
-Valores lidos em 12/11 que já estão nos arquivos: daemon `cca7e973…`, rede
-`pastorai_default` (`3f9e8901…`, ponte `br-3f9e89014eac`), os quatro IDs
-antigos e os três de apoio (iguais aos de 31/10), identidade do banco
-`9b48b837…` e catálogo `b561d41f…` (o de 31/10 era de uma versão anterior da
-consulta), 78 migrations no ledger, banco com 23 MB, PostgreSQL 17.6.
+**Fatos operacionais vigentes (atualizados na Fase 4):**
 
-**Fatos de 12/11 que pedem atenção:**
-
-1. O `broadcast-worker` antigo tem `ALLOW_REAL_SENDS=true` duas vezes. A
-   ferramenta agora trata o valor repetido igual como um só; valores
-   diferentes continuam recusando.
-2. Na sessão do aplicador (`postgres` pelo pooler, porta 5432):
-   `statement_timeout` = **2 min**, `lock_timeout` = 0, sem superusuário,
-   com BYPASSRLS e CREATEROLE. Pela regra do V1, decidir antes do SIM 3:
-   com 23 MB de banco nenhuma migration deve chegar perto de 2 min, e o
-   ensaio V9 mede isso no clone. Se alguma passar de 60 s no clone, parar e
-   decidir antes da janela.
-   - Não altere a role (`ALTER ROLE` nem outro ajuste persistente).
-   - `PGOPTIONS` não serve aqui. O executor da janela monta o ambiente do
-     processo do `migrate.py` do zero e só aceita `PATH`, `LC_ALL`, `LANG`,
-     `PYTHON_DOTENV_DISABLED`, `MIGRATION_DATABASE_URL`, `PGAPPNAME` e
-     `PGCONNECT_TIMEOUT`.
-   - A URL do aplicador também recusa o parâmetro `options`.
-   - O `migrate.py` fixo (`37c7d68d`) só define `lock_timeout` (2 s, `SET
-     LOCAL`) e não mexe no `statement_timeout`. Cada migration roda, portanto,
-     com os 2 min da role.
-   - O pooler do Supabase também ignora `PGOPTIONS` (regra no topo deste
-     runbook).
-   - Conferido no código em 12/11.
-   - **Decisão de 12/11 (orquestrador, opção a):** ficam os 2 min da role.
-     Não muda o executor nem a role.
-   - **Regra de parada do V9:** o `rehearse-backup` não mostra o tempo de cada
-     migration. O recibo mostra só `seconds`, que é o total do ensaio (cópia,
-     restore e as 51 migrations no clone). Como nenhuma migration dura mais
-     que o total:
-     - `seconds` abaixo de 60: todas ficaram abaixo de 60 s. Segue.
-     - `seconds` de 60 ou mais: não dá para provar que cada uma ficou abaixo
-       de 60 s. A janela **não abre**. Volta para a opção (b): a ferramenta
-       passa a aceitar o timeout explícito, com nova revisão.
-     - Quem dá o SIM do V8/V9 confere esse número antes do SIM 2.
-3. Risco conhecido, aceito pelo orquestrador em 12/11: no backend
-   `afdfb78d`, o envio humano pelo painel para contato com opt-out **não** é
-   bloqueado, igual à produção de hoje. O bloqueio (#665) existe só no backend
-   da `main` e chega no release seguinte. O painel da `main` não muda isso: o
-   bloqueio é do backend.
+1. Gates repetidos idênticos nos contêineres legados (ex.: `ALLOW_REAL_SENDS=true`
+   repetido em `broadcast-worker`): tratados como um só por `_unique_gates`;
+   valores divergentes no legado recusam com `driver-inspect-gates`, enquanto
+   no candidato qualquer repetição de gate recusa com `candidate-inspect-gates`.
+2. Na sessão do aplicador (`postgres` sem `SUPERUSER`, `rolbypassrls=true`,
+   `rolcreaterole=true`, `statement_timeout = '2min'`, `lock_timeout = 0`):
+   - **Não alterar a role persistente no Supabase** (`ALTER ROLE`). `PGOPTIONS`
+     não passa no executor nem no pooler do Supabase; `migrate.py` define apenas
+     `SET LOCAL lock_timeout = '2s'`, herdando o `statement_timeout = '2min'`
+     da role.
+   - **Paridade do clone (Decisão 7):** `WindowBackup` separa `restore_user =
+     'clone_admin'` (usada só no `pg_restore` e setup do clone) de
+     `migration_user = 'postgres'` **sem `SUPERUSER`**, configurada com
+     `BYPASSRLS`, `CREATEROLE`, `CREATEDB`, `INHERIT`, `ADMIN OPTION` nas roles
+     `anon`/`authenticated`/`service_role`, `ALTER ROLE service_role BYPASSRLS` e
+     `statement_timeout = '2min'`, verificados na conexão antes do replay e
+     registrados em `clone_rehearsal['applicator_role']`. Também verifica RLS/grants
+     das roles de runtime em `clone_rehearsal['rls_grants_verified']`. O `V1`/`1.2`
+     em PROD confirma `pg_roles` e `pg_auth_members` equivalentes na role `postgres`
+     de PROD.
+   - **Regra de parada do V9 (Decisão D9, item 4.2 d):** o recibo de
+     `rehearse-backup` registra `dump_seconds`, `restore_seconds`,
+     `migrations_seconds`, `max_migration_seconds`, `seconds` (total) e
+     `migration_timings` (todas as **52 migrations**). A regra D9 barra **apenas
+     se alguma migration individual (`max_migration_seconds`) ultrapassar
+     `60 s`** (o tempo total do ensaio não barra).
 
 #### Preparação (V8, SIM próprio; V9 dentro dele)
 
-No computador do operador, com o checkout na `main` em `<SHA>`:
+No computador do operador, substituir `<SHA_T>` pelo SHA integrado de T.
+O checkout precisa conter esse commit, **A**
+(`6af9f75c8d673cb3454de1f8740a0acc509937ff`) e `EXECUTOR_SHA` do aplicador
+(`37c7d68d60b6f86cfb1fe75d4c720530537845d6`).
 
 ```bash
-git archive --format=tar <SHA> deploy | ssh vps "sudo install -d -m 755 /opt/pastorai-releases/tool-<SHA> && sudo tar -x --no-same-owner -C /opt/pastorai-releases/tool-<SHA>"
+SHA_T='<SHA_T>'
+git archive --format=tar "$SHA_T" deploy | ssh vps "sudo install -d -m 755 /opt/pastorai-releases/tool-${SHA_T} && sudo tar -x --no-same-owner -C /opt/pastorai-releases/tool-${SHA_T}"
+git update-ref refs/transition/a 6af9f75c8d673cb3454de1f8740a0acc509937ff &&
+  git update-ref refs/transition/tool "$SHA_T" &&
+  git update-ref refs/transition/executor 37c7d68d60b6f86cfb1fe75d4c720530537845d6 &&
+  git bundle create /tmp/first-transition.bundle refs/transition/a refs/transition/tool refs/transition/executor &&
+  git update-ref -d refs/transition/a &&
+  git update-ref -d refs/transition/tool &&
+  git update-ref -d refs/transition/executor
 ```
 
 ```bash
-scp first-transition.json backup.json bindings.json vps:/tmp/
+scp /tmp/first-transition.bundle first-transition.json backup.json bindings.json vps:/tmp/ && rm -f /tmp/first-transition.bundle
+ssh vps "sudo git -C /opt/pastorai-releases/repo fetch /tmp/first-transition.bundle 'refs/transition/*:refs/transition/*' && sudo git -C /opt/pastorai-releases/repo cat-file -e 6af9f75c8d673cb3454de1f8740a0acc509937ff^{commit} && sudo git -C /opt/pastorai-releases/repo cat-file -e ${SHA_T}^{commit} && sudo git -C /opt/pastorai-releases/repo cat-file -e 37c7d68d60b6f86cfb1fe75d4c720530537845d6^{commit} && sudo rm -f /tmp/first-transition.bundle"
 ```
 
 Na VPS (`ssh vps`, depois `sudo -i`):
@@ -1165,26 +1478,23 @@ W=/var/lib/pastorai-first-transition
 install -d -m 700 $W/window $W/window-backups $W/clone-work
 install -m 600 /tmp/first-transition.json /tmp/backup.json /tmp/bindings.json $W/window/ && rm /tmp/first-transition.json /tmp/backup.json /tmp/bindings.json
 docker pull postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
-B=/root/env.v2.bak-$(date -u +%Y%m%dT%H%M)
-cp -p /opt/pastorai-lionclaw/deploy/.env.v2 $B
-awk '!(/^ALLOW_REAL_SENDS=false$/ && seen++)' $B > /opt/pastorai-lionclaw/deploy/.env.v2
-grep -c '^ALLOW_REAL_SENDS=' /opt/pastorai-lionclaw/deploy/.env.v2
-(umask 077; grep -E '^DATABASE_URL=' /opt/pastorai-lionclaw/deploy/.env.v2 | sed 's/^DATABASE_URL=/MIGRATION_DATABASE_URL=/' > /root/igreja12-janela.conf)
-stat -c '%U %a' /opt/pastorai-lionclaw/deploy/.env.v2 /root/igreja12-janela.conf
+# ENV_EFETIVO = arquivo privado 0600 fora de /opt/pastorai-current (ex.: /etc/pastorai/.env.v2 ou /etc/pastorai-private/runtime.env)
+(umask 077; grep -E '^DATABASE_URL=' "$ENV_EFETIVO" | sed 's/^DATABASE_URL=/MIGRATION_DATABASE_URL=/' > /root/igreja12-janela.conf)
+stat -c '%U %a' "$ENV_EFETIVO" /root/igreja12-janela.conf
 ```
 
-Esperado: o `grep -c` mostra `1`; os dois arquivos `root 600`.
+Esperado: os dois arquivos pertencem a `root` com permissão `600`.
 
 Variáveis usadas em todos os comandos seguintes (na VPS, como root):
 
 ```bash
 PY=/var/lib/pastorai-first-transition/venv/bin/python
-T=/opt/pastorai-releases/tool-<SHA>/deploy/first_transition_window.py
+T=/opt/pastorai-releases/tool-<SHA_T>/deploy/first_transition_window.py
 W=/var/lib/pastorai-first-transition/window
 ARGS="--config $W/first-transition.json --backup-config $W/backup.json --bindings-config $W/bindings.json --env-file /root/igreja12-janela.conf --env-var MIGRATION_DATABASE_URL"
 ```
 
-Layout do candidato e conferências (V9):
+Layout do candidato (V8) e conferências (V9):
 
 ```bash
 $PY -E -s $T prepare-layout --config $W/first-transition.json
@@ -1194,74 +1504,147 @@ $PY -E -s $T check-bindings $ARGS
 $PY -E -s $T rehearse-backup $ARGS
 ```
 
-Esperado: `prepare-layout` com `files` 144; `prepare` imprime `plan_digest`
-e `window_digest` (anotar os dois; o `window_digest` de referência para o SIM 2
-é o do `prepare` refeito **depois** de gravar o `restore_excluded_expected`,
-abaixo; nesse `prepare`, `restore_excluded_pinned` precisa ser `true`); `check` com `same_database` e `ddl_free`
-`ok` nas duas leituras; `check-bindings` com as duas entradas `open` e
-`unknown_writers` 0; `rehearse-backup` termina com recibo e as 51 migrations
-no clone (o recibo traz `restore_excluded`: quantas entradas do dump o restore
-deixou de fora e os nomes dos event triggers deixados de fora; quem dá o SIM
-confere essa lista: o ensaio das migrations **não exercita** esses triggers,
-que em produção disparam a cada DDL). O restore usa uma lista de conteúdo filtrada:
-fora ficam só a extensão `supabase_vault` (e o que está no schema `vault`) e
-os event triggers cujo dono não é superusuário no clone, porque a imagem
-oficial do Postgres não restaura isso. Tabelas, dados, policies, funções,
-publication e o schema `public` (que o catálogo confere) ficam. Qualquer
-`refused`: parar e trazer o código inteiro para a equipe (por exemplo
-`window-backup-restore-failed-extension`; pode aparecer uma recusa por vez,
-então outras extensões do Supabase podem exigir novo ensaio; o sufixo é o tipo de objeto que
-parou o restore, nunca nome ou valor). O restore copia o dump também para
-dentro do clone (some com ele; mais disco e um pouco mais de tempo, que conta
-no `seconds`); nada foi alterado no sistema antigo. O `rehearse-backup` guarda uma cópia do banco em
-`window-backups` (root 0700); ela fica até o fim da janela. Na mesma pasta
-ficam também `restore-full.list` e `restore.list` (só nomes de objetos do
-banco, sem dados; 0600).
+Esperado: `prepare-layout` grava o pacote exato de **A** (`6af9f75c...`);
+`prepare` imprime `plan_digest` e `window_digest` (anotar os dois; o
+`window_digest` de referência para o SIM 2 é o do `prepare` refeito **depois**
+de gravar `restore_excluded_expected`, com `restore_excluded_pinned: true`);
+`check` com `same_database` e `ddl_free` `ok` nas duas leituras;
+`check-bindings` com as duas entradas `open` e `unknown_writers: 0`;
+`rehearse-backup` termina com recibo das **52 migrations** no clone
+(`applied: 52`, `final_ledger: 130`, `concurrent: 8`, `max_migration_seconds <= 60.0`,
+`applicator_role.rolsuper: false`, `applicator_role.statement_timeout: "2min"`,
+`rls_grants_verified`), além de `restore_excluded`, `final_schema_digest` e tempos
+de cópia, restore e cada migration. Cópia externa do `window.dump` fica
+dispensada (`4.2 d` / D13); `window-backups` (0700) guarda o dump e as listas
+`restore-full.list` / `restore.list` (0600) até o fim da janela.
 
-**Travar os números do restore no `backup.json` (ao dar o SIM 2).** O recibo
-do V9 traz `restore_excluded` (`vault_extension`, `vault_schema`,
-`event_triggers`, `event_trigger_names`) e `restore_seconds` (só o restore;
-`seconds` continua sendo o total). O operador confere os nomes e copia o
-`restore_excluded` do recibo, sem mudar nada, para o campo
-`restore_excluded_expected` do `$W/backup.json` na VPS (arquivo do kit, fora
-do Git; o `rehearse-backup` funciona sem o campo, é assim que se descobre o
-valor). No modo `run` o campo é **obrigatório**: sem ele, ou com números
-diferentes dos do dump da hora, a janela recusa com
-`window-backup-restore-excluded`, antes de copiar ou restaurar qualquer coisa
-no clone. Grave o campo na véspera, logo depois do V9, e refaça `prepare` e
-`rehearse-backup` ali; não edite às 10:00. O `run` e o `a10` recusam com
-`window-backup-restore-excluded` logo no começo, sem diário nem efeito, se o
-campo faltar. Se os números não baterem com o dump da hora, a recusa vem depois
-do dump e **consome a janela** (sistema antigo volta); por isso qualquer
-mudança de schema no sistema antigo entre o V9 e a janela exige refazer o V9.
-Editar o `backup.json` muda o `window_digest` (o `plan_digest` não muda):
-rodar o `prepare` depois de editar e anotar o `window_digest` novo; é esse que
-vale no SIM 2.
+**Travar os números do restore no `backup.json` (antes de pedir o SIM 2):**
+conferir `restore_excluded` do recibo do `V9` e copiar exatamente para
+`restore_excluded_expected` em `$W/backup.json`, repetindo `prepare` e
+`rehearse-backup` na véspera (nunca editar no horário da janela). Como `Q_CATALOG`
+compara apenas o schema `public` + default ACLs em namespace `0`/`public`, os itens
+excluídos do restore (`supabase_vault`, schema `vault` e event triggers de
+superusuário) ficam fora do escopo comparado e não causam divergência em
+`final['catalog'] == final_schema_digest`.
 
 #### Roteiro do dia
 
-Horário de exemplo: início às 10:00 (Brasília), em dia útil. Duração prevista
-do SIM 2 ao fim: cerca de **80 min**; reservar **2 h**. Duração máxima a
+Horário de exemplo: início às 10:00 (Brasília), em dia útil. Duração máxima a
 registrar no J1: 120 min. Em todos os passos, os comandos rodam na VPS como
 root com as variáveis acima.
 
 | Hora | Passo | Duração | Comando que o operador dispara | Se falhar |
 |---|---|---|---|---|
-| 09:30 | V4 lembrado, V7 foto dos outros sistemas | 10 min | bloco da seção 12.0 | Algum outro sistema fora do ar: não abrir a janela. |
-| 10:00 | **SIM 2** — J1 abrir a janela | 5 min | `$PY -E -s $T prepare $ARGS` e conferir que o `plan_digest` é o do V9 e que o `window_digest` é o do `prepare` feito depois de gravar o `restore_excluded_expected`; registrar início UTC, operador, 120 min e SHAs | Digest diferente do `prepare` feito depois de gravar o campo: parar; algo mudou desde a véspera. |
+| 09:30 | V7 foto dos outros sistemas (V4 dispensado, D13) | 10 min | bloco da seção 12.0 | Algum outro sistema fora do ar: não abrir a janela. |
+| 10:00 | **SIM 2** — J1 abrir a janela | 5 min | `$PY -E -s $T prepare $ARGS` e conferir `plan_digest` e `window_digest` do V9 final; registrar início UTC, operador, 120 min e SHAs | Digest diferente: parar; algo mudou desde o V9. |
 | 10:05 | J2 pausar só o backup da Igreja 12 | 2 min | `mv /etc/cron.d/pastorai-backup /root/pastorai-backup.cron.pausado` | Se não existir, conferir com `ls /etc/cron.d/` e anotar. Nunca parar o serviço `cron`. |
-| 10:07 | **SIM 3** — J3 a J6 (`run`, inclui o ponto de não retorno) | 20–35 min | `$PY -E -s $T run $ARGS --expect-plan-digest <plan> --expect-window-digest <window>` | Saída com `refused`: ler `recovery.state`. Antes da DDL (`contained-pre-ddl`, `backup-window-used`): a equipe decide `resume_legacy` (volta o sistema antigo). Depois da DDL: tudo fica contido (site em manutenção, nada enviado); nada de reiniciar, restaurar ou voltar sem SIM próprio. |
+| 10:07 | **SIM 3** — J3 a J6 (`run`, inclui o ponto de não retorno) | 20–35 min | `$PY -E -s $T run $ARGS --expect-plan-digest <plan> --expect-window-digest <window>` | Consultar `$PY -E -s $T status --config $W/first-transition.json`. Pré-marcador (`contained-pre-ddl`, `backup-window-used`): `resume-legacy` se autorizado. Pós-marcador (`ddl-marker`): `run` recusa sempre (`transition-stopped` no orquestrador; JSON da CLI `"refused": "window-transition-refused"` e estado em `recovery.state`); seguir tabela 12.2.1. |
 | 10:40 | anotar `a10_token` do resultado | 1 min | — | Resultado sem `a10_token`: não seguir para a A10. |
-| 10:42 | **SIM 4** — J7 A10 | 5–10 min | `$PY -E -s $T a10 $ARGS --expect-plan-digest <plan> --expect-window-digest <window> --a10-token <a10_token>` | A ferramenta contém sozinha (site em manutenção, workers parados). Não repetir nem reabrir por conta própria; repetir o mesmo comando só se ela parou no meio (retoma do diário). |
-| 10:52 | **SIM 5** — J8 painel | 15 min | no computador do operador: `cd <pasta>/frontend` e `vercel --prod` (seção 12.5) | Smoke falhou: `vercel rollback <deployment anotado no V5>`; backend e gates ficam como estão. |
-| 11:07 | J9 religar o backup e conferir | 5 min | `mv /root/pastorai-backup.cron.pausado /etc/cron.d/pastorai-backup && chown root:root /etc/cron.d/pastorai-backup && chmod 644 /etc/cron.d/pastorai-backup` | Se o arquivo não voltar, o backup diário de amanhã não roda: corrigir no mesmo dia. |
-| 11:12 | J10 foto dos outros sistemas e `diff` com a das 09:30 | 10 min | bloco da seção 12.0 | Diferença: não mexer em outro sistema; avisar o Raniel. |
-| 11:22 | Encerramento | — | registrar horários, resultado do `run`, da A10 e do J8 | — |
+| 10:42 | **SIM 4** — J7 A10 | 5–10 min | `$PY -E -s $T a10 $ARGS --expect-plan-digest <plan> --expect-window-digest <window> --a10-token <a10_token>` | Se `a10-partial`, repetir o mesmo comando `a10`. Se `a10-contained` ou `a10-containment-incomplete`, seguir tabela 12.2.1 sem reabrir sozinho. |
+| 10:52 | **SIM 5** — J8 painel de **A** (`6af9f75c`) | 15 min | após A10 verde, dry run, upload de versão, promoção a 100% no Worker e smoke nos três hosts (§12.5) | Se falhar, voltar à versão anterior no mesmo Worker somente quando a compatibilidade estiver confirmada (§12.7). |
+| 11:07 | J9 configurar `/opt/pastorai-current`, provar 1 backup manual e religar cron | 10 min | comandos da seção 12.2.2 (mesmo `env -i` do cron com `PASTORAI_ENV_FILE='<ENV>'` e `/usr/local/sbin/pastorai-backup.sh`, `sha256sum -c`, `backup-status.json`, `docker inspect`, depois instalar o cron novo em `/etc/cron.d/pastorai-backup`) | Sem `BACKUP_OK` novo (stamp/archive/intervalo), `"status":"verified"` e apoio despausados, não religar cron nem fechar janela. |
+| 11:17 | J10 foto dos outros sistemas e `diff` com a das 09:30 | 10 min | bloco da seção 12.0 | Diferença: não mexer em outro sistema; avisar o Raniel. |
+| 11:27 | Encerramento | — | registrar horários, resultado do `run`, da A10, do J8, do J9 e `window_backup_id` | — |
 
-**Painel (J8):** publicar **somente** no projeto Vercel
-`pastorai-frontend-prod`, a partir de um checkout limpo do `<SHA>` ligado a
-ele por `vercel link` (seção 12.5). Nunca criar projeto novo nem usar o
-projeto antigo `pastorai-frontend`.
+### 12.7 Conferências estáticas da fase 4.4 (SHA **A** = `6af9f75c8d673cb3454de1f8740a0acc509937ff`)
+
+Resultado das conferências locais no código de **A** (`6af9f75c`) para
+V1, V5 e 5.1–5.2. A leitura da configuração efetiva, a comparação
+nominal do ledger e da role aplicadora, e a prova do fechamento dos
+envios na imagem legada ainda são gates da 1.2/5.1–5.2.
+
+1. **Variáveis obrigatórias do backend em produção (`backend/app/config.py`, `Settings.assert_production_ready()` e `_validate_whatsapp_transporte()` — apenas NOMES, nunca valores):**
+   - `APP_ENV` (`production`)
+   - `CLERK_SECRET_KEY`, `CLERK_JWT_ISSUER`
+   - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`
+   - `SECRETS_ENCRYPTION_KEY`
+   - `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SECRET`
+   - `WHATSAPP_TRANSPORTE` (não pode ser `"simulado"` em produção)
+   - `REDIS_URL` deve estar configurada para o Redis efetivo. O default
+     loopback pode satisfazer a checagem de presença no settings sem
+     apontar para o Redis correto. Registrar presença e origem do
+     override, e validar conectividade no teste autorizado.
+   - `SESSION_JWT_SECRET` (mínimo `MIN_SESSION_SECRET_LEN` = 32 caracteres e diferente de `CLERK_SECRET_KEY`)
+   - `FRONTEND_URL`, `APP_BASE_URL` (URLs `https://` explícitas, sem wildcard/loopback/path/query)
+   - `CALENDAR_OAUTH_RETURN_ORIGINS` é obrigatória no boot de produção,
+     inclusive com Google OAuth sem credenciais. Exige ao menos uma
+     origem `https://` explícita, presente em `cors_origins`, diferente de
+     `APP_BASE_URL` e fora de `painel.*`.
+   - Além das travas operacionais preservadas nos gates (`ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off`, `BROADCAST_ASYNC_ENABLED=false`, `CELULAS_REQUESTS_ENABLED=false`, `WHATSAPP_SLA_ENABLED=false`).
+   - Antes e depois do fechamento, conferir nos quatro processos presença,
+     fonte do override e estado efetivo dos gates. A duplicidade de
+     `ALLOW_REAL_SENDS` observada no broadcast impede inferir o estado.
+     Resolver a duplicidade no Compose/arquivo privado efetivo e confirmar
+     um único valor aprovado antes de fotografar os gates. Registrar
+     ausência separadamente de um valor explicitamente fechado.
+
+2. **Auditoria estática das 52 migrations pendentes (`plan.pending` de `A`):**
+   - **Ledger e sessão:** o inventário local de A confere 78 nomes de base
+     e 52 pendentes, com os 52 hashes verificados. Comparar os **nomes**
+     com o ledger autorizado da 1.2; a contagem não basta. Nenhuma das 52
+     altera `statement_timeout`. Conferir `SHOW statement_timeout` na
+     conexão efetiva do aplicador (`2min` no ensaio). **D9** mantém o
+     teto externo de **60 s por migration**.
+   - **`lock_timeout`:** **46** definem `lock_timeout` explicitamente no SQL (`2s`), e **6** não possuem `lock_timeout` explícito no SQL (`20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql`, `20260711_152127_reclassifica_pessoa_do_numero_whatsapp_fora_de_membro.sql`, `20260925_183811_preserve_platform_admins_on_tenant_deletion.sql`, `20260926_120446_platform_jev_settings.sql`, `20261023_110000_operations_outbox_pending_metrics_fn.sql`, `20261023_120000_auth_session_revocation.sql`; o executor `migrate.py` aplica `SET LOCAL lock_timeout = '2s'` por padrão em transações).
+   - **`CONCURRENTLY` (8 não transacionais, 44 restantes transacionais):**
+     todas as oito definem `SET lock_timeout='2s'` no SQL. O parâmetro
+     `--lock-timeout 0` desliga só o ajuste do executor. A escrita no ledger
+     é um efeito separado. Índice inválido ou sem ledger após o marcador
+     segue §12.2.1. Lista: `20261023_100001_ai_usage_tenant_created_idx.sql`, `20261023_110001_notification_outbox_pending_created_idx.sql`, `20261023_110002_notification_outbox_retry_created_idx.sql`, `20261023_110003_notification_outbox_expired_lease_idx.sql`, `20261023_110004_messages_pending_agent_created_idx.sql`, `20261023_110005_work_queue_pending_created_idx.sql`, `20261028_100001_private_erasure_requests_overview_idx.sql`, `20261028_100002_private_resume_delivered_overview_idx.sql`.
+   - **Tabelas pré-existentes/críticas com `ALTER TABLE` nas 52 pendentes:** `app_users` (`20260925_183811`), `agent_action_receipts` (`20261017_180100`), `pessoas` (`20261017_230000`, além dos `UPDATE` de `20260711_*`), `celula_solicitacao` (`20261018_060000`/`070000`/`080000`), `conversations` (`20261018_090000`, `20261019_120001`), `messages` (`20261018_120000`), `ai_usage_logs` (`20261023_100000` `FORCE ROW LEVEL SECURITY`), e `cell_alerts` (`20261112_160000_celula_alerta_regras.sql`: remove `NOT NULL` de `pessoa_id`, adiciona `regra_tipo`/`fato_chave`, habilita `FORCE ROW LEVEL SECURITY`, restringe política e revoga `DELETE`).
+
+   - **Role aplicadora na VPS:** conferir `session_user` e `current_user`,
+     ownership ou autoridade efetiva sobre `cell_alerts` e outros objetos
+     do DDL, criação em `public` e `extensions`, disponibilidade e permissões
+     das extensões `unaccent` e `btree_gist`, `CREATEROLE` ou autoridade
+     equivalente e `ADMIN OPTION` para conceder `authenticated` se o
+     membership precisar ser criado. Conferir `SELECT`/`INSERT` no ledger
+     e acesso de preflight sob RLS. `BYPASSRLS` de runtime sozinho não
+     comprova autoridade de aplicar. A role sintética do replay não
+     substitui a prova da conexão, dos owners e dos grants efetivos.
+   - **Roles preexistentes:** conferir os atributos e memberships efetivos
+     das roles envolvidas, incluindo `authenticated`, e verificar se
+     correspondem aos pré-requisitos das migrations.
+   - **Funções `SECURITY DEFINER`:** conferir por assinatura o owner efetivo
+     e as permissões `EXECUTE` (ACL) das roles que precisam chamar cada
+     função. Para as que usam `row_security=off`, confirmar que o owner
+     pode fazer a leitura prevista nas tabelas com `FORCE RLS`.
+     `release_preflight.py` sozinho deixa assinaturas pendentes de
+     verificação e não testa as ACLs de execução. Essas provas no alvo
+     seguem pendentes para os blocos autorizados antes da janela.
+
+3. **Contrato da API e volta do painel (`afdfb78d` contra A):**
+   - Os OpenAPI gerados offline pelo exportador de A preservam os objetos
+     das **279 operações comuns**. A tem 282 e adiciona somente
+     `GET /cell-alert-rules`, `PUT /cell-alert-rules/{tipo}` e
+     `GET /cells/me/alerts`. Essas três operações ficam fora da interface
+     antiga.
+   - Entre os schemas comuns, só muda `AlertOut.pessoaId`, agora nullable.
+     A tela antiga conferida renderiza e baixa o alerta por ID, sem
+     depender de `pessoaId`, e tolera `null` nesse fluxo. Igualdade das
+     operações declaradas não comprova equivalência de comportamento.
+   - P1.1 recusa login/acesso de operador revogado no Console Master e
+     responde 409 à tentativa de revogar um operador da plataforma pela
+     gestão da igreja. São recusas esperadas, inclusive com painel antigo.
+   - A #697 aplica a política de senha do Clerk na ativação, redefinição
+     e troca de senha. A recusa confirmada de política passa a retornar
+     400 com mensagem controlada. Os objetos OpenAPI permanecem iguais
+     aos do A anterior. O fallback parcial preserva essa regra de
+     backend, e o smoke autorizado continua necessário.
+   - A versão anterior no Worker é **parcialmente utilizável** para as
+     superfícies comuns, se V5 confirmar sua proveniência e houver smoke
+     autorizado nos três hosts contra A após a volta. Conferir sessão
+     Bearer, origens CORS, Hoje, Conversas, gestão, células, Console Master
+     e CSP conforme §12.5. Versão desconhecida ou smoke reprovado impede
+     admitir a volta como concluída.
+
+4. **Procedimento de fechar os envios antes da foto final dos gates (`5.2`, sem tocar em PROD na Fase 4):**
+   - A prova viva do fechamento na imagem legada `sha256:4a65f30e...`
+     segue pendente na 1.2/5.1–5.2. Confirmar a identidade efetiva antes
+     de usar o procedimento. O SHA-fonte da imagem ainda é indeterminado.
+   - Antes de gerar o snapshot de gates (`V8`/`V9`/`5.2`), consultar em leitura a fila por tipo e situação (`notification_outbox`, `work_queue`, agendamentos/campanhas).
+   - Se algum dos quatro contêineres legados (`backend`, `cron-worker`, `broadcast-worker`, `queue-worker`) ainda estiver com gate de envio aberto, aplicar **exclusivamente com a mesma imagem já em execução observada no `5.1`** o arquivo privado/compose legado com `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false` (e removendo duplicidade divergente).
+   - Se a aplicação do fechamento recriar contêineres, os IDs do Docker mudam: atualizar `bindings.json` / manifesto do kit com os **novos container IDs resultantes**, rodar `$PY -E -s $T check-bindings $ARGS`, `$PY -E -s $T prepare $ARGS` e repetir `rehearse-backup` antes de pedir **SIM 2** (`5.3`).
 
 O kit gerado (três JSON, tarball do backend e notas) fica fora do Git, com a
 equipe; o caminho exato está na descrição da PR que criou esta seção.

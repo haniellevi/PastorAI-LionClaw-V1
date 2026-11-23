@@ -367,6 +367,30 @@ def test_interrupted_start_resumes_without_second_start(world, role):
         assert starts.count(A10_IDS[r]) == 1
 
 
+@pytest.mark.parametrize('interrupted_at', ['backend-receipt', 'backend-adoption', 'before-ingress'])
+def test_resume_checks_catalog_before_new_effects(world, monkeypatch, interrupted_at):
+    transition, result = a9(world)
+    if interrupted_at == 'backend-receipt':
+        world.cdocker.smoke_crash = KeyboardInterrupt()
+    elif interrupted_at == 'backend-adoption':
+        world.cdocker.start_crash = (A10_IDS['backend'], KeyboardInterrupt())
+    else:
+        def interrupt_before_open():
+            raise KeyboardInterrupt
+        monkeypatch.setattr(transition, '_open_ingress', interrupt_before_open)
+    with pytest.raises(KeyboardInterrupt):
+        transition.a10(result['a10_token'])
+    assert world.journal.last('transition-intent', 'a10:start:backend')
+    assert bool(world.journal.last('transition-done', 'a10:start:backend')) == (interrupted_at != 'backend-adoption')
+    world.pg.extra_ddl.append('synthetic_schema_drift')
+    calls = len(world.cdocker.calls)
+    with pytest.raises(Refused, match='^clone-source-schema-divergence$'):
+        world.reopen().a10(result['a10_token'])
+    assert not any(a[:2] == ('docker', 'start') for a in world.cdocker.calls[calls:])
+    assert all(binding.opens == 0 for binding in world.rig.ingress.values())
+    assert world.journal.last('transition-a10-contained')['complete'] is True
+
+
 def test_interrupted_recreation_is_adopted_on_exact_proof(world):
     transition, result = a9(world)
     world.cdocker.recreate_crash = KeyboardInterrupt()
@@ -523,3 +547,22 @@ def test_conflicting_duplicate_legacy_gate_refuses_before_containment(world):
         transition.run()
     assert world.legacy_effects() == [] and world.migrate.applied == []
     assert all(i.state == 'open' for i in world.rig.ingress.values())
+
+
+def test_a10_refuses_source_schema_divergence_from_clone_digest(world):
+    transition, result = a9(world)
+    docker = world.cdocker
+
+    def diverge_during_recreate(argv, **kwargs):
+        answer = A10Docker.__call__(docker, argv, **kwargs)
+        if argv == world.spec.a10_compose_argv():
+            world.pg.extra_ddl.append('a10_unplanned_ddl')
+        return answer
+    transition.candidate.runner = diverge_during_recreate
+    with pytest.raises(Refused, match='^clone-source-schema-divergence$'):
+        transition.a10(result['a10_token'])
+    assert world.cdocker.containers[A10_IDS['backend']]['running'] is False
+    assert ('docker', 'start', A10_IDS['backend']) not in world.cdocker.calls
+    assert world.journal.last('transition-a10-contained')['complete'] is True
+    assert world.journal.last('transition-a10-complete') is None
+    assert all(i.state == 'blocked' for i in world.rig.ingress.values())

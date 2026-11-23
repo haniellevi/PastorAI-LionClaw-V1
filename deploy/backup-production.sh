@@ -80,10 +80,70 @@ fi
 
 python3 "${DATABASE_SERVICE_HELPER}" prepare-run "${BACKUP_ROOT}" "${STAMP}"
 
-paused=0
+SUPPORT_NAMES=(pastorai_evolution pastorai_evo_postgres pastorai_redis)
+support_ids=()
+owned_pauses=()
 DATABASE_CREDENTIALS_DIR=""
 MONITOR_MANIFEST_TEMP=""
+
+support_state() {
+  docker inspect --type container --format '{{.Name}} {{.Id}} {{.State.Status}} {{.State.Paused}}' "$1" 2>/dev/null
+}
+
+pause_support() {
+  local index name state id failed=0
+  for index in "${!SUPPORT_NAMES[@]}"; do
+    name="${SUPPORT_NAMES[index]}"
+    if state="$(support_state "${name}")" && [[ "${state}" =~ ^/${name}\ ([a-f0-9]{64})\ (running|paused)\ (true|false)$ ]]; then
+      support_ids[index]="${BASH_REMATCH[1]}"
+    fi
+    if [[ -z "${support_ids[index]:-}" || "${state}" != "/${name} ${support_ids[index]} running false" ]]; then
+      printf 'BACKUP_SUPPORT_UNSAFE name=%s id=%s\n' "${name}" "${support_ids[index]:-unknown}" >&2
+      failed=1
+    fi
+  done
+  (( failed == 0 )) || return 1
+  for index in "${!SUPPORT_NAMES[@]}"; do
+    name="${SUPPORT_NAMES[index]}"
+    id="${support_ids[index]}"
+    if ! state="$(support_state "${name}")" || [[ "${state}" != "/${name} ${id} running false" ]] ||
+       ! docker pause "${id}" >/dev/null; then
+      printf 'BACKUP_PAUSE_UNCONFIRMED name=%s id=%s\n' "${name}" "${id}" >&2
+      return 1
+    fi
+    owned_pauses[index]=1
+    printf 'BACKUP_PAUSE_OWNED name=%s id=%s\n' "${name}" "${id}"
+  done
+}
+
+restore_support() {
+  local index name id state failed=0
+  for index in "${!support_ids[@]}"; do
+    name="${SUPPORT_NAMES[index]}"
+    id="${support_ids[index]}"
+    state="$(support_state "${name}")" || state=""
+    if [[ "${owned_pauses[index]:-0}" == 1 && "${state}" == "/${name} ${id} paused true" ]]; then
+      docker unpause "${id}" >/dev/null || failed=1
+      state="$(support_state "${name}")" || state=""
+    fi
+    if [[ "${state}" == "/${name} ${id} running false" ]]; then
+      if [[ "${owned_pauses[index]:-0}" == 1 ]]; then
+        printf 'BACKUP_PAUSE_RELEASED name=%s id=%s\n' "${name}" "${id}"
+      fi
+      unset 'owned_pauses[index]'
+    else
+      printf 'BACKUP_SUPPORT_UNSAFE name=%s id=%s\n' "${name}" "${id}" >&2
+      failed=1
+    fi
+  done
+  return "${failed}"
+}
+
 cleanup() {
+  local rc=$?
+  if (( rc != 0 )); then
+    restore_support || printf 'BACKUP_SUPPORT_CLEANUP_FAILED\n' >&2
+  fi
   if [[ -n "${MONITOR_MANIFEST_TEMP}" ]]; then
     rm -f -- "${MONITOR_MANIFEST_TEMP}"
     MONITOR_MANIFEST_TEMP=""
@@ -92,10 +152,7 @@ cleanup() {
     rm -rf -- "${DATABASE_CREDENTIALS_DIR}"
     DATABASE_CREDENTIALS_DIR=""
   fi
-  if [[ "${paused}" -eq 1 ]]; then
-    docker unpause pastorai_evolution pastorai_evo_postgres pastorai_redis \
-      >/dev/null 2>&1 || true
-  fi
+  return "${rc}"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -221,8 +278,7 @@ install -m 600 "${COMPOSE_FILE}" "${BACKUP_DIR}/docker-compose.yml"
 docker pull alpine:3.20 >/dev/null
 docker exec pastorai_evo_postgres psql -U evolution -d evolution \
   -c CHECKPOINT >/dev/null
-docker pause pastorai_evolution pastorai_evo_postgres pastorai_redis >/dev/null
-paused=1
+pause_support
 
 docker run --rm \
   -v pastorai_evolution_instances:/source:ro \
@@ -237,8 +293,7 @@ docker run --rm \
   -v "${BACKUP_DIR}:/backup" \
   alpine:3.20 tar -czf /backup/redis-volume.tar.gz -C /source .
 
-docker unpause pastorai_evolution pastorai_evo_postgres pastorai_redis >/dev/null
-paused=0
+restore_support
 
 curl -fsS http://127.0.0.1:8000/health >"${BACKUP_DIR}/backend-health.json"
 docker exec pastorai_evolution wget -qO- http://127.0.0.1:8080 \

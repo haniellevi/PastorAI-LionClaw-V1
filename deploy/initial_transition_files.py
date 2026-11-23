@@ -95,6 +95,30 @@ class Journal:
     def __exit__(self, *_):
         self.close()
 
+    def _load_events(self):
+        self.events = []
+        if os.path.lexists(self.path):
+            raw = read_regular(self.path, 64 * 1024 * 1024)
+            lines = raw.split(b'\n')
+            require(lines[-1] == b'', 'journal-torn')
+            for index, line in enumerate(lines[:-1], 1):
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    raise Refused('journal-torn') from None
+                require(isinstance(event, dict) and event.get('seq') == index
+                        and isinstance(event.get('kind'), str), 'journal-invalid')
+                self.events.append(event)
+
+    def read(self):
+        """Read existing journal events without creating directories, locks, or files."""
+        no_symlink(self.dir)
+        no_symlink(self.path)
+        if os.path.lexists(self.dir):
+            require(stat.S_ISDIR(os.lstat(self.dir).st_mode), 'state-not-directory')
+        self._load_events()
+        return self
+
     def open(self):
         no_symlink(self.dir)
         self.dir.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -108,19 +132,7 @@ class Journal:
             self.close()
             raise Refused('controller-busy') from None
         created = not os.path.lexists(self.path)
-        self.events = []
-        if not created:
-            raw = read_regular(self.path, 64 * 1024 * 1024)
-            lines = raw.split(b'\n')
-            require(lines[-1] == b'', 'journal-torn')
-            for index, line in enumerate(lines[:-1], 1):
-                try:
-                    event = json.loads(line)
-                except ValueError:
-                    raise Refused('journal-torn') from None
-                require(isinstance(event, dict) and event.get('seq') == index
-                        and isinstance(event.get('kind'), str), 'journal-invalid')
-                self.events.append(event)
+        self._load_events()
         fd = os.open(self.path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         os.close(fd)
         if created:

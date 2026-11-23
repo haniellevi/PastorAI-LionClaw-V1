@@ -151,6 +151,7 @@ class A10Step:
         observation = self._observe()
         require_same_database(observation, self.expected)
         require(observation['ledger'] == tuple(sorted(m.name for m in self.plan.migrations)), 'final-ledger')
+        require(observation['catalog'] == self._clone_final_schema_digest(), 'clone-source-schema-divergence')
         require(observation['catalog'] == self.j.last('transition-migrated')['catalog'], 'database-ddl-drift')
         require(not observation['invalid'] and observation['index_builds'] == 0, 'database-ddl-in-progress')
 
@@ -186,8 +187,7 @@ class A10Step:
                 check_restored_running(state, code='a10-start-ambiguous')
             else:
                 check_created(state, created[role])
-                if role == 'backend':
-                    self._a10_final_database()
+                self._a10_final_database()
                 # Never two of a kind: the legacy twin of this role must still be stopped (restart=no).
                 self.host.legacy_stopped()
                 self._intent(step, id=ids[role])
@@ -196,6 +196,7 @@ class A10Step:
                 check_restored_running(state)
             self._done(step, started=state['started'])
         if self.j.last('transition-done', 'a10:ingress') is None:
+            self._a10_final_database()
             self.host.legacy_stopped()
             self._intent('a10:ingress')
             self._open_ingress()
@@ -332,15 +333,20 @@ class A10Step:
         return tuple(declared)
 
     def _a10_recovery(self):
-        if self.j.last('transition-a10-contained') is not None:
-            return 'a10-contained' if self.j.last('transition-a10-contained')['complete'] else 'a10-containment-incomplete'
-        if self.j.last('transition-a10-containment') is not None:
-            return 'a10-containment-incomplete'
-        if self.j.last('transition-a10-complete') is not None:
-            return 'a10-complete'
-        if self._a10_started():
-            return 'a10-partial'
-        return None
+        return a10_recovery_state(self.j)
+
+
+def a10_recovery_state(journal):
+    """Objective A10 phase from journal events alone; None if A10 never started."""
+    if journal.last('transition-a10-contained') is not None:
+        return 'a10-contained' if journal.last('transition-a10-contained')['complete'] else 'a10-containment-incomplete'
+    if journal.last('transition-a10-containment') is not None:
+        return 'a10-containment-incomplete'
+    if journal.last('transition-a10-complete') is not None:
+        return 'a10-complete'
+    if any(e['step'].startswith('a10:') for e in journal.find('transition-intent')):
+        return 'a10-partial'
+    return None
 
 
 A10_PROCEDURES = {
