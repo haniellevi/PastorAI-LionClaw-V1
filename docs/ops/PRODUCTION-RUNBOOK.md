@@ -1460,6 +1460,15 @@ e `5.2`.
      se alguma migration individual (`max_migration_seconds`) ultrapassar
      `60 s`** (o tempo total do ensaio não barra).
 
+#### Estado após a recriação canônica e o 5.3 (24/11/2026)
+
+Os quatro processos de aplicação voltaram ao projeto Compose `pastorai`,
+na mesma imagem legada `sha256:4a65f30e…`, com os gates de envio fechados.
+IDs, `window_digest` de referência do J1
+(`97a3efe110810da59403fa6615ccf811f4f09c259a5c9949f5de2482867c358c`) e o
+roteiro J1–J2 estão em [RECIBO-5-3-20261124.md](RECIBO-5-3-20261124.md).
+O `plan_digest` permanece o do 5.2.
+
 #### Estado após o bloco 5.2 (24/11/2026)
 
 O bloco 5.2 adotou a pilha viva `j120776b1afbddd466anew_*` como topologia
