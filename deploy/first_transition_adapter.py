@@ -22,7 +22,7 @@ from uuid import UUID
 from initial_transition_files import Journal, git_tree, read_regular
 from initial_transition_ops import BACKFILL_SQL, Refused, require
 
-APPLICATION_SHA = '6af9f75c8d673cb3454de1f8740a0acc509937ff'  # Base A da primeira virada (merge da PR #697 na main).
+APPLICATION_SHA = 'e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0'  # Base A da virada, retarget 5.2: main atual (e1c63ed1, inclui #698/#702).
 EXECUTOR_SHA = '37c7d68d60b6f86cfb1fe75d4c720530537845d6'
 ROLES = ('backend', 'cron-worker', 'broadcast-worker', 'queue-worker')
 MISSING = frozenset({
