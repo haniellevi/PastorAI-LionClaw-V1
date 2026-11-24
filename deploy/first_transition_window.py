@@ -37,7 +37,7 @@ import release_topology
 
 ENV_NAME = re.compile(r'[A-Z_][A-Z0-9_]{0,62}')
 IMAGE_TEMPLATE = ('[{{json .Id}},{{json .RepoDigests}},{{json .Os}},'
-                  '{{with .Config.Labels}}{{index . "org.opencontainers.image.revision" | json}}'
+                  '{{with index .Config "Labels"}}{{index . "org.opencontainers.image.revision" | json}}'
                   '{{else}}null{{end}},'
                   '[{{range .Config.Env}}{{if eq (index (split . "=") 0) "PG_MAJOR"}}{{json .}},{{end}}{{end}}null],'
                   '{{json .Architecture}}]')
