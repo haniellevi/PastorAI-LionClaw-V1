@@ -786,9 +786,13 @@ autorização.
 
 Ferramenta: `deploy/first_transition_window.py` (modos somente leitura `status`,
 `prepare`, `check`, `check-bindings`, além de `prepare-layout`, `rehearse-backup`,
-`resume-legacy`, `run` e `a10`). Alvo desta virada (Fase 4/5): SHA **A** =
-`6af9f75c8d673cb3454de1f8740a0acc509937ff` (`130` migrations = `78` de base +
-`52` pendentes, sendo `44` transacionais e `8` `CONCURRENTLY`). O modo `run` vai
+`resume-legacy`, `run` e `a10`). Alvo desta virada (Fase 5, após retarget do
+bloco 5.2 em 24/11/2026): SHA **A** =
+`e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0` (`130` migrations = `78` de base +
+`52` pendentes, sendo `44` transacionais e `8` `CONCURRENTLY`). Recibo:
+[RECIBO-5-2-20261124.md](RECIBO-5-2-20261124.md). O SHA anterior `6af9f75c8d673cb3454de1f8740a0acc509937ff`
+foi o candidato A até esse retarget e permanece só como referência histórica
+nas conferências estáticas da §12.7. O modo `run` vai
 da contenção até a A9 numa execução só, parando sempre após gravar `ddl-marker`
 em qualquer queda ou recusa (`transition-stopped` no orquestrador; JSON da CLI com `"refused": "window-transition-refused"` e estado em `recovery.state`). O modo `a10` é uma execução
 separada, e `resume-legacy` atua exclusivamente antes do marcador.
@@ -1413,16 +1417,16 @@ e `5.2`.
 
 | Item | Local na VPS | Observação |
 |---|---|---|
-| Ferramenta no `<SHA_T>` (só a pasta `deploy/`) | `/opt/pastorai-releases/tool-<SHA_T>/deploy` | copiada no V8 |
-| Repositório com os objetos Git de **A** (`6af9f75c`), **T integrado** e `EXECUTOR_SHA` do aplicador (`37c7d68d`) | `/opt/pastorai-releases/repo` | atualizar e conferir os três commits com `git cat-file -e` no V8 (`4.2 h`) |
+| Ferramenta no `<SHA_T>` (só a pasta `deploy/`) | `/opt/pastorai-releases/tool-<SHA_T>/deploy` (5.2 usou `tool-9ca15e783870a1c7349c61d6b1bae227fed5f37e`) | copiada no V8 |
+| Repositório com os objetos Git de **A** (`e1c63ed1`), **T** do 5.2 (`9ca15e78`) e `EXECUTOR_SHA` do aplicador (`37c7d68d`) | `/opt/pastorai-releases/repo` | atualizar e conferir os três commits com `git cat-file -e` no V8 (`4.2 h`) |
 | Python 3.13 com psycopg2 2.x | `/var/lib/pastorai-first-transition/venv/bin/python` | venv isolada da ferramenta |
 | Configuração da transição | `/var/lib/pastorai-first-transition/window/first-transition.json` | gerada no kit com `sha` = `6af9f75c...`, fora do Git |
 | Configuração do backup da janela | `/var/lib/pastorai-first-transition/window/backup.json` | gerada no kit; `restore_excluded_expected` fixado após V9 |
 | Configuração das entradas e escritores | `/var/lib/pastorai-first-transition/window/bindings.json` | atualizada após fechamento de envios da `5.2` se os IDs mudarem |
 | Pastas do backup e do clone (root, 0700) | `/var/lib/pastorai-first-transition/window-backups` e `.../clone-work` | criadas no V8 |
 | Imagem do backup e do clone | `postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929` (a mesma do CI) | `docker pull` no V8 |
-| Imagem e pacote do candidato **A** (`6af9f75c...`) | construídos/empacotados para `6af9f75c...` | layout e tarball conferidos antes do `prepare-layout` |
-| Layout do candidato e arquivo de espera da A9 | `/opt/pastorai-releases/6af9f75c.../` e `/var/lib/pastorai-first-transition/state/a9-hold.override.yml` | criados por `prepare-layout` no V8 |
+| Imagem e pacote do candidato **A** (`e1c63ed1...`) | imagem `igreja12-v8-a:e1c63ed1-52` = `sha256:de4a6b234e0cda9dadbeec0dd93df8a35f275bcdba862adfc20218d0af999434` (não retaguar `pastorai-backend:latest`) | layout e digest conferidos antes do `prepare-layout` |
+| Layout do candidato e arquivo de espera da A9 | `/opt/pastorai-releases/e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0/` e `/var/lib/pastorai-first-transition/state/a9-hold.override.yml` | criados por `prepare-layout` no V8 |
 | Arquivo privado efetivo do runtime (`0600`, `root`) | caminho efetivo externo ao layout verificado (ex.: `/etc/pastorai/.env.v2` ou `/etc/pastorai-private/runtime.env`) | conferir variáveis obrigatórias de **A** só por nome (`12.7`) e gates fechados no `V2`/`5.2` |
 | Arquivo privado do aplicador | `/root/igreja12-janela.conf` (`root`, `0600`, uma linha `MIGRATION_DATABASE_URL=`) | derivado da `DATABASE_URL` efetiva sem imprimir valor |
 | Diário da janela | `/var/lib/pastorai-first-transition/state/journal` | vazio no início (não pode existir diário velho) |
@@ -1455,6 +1459,17 @@ e `5.2`.
      `migration_timings` (todas as **52 migrations**). A regra D9 barra **apenas
      se alguma migration individual (`max_migration_seconds`) ultrapassar
      `60 s`** (o tempo total do ensaio não barra).
+
+#### Estado após o bloco 5.2 (24/11/2026)
+
+O bloco 5.2 adotou a pilha viva `j120776b1afbddd466anew_*` como topologia
+oficial (IDs no recibo), retargetou A para `e1c63ed1…`, instalou o layout
+sem trocar o tráfego, refez o ensaio das 52 migrations num clone
+(`final_ledger=130`, `max_migration_seconds=0,219`) e fechou
+`ALLOW_REAL_SENDS=false` (duas ocorrências) e `BREVO_SEND_MODE=off` no
+`.env` do cron/legado. Detalhes, rollback e o aviso de `compose_project`
+para o `run`: [RECIBO-5-2-20261124.md](RECIBO-5-2-20261124.md). Os
+containers `pastorai_*` de aplicação continuam parados e preservados.
 
 #### Preparação (V8, SIM próprio; V9 dentro dele)
 
@@ -1513,7 +1528,7 @@ $PY -E -s $T check-bindings $ARGS
 $PY -E -s $T rehearse-backup $ARGS
 ```
 
-Esperado: `prepare-layout` grava o pacote exato de **A** (`6af9f75c...`);
+Esperado: `prepare-layout` grava o pacote exato de **A** (`e1c63ed1...`);
 `prepare` imprime `plan_digest` e `window_digest` (anotar os dois; o
 `window_digest` de referência para o SIM 2 é o do `prepare` refeito **depois**
 de gravar `restore_excluded_expected`, com `restore_excluded_pinned: true`);

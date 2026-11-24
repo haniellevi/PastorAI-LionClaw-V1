@@ -14,7 +14,7 @@ implantação e a prova do link ativo no J9, sem executar a janela.
 | Fonte | Evidência e limite |
 |---|---|
 | Git local, base `origin/main` conferida nesta preparação | `41c5b1802d733e289e83f579f890f3d610f812f7`; checkout inicialmente limpo. Todos os nomes e classificações de SQL abaixo foram derivados dessa árvore e confrontados com A. |
-| Aplicação A, preservada | `6af9f75c8d673cb3454de1f8740a0acc509937ff`, backend e painel. Nenhum retorno a `afdfb78d`. |
+| Aplicação A, atual (retarget 5.2) | `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0` (main após #698/#702), backend e painel. Nenhum retorno a `afdfb78d`. O SHA `6af9f75c…` foi o A anterior. Recibo: [RECIBO-5-2-20261124.md](RECIBO-5-2-20261124.md). |
 | Aplicador fixo | `37c7d68d60b6f86cfb1fe75d4c720530537845d6` (`EXECUTOR_SHA`). Não confundir com a ferramenta T. |
 | Ferramenta T | O Git auditado contém o seletor atual. O SHA exato de T instalado/usado no V8 precisa vir do recibo operacional e ser conferido na futura leitura autorizada. Esta nota não afirma que a ponta documental está instalada na VPS. |
 | Última leitura de produção informada pelo Raniel nesta tarefa | Em 24/11: 78 linhas em `public.schema_migrations`; última aplicada `20261002_173000_visitor_expectation_whatsapp.sql`, aplicada em 14/10/2026. Não foi feita nova consulta nem recebido aqui o conjunto nominal completo dessas 78 linhas. |
@@ -423,7 +423,10 @@ Layout preparado não comprova release ativo nem backup funcional.
 O relato de 24/11 informa `/opt/pastorai-current` inexistente, instalação
 legada viva em `/opt/pastorai-lionclaw` e layout de A preparado pelo V8 em
 `/opt/pastorai-releases/6af9f75c8d673cb3454de1f8740a0acc509937ff/`, com
-`production_ready=false`. Não foi feita inspeção do host nesta tarefa.
+`production_ready=false`. Não foi feita inspeção do host nesta tarefa de
+preparação. O bloco 5.2 posterior instalou também o layout de
+`e1c63ed1…` e registrou o estado em
+[RECIBO-5-2-20261124.md](RECIBO-5-2-20261124.md).
 
 O [runbook §12.2/J9 e §12.2.2](PRODUCTION-RUNBOOK.md#1222-j9-backup-diário-e-topologia-efetiva-após-a-virada-43)
 já descreve configurar o link e provar um backup antes de religar o cron;
