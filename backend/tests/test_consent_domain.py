@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.domain import consent
-from app.domain.report import looks_like_report, parse_cell_report
+from app.domain.report import has_report_label, looks_like_report, parse_cell_report
 
 
 # ---- consent term (delta-040) ---------------------------------------------
@@ -109,6 +109,27 @@ def test_terminal_sair_token_is_an_explicit_optout_without_broadening_phrases() 
 
 
 # ---- report parsing (US-24 / delta-041) -----------------------------------
+@pytest.mark.parametrize(("text", "expected"), [
+    ("_Tivemos 12 presentes_", True),
+    ("*Tivemos 12 presentes*", True),
+    ("~Tivemos 12 presentes~", True),
+    ("*_Tivemos 12 presentes_*", True),
+    ("_presentes_", True),
+    ("_12presentes_", True),
+    ("_Tivemos campo_id e 12 presentes_", True),
+    ("campo_presentes_total", False),
+    ("_campo_presentes_total_", False),
+    ("_presentes_total_", False),
+    ("total_presentes_", False),
+    ("_presentes_total", False),
+    ("_apresentei um projeto_", False),
+    ("*campo_presentes_total*", False),
+    ("~campo_presentes_total~", False),
+])
+def test_report_labels_respect_formatting_and_identifier_boundaries(text, expected):
+    assert has_report_label(text) is expected
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

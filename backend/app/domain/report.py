@@ -19,6 +19,9 @@ from dataclasses import dataclass
 _REPORT_LABEL = re.compile(
     r"(?<![^\W\d])(?:presentes?|visitantes?|decis(?:ao|oes)|ofertas?|relatorios?)(?![^\W\d])"
 )
+# Unlike * and ~, underscores are word characters. Strip only paired italic
+# markers outside words, preserving underscores inside identifiers.
+_WHATSAPP_ITALIC = re.compile(r"(?<!\w)_(\S(?:.*?\S)?)_(?!\w)", re.DOTALL)
 
 # Spaced hyphens separate report fields; dates must keep one separator.
 _NUMERIC_DATE = re.compile(
@@ -141,7 +144,7 @@ def has_report_label(text: str) -> bool:
         for char in unicodedata.normalize("NFKD", text.casefold())
         if not unicodedata.combining(char)
     )
-    return _REPORT_LABEL.search(normalized) is not None
+    return _REPORT_LABEL.search(_WHATSAPP_ITALIC.sub(r" \1 ", normalized)) is not None
 
 
 def looks_like_report(text: str | None) -> bool:

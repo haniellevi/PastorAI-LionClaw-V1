@@ -191,8 +191,9 @@ def test_v1a_correction_replaces_delivered_summary_before_confirmation(report_tu
     (False, 'Relatório: presentes: 2,5; visitantes: 2; decisões: 1; oferta: 30,00'),
     (True, 'Correção: 2/5 presentes'),
     (True, 'decisões: 2,5'),
-), ids=('initial', 'correction', 'bare-decisions-correction'))
-def test_v1a_fractional_count_is_clarified_without_overwriting_then_recovers(report_turn, correcting, invalid_text):
+    (False, '_Tivemos 12 presentes_'),
+), ids=('initial', 'correction', 'bare-decisions-correction', 'italic-report'))
+def test_v1a_invalid_report_is_clarified_without_overwriting_then_recovers(report_turn, correcting, invalid_text):
     from app.db.models import CellReportAiReservation, CellReportDraft
     turn = report_turn
     evolution = _CommittedReceiptEvolution(turn)

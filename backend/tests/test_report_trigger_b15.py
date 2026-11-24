@@ -44,3 +44,16 @@ def test_report_still_triggers_even_with_a_separate_question(texto):
 @pytest.mark.parametrize("texto", [None, "", "bom dia?", "Lembrete do relatório de 10/11"])
 def test_non_report_inputs(texto):
     assert not message_is_cell_report(texto)
+
+
+@pytest.mark.parametrize("texto", [
+    "_Tivemos 12 presentes_",
+    "*Tivemos 12 presentes*",
+    "~Tivemos 12 presentes~",
+    "*_Tivemos 12 presentes_*",
+])
+def test_formatted_report_keeps_legacy_attendance_route(texto):
+    from app.domain.report import parse_cell_report
+
+    assert message_is_cell_report(texto)
+    assert parse_cell_report(texto).presentes == 12
