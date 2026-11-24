@@ -1135,6 +1135,10 @@ Sem modificar `deploy/backend-release.sh` (Decisão 9 e contrato com
      com `"version":1`, `"status":"verified"`, `archive` = `basename` de
      `<ARCHIVE>`, `sha256` igual ao do `.sha256` e `completed_at` dentro do
      intervalo UTC da tentativa (só esses campos; o manifesto não tem segredo).
+     A prova do backup novo exige que o `BACKUP_OK` do log exclusivo,
+     os checksums e o manifesto correspondam ao mesmo `<ARCHIVE>` e à
+     mesma tentativa. Um `"verified"` antigo, mesmo com checksum válido,
+     não aprova os passos 2–5 nem autoriza religar o cron no passo 6.
   5. Confirmar que os três serviços de apoio pausados temporariamente durante o
      snapshot dos volumes foram **despausados** pelo script:
      `sudo docker inspect --format '{{.Name}} {{.Id}} paused={{.State.Paused}} status={{.State.Status}}' pastorai_evolution pastorai_evo_postgres pastorai_redis`
@@ -1167,6 +1171,11 @@ Sem modificar `deploy/backend-release.sh` (Decisão 9 e contrato com
      marcador de ownership sem marcador de liberação desse ID antes de
      qualquer `docker unpause <ID>` individual. Se houver dúvida sobre
      outro operador, avisar o Raniel.
+     Recuperar um apoio por vez e repetir o `inspect` do passo 5 após
+     cada `unpause`, antes de passar ao seguinte; não usar comando em lote
+     nem tratar um erro de despausa como sucesso. Serviço parado, ausente
+     ou com ID diferente do passo 0 exige parar e avisar o Raniel,
+     preservando a exigência de ownership acima.
      Ao final exigir os três `paused=false`, `status=running`, preservar
      backup, kit, diário e `.pausado` e tratar a causa antes de pedir
      uma nova tentativa. No cron, erro de cleanup também fica registrado
@@ -1588,7 +1597,11 @@ envios na imagem legada ainda são gates da 1.2/5.1–5.2.
    - **`lock_timeout`:** **46** definem `lock_timeout` explicitamente no SQL (`2s`), e **6** não possuem `lock_timeout` explícito no SQL (`20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql`, `20260711_152127_reclassifica_pessoa_do_numero_whatsapp_fora_de_membro.sql`, `20260925_183811_preserve_platform_admins_on_tenant_deletion.sql`, `20260926_120446_platform_jev_settings.sql`, `20261023_110000_operations_outbox_pending_metrics_fn.sql`, `20261023_120000_auth_session_revocation.sql`; o executor `migrate.py` aplica `SET LOCAL lock_timeout = '2s'` por padrão em transações).
    - **`CONCURRENTLY` (8 não transacionais, 44 restantes transacionais):**
      todas as oito definem `SET lock_timeout='2s'` no SQL. O parâmetro
-     `--lock-timeout 0` desliga só o ajuste do executor. A escrita no ledger
+     `--lock-timeout 0` desliga só o ajuste do executor. O `SET lock_timeout`
+     inicial do SQL continua aplicado à sessão fora de transação.
+     Conferir o SQL de cada migration
+     antes de registrar o timeout efetivo, sem presumir `0` pelo argumento
+     do executor (por exemplo, `20261023_100001` define `2s`). A escrita no ledger
      é um efeito separado. Índice inválido ou sem ledger após o marcador
      segue §12.2.1. Lista: `20261023_100001_ai_usage_tenant_created_idx.sql`, `20261023_110001_notification_outbox_pending_created_idx.sql`, `20261023_110002_notification_outbox_retry_created_idx.sql`, `20261023_110003_notification_outbox_expired_lease_idx.sql`, `20261023_110004_messages_pending_agent_created_idx.sql`, `20261023_110005_work_queue_pending_created_idx.sql`, `20261028_100001_private_erasure_requests_overview_idx.sql`, `20261028_100002_private_resume_delivered_overview_idx.sql`.
    - **Tabelas pré-existentes/críticas com `ALTER TABLE` nas 52 pendentes:** `app_users` (`20260925_183811`), `agent_action_receipts` (`20261017_180100`), `pessoas` (`20261017_230000`, além dos `UPDATE` de `20260711_*`), `celula_solicitacao` (`20261018_060000`/`070000`/`080000`), `conversations` (`20261018_090000`, `20261019_120001`), `messages` (`20261018_120000`), `ai_usage_logs` (`20261023_100000` `FORCE ROW LEVEL SECURITY`), e `cell_alerts` (`20261112_160000_celula_alerta_regras.sql`: remove `NOT NULL` de `pessoa_id`, adiciona `regra_tipo`/`fato_chave`, habilita `FORCE ROW LEVEL SECURITY`, restringe política e revoga `DELETE`).
