@@ -191,8 +191,9 @@ def test_v1a_correction_replaces_delivered_summary_before_confirmation(report_tu
     (False, 'Relatório: presentes: 2,5; visitantes: 2; decisões: 1; oferta: 30,00'),
     (True, 'Correção: 2/5 presentes'),
     (True, 'decisões: 2,5'),
-), ids=('initial', 'correction', 'bare-decisions-correction'))
-def test_v1a_fractional_count_is_clarified_without_overwriting_then_recovers(report_turn, correcting, invalid_text):
+    (False, '_Tivemos 12 presentes_'),
+), ids=('initial', 'correction', 'bare-decisions-correction', 'italic-report'))
+def test_v1a_invalid_report_is_clarified_without_overwriting_then_recovers(report_turn, correcting, invalid_text):
     from app.db.models import CellReportAiReservation, CellReportDraft
     turn = report_turn
     evolution = _CommittedReceiptEvolution(turn)
@@ -613,7 +614,11 @@ def test_v1a_worker_does_not_hold_draft_ahead_of_budget_meeting_lock(report_turn
     assert locking_error is None, f'Worker held Draft while waiting for Meeting: {locking_error}'
 
 
-def test_partial_report_does_not_swallow_public_address_question(report_turn):
+@pytest.mark.parametrize('question', (
+    'Qual é o endereço da igreja?',
+    'Qual é o endereço da igreja? Observação: apresentei o projeto.',
+))
+def test_partial_report_does_not_swallow_public_address_question(report_turn, question):
     from app.db.models import CellReportDraft, Igreja
     turn = report_turn
     evolution = _ClassifiedEvolution()
@@ -621,7 +626,7 @@ def test_partial_report_does_not_swallow_public_address_question(report_turn):
         session.get(Igreja, _IGREJA).endereco_institucional = 'Avenida Institucional Sintética, 100'
     _run(turn, 'V1A-PARTIAL-BEFORE-PUBLIC', 'Relatório: presentes: 10', evolution)
     before = _rows(turn, CellReportDraft)[0]
-    _run(turn, 'V1A-PUBLIC-DURING-DRAFT', 'Qual é o endereço da igreja?', evolution)
+    _run(turn, 'V1A-PUBLIC-DURING-DRAFT', question, evolution)
     assert 'Avenida Institucional Sintética, 100' in evolution.calls[-1][2]
     after = _rows(turn, CellReportDraft)[0]
     assert (after.id, after.revision, after.candidate_json, after.state) == (
