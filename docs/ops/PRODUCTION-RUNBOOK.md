@@ -1469,6 +1469,15 @@ IDs, `window_digest` de referência do J1
 roteiro J1–J2 estão em [RECIBO-5-3-20261124.md](RECIBO-5-3-20261124.md).
 O `plan_digest` permanece o do 5.2.
 
+#### Estado após a tentativa 5.4 (24/11/2026)
+
+O `run` J3–J6 foi tentado e recusado em contenção parcial do J4, antes do
+`ddl-marker`. A janela foi fechada (cron de backup religado, API 200, gates
+fechados, ledger de produção ainda 78). Pré-requisitos só do `run` e o que
+falta corrigir: [RECIBO-5-4-ABORT-20261124.md](RECIBO-5-4-ABORT-20261124.md).
+Não houve 5.5. O #703 permanece sem merge.
+
+
 #### Estado após o bloco 5.2 (24/11/2026)
 
 O bloco 5.2 adotou a pilha viva `j120776b1afbddd466anew_*` como topologia
