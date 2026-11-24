@@ -247,7 +247,12 @@ def _raise_v1a_error(*_args, **_kwargs):
     raise CellReportV1aError("inválido")
 
 
-def test_v1a_parse_clarify_teaches_closed_multiline_format(monkeypatch) -> None:
+@pytest.mark.parametrize("text", [
+    "presentes: 8, obs: dado sintético",
+    "_Tivemos 12 presentes_",
+    "*_Tivemos 12 presentes_*",
+])
+def test_v1a_parse_clarify_teaches_closed_multiline_format(monkeypatch, text) -> None:
     inbound_id = uuid.uuid4()
     _patch_stage_access(monkeypatch)
     monkeypatch.setattr(
@@ -263,7 +268,7 @@ def test_v1a_parse_clarify_teaches_closed_multiline_format(monkeypatch) -> None:
         object(),
         context=_privilege_context(inbound_message_id=inbound_id),
         inbound_message_id=inbound_id,
-        text="presentes: 8, obs: dado sintético",
+        text=text,
         summary_message=SimpleNamespace(),
         now=NOW,
     )
