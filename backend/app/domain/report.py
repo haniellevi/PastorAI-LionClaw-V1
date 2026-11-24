@@ -15,16 +15,9 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
-# Keywords that flag a message as a cell report alongside an extractable
-# value, e.g. "tivemos 12 presentes".
-REPORT_KEYWORDS: tuple[str, ...] = (
-    "presente",
-    "presentes",
-    "visitante",
-    "visitantes",
-    "decis",  # decisão / decisões / decisoes
-    "oferta",
-    "relat",  # relatório / relatorio
+# Allow adjacent digits for compact fields such as "12presentes".
+_REPORT_LABEL = re.compile(
+    r"(?<![^\W\d])(?:presentes?|visitantes?|decis(?:ao|oes)|ofertas?|relatorios?)(?![^\W\d])"
 )
 
 # Spaced hyphens separate report fields; dates must keep one separator.
@@ -141,13 +134,21 @@ class CellReport:
         )
 
 
+def has_report_label(text: str) -> bool:
+    """Match report labels without treating fragments of words as labels."""
+    normalized = "".join(
+        char
+        for char in unicodedata.normalize("NFKD", text.casefold())
+        if not unicodedata.combining(char)
+    )
+    return _REPORT_LABEL.search(normalized) is not None
+
+
 def looks_like_report(text: str | None) -> bool:
     """Require a report keyword and a value the report parser can extract."""
     if not text:
         return False
-    lowered = text.lower()
-    has_kw = any(kw in lowered for kw in REPORT_KEYWORDS)
-    return has_kw and not parse_cell_report(text).is_empty
+    return has_report_label(text) and not parse_cell_report(text).is_empty
 
 
 def parse_cell_report(text: str | None) -> CellReport:
