@@ -196,8 +196,10 @@ class Entry:
             value = [self.world.spec.network_id, self.world.spec.network_name, 'bridge', None]
         elif argv[5:7] == ['image', 'inspect']:
             image = argv[-1]
+            # Dump/clone images may omit Labels entirely; readiness must accept a null revision.
+            revision = self.world.spec.sha if image == self.world.spec.image else None
             value = [image if image == self.world.spec.image else 'sha256:' + 'f' * 64,
-                     [image], 'linux', self.world.spec.sha, ['PG_MAJOR=17', None], 'amd64']
+                     [image], 'linux', revision, ['PG_MAJOR=17', None], 'amd64']
         elif argv[5] == 'compose':
             assert argv[argv.index('--env-file') + 1] == '/dev/null' and kwargs['cwd'] == '/'
             value = self.model()
@@ -215,6 +217,30 @@ def entry(pinned, tmp_path):
     e = Entry(pinned, tmp_path)
     yield e
     e.world.journal.close()
+
+
+def test_image_template_tolerates_absent_labels():
+    """docker inspect errors on {{with .Config.Labels}} when the Labels key is missing."""
+    assert 'index .Config "Labels"' in window.IMAGE_TEMPLATE
+    assert '.Config.Labels' not in window.IMAGE_TEMPLATE
+
+
+def test_run_readiness_accepts_backup_image_without_labels(entry):
+    seen = {'unlabeled': 0}
+
+    def no_labels(argv, value):
+        if argv[5:7] == ['image', 'inspect'] and argv[-1] != entry.world.spec.image:
+            value = list(value)
+            value[3] = None
+            seen['unlabeled'] += 1
+        return value
+
+    entry.failure = no_labels
+    code, lines = entry.execute()
+    assert seen['unlabeled'] >= 2
+    refused = lines[-1].get('refused') if lines and isinstance(lines[-1], dict) else None
+    assert refused not in ('window-prerequisite', 'window-image')
+    assert code == 0 or (isinstance(lines[-1], dict) and 'recovery' in lines[-1])
 
 
 def test_prepare_is_pure_and_run_composes_real_backup_and_controller(entry):
