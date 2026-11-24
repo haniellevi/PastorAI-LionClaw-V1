@@ -15,7 +15,6 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
-import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -42,6 +41,7 @@ from app.domain.cell_report_v1a import (
 )
 from app.domain.cell_report_workflow import CellReportCandidate
 from app.domain.cell_report_workflow import build_cell_report_candidate
+from app.domain.report import has_report_label
 from app.services.agent_action_proposals import (
     ActionEffect,
     AgentAction,
@@ -312,20 +312,6 @@ def v1a_receipt_text_after_execution(
         )
     except CellReportV1aServiceError:
         return None
-
-
-def _looks_like_report(text: object) -> bool:
-    if type(text) is not str:
-        return False
-    normalized = "".join(
-        character
-        for character in unicodedata.normalize("NFKD", text).casefold()
-        if not unicodedata.combining(character)
-    )
-    return any(
-        token in normalized
-        for token in ("presente", "visitante", "decisao", "decisoes", "oferta", "relatorio")
-    )
 
 
 def _lock_conversation_and_inbound(
@@ -652,7 +638,7 @@ def stage_v1a_cell_report_turn(
     except CellReportV1aError:
         # A parser error can carry an observation or another non-V1a field.
         # Do not reconstruct a report from a partial projection in that case.
-        if _looks_like_report(text):
+        if type(text) is str and has_report_label(text):
             return CellReportTurnStage(
                 CellReportStageKind.CLARIFY,
                 _clarify_v1a_response(
