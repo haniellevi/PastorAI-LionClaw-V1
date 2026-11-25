@@ -155,6 +155,15 @@ privadas cobrem objetos referenciados e sobrevivem à igreja. Não há envio nem
 chamada de provedor dentro da transação. Consulte também o recibo/fila privados;
 `platform_audit_log` sozinho não atesta que essas tarefas terminaram.
 
+O evento cadastral `tenant_deletion.private_receipt_linked` correlaciona o
+alvo ao UUID do recibo privado retornado pelo serviço na mesma transação.
+Sua persistência acompanha o commit da exclusão local; em rollback, nem o
+evento nem o recibo permanecem. No reset integral, o ator é técnico
+(`app_user_id` nulo), e os eventos de todas as igrejas pertencem à transação
+única do reset. A retentativa de uma exclusão já confirmada não cria outro
+evento. A correlação não aprova nem altera pedidos de exclusão privados e não
+atesta conclusão de limpeza externa.
+
 O endpoint admin `/igreja/private-content` é apenas reset do acervo privado:
 preserva cadastro oficial, opt-out e consentimento, e não substitui o gate desta
 CLI. A política cadastral do ledger descrita acima permanece distinta.

@@ -49,6 +49,7 @@ _CLAIMED = "tenant_deletion.cleanup_claimed"
 _LEASE_RENEWED = "tenant_deletion.cleanup_lease_renewed"
 _FENCED = "tenant_deletion.cleanup_fenced"
 _LOCAL_DELETED = "tenant_deletion.local_deleted"
+_PRIVATE_RECEIPT_LINKED = "tenant_deletion.private_receipt_linked"
 _LEGACY_DELETED = "excluir"
 _TASK_KINDS = {
     "clerk_user",
@@ -656,9 +657,14 @@ def _lock_and_clear_secretaria_offers_before_messages(
         )
 
 
-def _erase_tenant_private_content(session: Session, igreja_id: uuid.UUID) -> None:
-    session.execute(text("select public.private_delete_content(:t,'igreja',:t,:t)"),
-                    {"t": igreja_id})
+def _erase_tenant_private_content(session: Session, igreja_id: uuid.UUID) -> uuid.UUID:
+    receipt_id = session.execute(
+        text("select public.private_delete_content(:t,'igreja',:t,:t)"),
+        {"t": igreja_id},
+    ).scalar_one()
+    if not isinstance(receipt_id, uuid.UUID):
+        raise TenantDeletionError("Recibo de exclusão privada indisponível")
+    return receipt_id
 
 
 def delete_tenant_locally(
@@ -738,7 +744,7 @@ def delete_tenant_locally(
 
     # The privileged, nominal platform path uses the same private cleanup before
     # any cascade drops object references. No HTTP/provider calls in this TX.
-    _erase_tenant_private_content(session, igreja.id)
+    private_receipt_id = _erase_tenant_private_content(session, igreja.id)
 
     # These tables own the composite tenant keys that would otherwise prevent
     # moving a preserved PlatformAdmin out of app_users.igreja_id.
@@ -794,6 +800,14 @@ def delete_tenant_locally(
             "pending_tasks": len(tasks),
             "platform_admins_preserved": len(protected_user_ids),
         },
+    )
+    _audit(
+        session,
+        actor,
+        _PRIVATE_RECEIPT_LINKED,
+        igreja.id,
+        igreja.nome,
+        {"version": 1, "receipt_id": str(private_receipt_id)},
     )
     session.delete(igreja)
     session.flush()
