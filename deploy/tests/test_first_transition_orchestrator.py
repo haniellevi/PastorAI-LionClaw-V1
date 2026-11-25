@@ -20,7 +20,8 @@ from first_transition_adapter import (APPLICATION_SHA, EXECUTOR_SHA, ROLES, Loca
                                       prepare)
 from first_transition_candidate import DATABASE_TEMPLATE
 from first_transition_candidate import (CANDIDATE_TEMPLATE, CLOSED_GATES, HOLD_OVERRIDE, ZERO_STARTED,
-                                        CandidatePort, CandidateRunner, CandidateSpec, write_candidate_release)
+                                        CandidatePort, CandidateRunner, CandidateSpec, verify_candidate_release, write_candidate_release,
+                                        write_hold_override)
 from first_transition_database import LedgerProof, ReadOnlyDatabase
 from first_transition_host_contract import ObservedHostContract
 from first_transition_host_driver import INFO_ARGV, NETWORK_TEMPLATE, ObservedHostDriver
@@ -875,6 +876,24 @@ def test_crash_after_backend_start_intent_is_ambiguous(world):
         replay.run()
     assert len(world.cdocker.effects()) == starts
     assert replay.recovery()['state'] == 'candidate-ambiguous'
+
+
+@pytest.mark.parametrize('variation', ['name', 'order'])
+def test_layout_read_preflight_rejects_different_plan_before_writes(world, variation):
+    world.layout()
+    write_hold_override(world.spec)
+    names = [m.name for m in world.plan.migrations]
+    different = names.copy()
+    if variation == 'name':
+        different[0] = 'fictional-migration.sql'
+    else:
+        different[0], different[1] = different[1], different[0]
+    with pytest.raises(Refused, match='^layout-migrations-differ-from-plan$'):
+        verify_candidate_release(ROOT, world.spec, world.rig.manifest, package_manifest_sha256=world.package,
+                                 migrations=different, git=world.git)
+    assert world.journal is None
+    verify_candidate_release(ROOT, world.spec, world.rig.manifest, package_manifest_sha256=world.package,
+                             migrations=names, git=world.git)
 
 
 def test_layout_is_exclusive_and_package_bound(world):
