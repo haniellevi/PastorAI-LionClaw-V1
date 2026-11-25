@@ -18,7 +18,9 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
+import sys
 import zlib
 
 SHA = re.compile(r'[0-9a-f]{40}')
@@ -46,6 +48,26 @@ DSN = re.compile(r'postgresql://([a-z_][a-z0-9_]*):[A-Za-z0-9_.-]+@postgres:5432
 SUPPORT_ALIASES = {'postgres': 'postgres', 'redis': 'redis', 'evolution': 'evolution-api'}
 OBSERVER_APP = 'pastorai-transition-observer'
 OBSERVER_APPS = frozenset({OBSERVER_APP, 'pastorai-rehearsal-observer'})
+
+
+# The identifier is per event, not shared across events. Earlier boundaries may
+# already have discarded the original exception class.
+_ERROR_CLASSES = {ValueError: 'value_error', TypeError: 'type_error', OSError: 'os_error',
+                  RuntimeError: 'runtime_error'}
+_ERROR_STAGES = frozenset({'transition', 'resume', 'cli'})
+
+
+def format_error_event(exc, stage):
+    return json.dumps({'class': _ERROR_CLASSES.get(type(exc), 'other'),
+                       'stage': stage if stage in _ERROR_STAGES else 'other',
+                       'correlation': secrets.token_hex(16)}, sort_keys=True)
+
+
+def emit_error_event(exc, stage):
+    try:
+        print(format_error_event(exc, stage), file=sys.stderr)
+    except BaseException:  # noqa: BLE001 - logging must not interrupt recovery
+        pass
 
 
 class Refused(RuntimeError):
