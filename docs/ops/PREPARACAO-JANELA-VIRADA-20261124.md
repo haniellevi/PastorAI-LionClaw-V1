@@ -532,10 +532,10 @@ mudança de código. A entrega solicitada é uma PR aberta para revisão, sem me
 
 `run --dry-run --config <config-local> --expect-plan-digest <digest-esperado>`
 verifica a configuração, o plano, a identidade do pacote e o layout preparado.
-O código atual ainda fixa o candidato histórico `6af9f75c`, enquanto a decisão
-vigente fixa `e1c63ed1`; portanto esta entrada recusará uma configuração para
-o candidato vigente até a atualização revisada da ferramenta. Não altere o pin
-para contornar esta limitação.
+A ferramenta fixa o candidato aprovado `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`
+e o aplicador `37c7d68d60b6f86cfb1fe75d4c720530537845d6`; outras identidades
+são recusadas. A mudança do candidato ou do controlador invalida recibos
+anteriores e exige novas provas no escopo aprovado.
 
 A saída agrega os estados `ok`, `refused`, `unavailable` e `not_evaluated`;
 a ausência do digest esperado deixa o plano e o layout não avaliados. Quando

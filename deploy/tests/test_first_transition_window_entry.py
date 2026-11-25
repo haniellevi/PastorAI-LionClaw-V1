@@ -236,6 +236,12 @@ def test_dry_run_reports_independent_refusals_without_operational_start(entry, m
 
 
 def test_dry_run_valid_inputs_remain_incomplete(entry, monkeypatch):
+    approved = 'e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0'
+    assert entry.world.plan.application_sha == entry.raw['candidate']['sha'] == approved
+    assert entry.world.spec.sha == approved
+    assert entry.raw['package_manifest_sha256'] == entry.world.package
+    assert (Path(entry.world.spec.release_root) / approved / 'deploy').is_dir()
+    assert Path(entry.world.spec.hold_override).is_file()
     for name in ('run', '_open_bindings', '_readiness', 'Journal'):
         monkeypatch.setattr(window, name, lambda *a, **kw: pytest.fail('operational path invoked'))
     output = []
