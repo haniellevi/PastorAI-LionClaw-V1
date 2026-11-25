@@ -1,6 +1,8 @@
 """No provider, host or Redis is contacted by these contract tests."""
 import dataclasses
+import json
 import pathlib
+import re
 import sys
 
 import pytest
@@ -9,7 +11,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from first_transition_adapter import LocalEvidence, Refused, local_endpoint, prepare
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-APP = '6af9f75c8d673cb3454de1f8740a0acc509937ff'
+APP = 'e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0'
 EXECUTOR = '37c7d68d60b6f86cfb1fe75d4c720530537845d6'
 
 
@@ -17,11 +19,37 @@ def test_exact_plan_selects_the_reviewed_78_plus_52():
     plan = prepare(ROOT, APP, EXECUTOR)
     assert (len(plan.baseline), len(plan.pending), len(plan.migrations)) == (78, 52, 130)
     assert sum(m.concurrent for m in plan.pending) == 8
+    assert sum(not m.concurrent for m in plan.pending) == 44
     assert plan.application_sha == APP and plan.executor_sha == EXECUTOR
     assert plan.report()['production_ready'] is False
     assert len(plan.digest) == 64
     assert all(m.sha256 for m in plan.migrations)
+    from initial_transition_files import migration_manifest
+    from package_backend_release import source_files
+    files = source_files(ROOT, APP)
+    sql = {path.split('/', 2)[2]: data for path, data in files.items()
+           if re.fullmatch(r'backend/migrations/[^/]+\.sql', path)}
+    assert migration_manifest(files['backend/scripts/migrate.py'], sql) == [m.name for m in plan.migrations]
     assert 'postgresql' not in str(plan.report())
+
+
+@pytest.mark.parametrize('unapproved', ['6af9f75c8d673cb3454de1f8740a0acc509937ff', 'a' * 40])
+def test_unapproved_application_sha_is_refused_by_plan_and_config(unapproved):
+    from first_transition_orchestrator import parse_config
+
+    with pytest.raises(Refused, match='^unreviewed-release$'):
+        prepare(ROOT, unapproved, EXECUTOR)
+    raw = json.loads((ROOT / 'deploy/first-transition.example.json').read_text())
+    raw['candidate']['sha'] = unapproved
+    with pytest.raises(Refused, match='^config-candidate-sha$'):
+        parse_config(raw)
+
+
+def test_example_config_uses_exact_approved_candidate():
+    from first_transition_orchestrator import parse_config
+
+    raw = json.loads((ROOT / 'deploy/first-transition.example.json').read_text())
+    assert parse_config(raw).candidate.sha == APP
 
 
 @pytest.mark.parametrize('url', [
