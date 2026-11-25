@@ -40,7 +40,7 @@
     "gate_names": ["ALLOW_REAL_SENDS", "ASAAS_BILLING_ENABLED", "BREVO_SEND_MODE", "BROADCAST_ASYNC_ENABLED"]
   },
   "candidate": {
-    "sha": "6af9f75c8d673cb3454de1f8740a0acc509937ff",
+    "sha": "e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0",
     "image": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
     "project": "example-release",
     "containers": {
