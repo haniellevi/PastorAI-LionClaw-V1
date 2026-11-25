@@ -25,7 +25,7 @@ from urllib.parse import parse_qsl, urlsplit
 
 from first_transition_candidate import check_closed_gates, check_candidate_database
 import first_transition_database as fdb
-from first_transition_adapter import digest, prepare
+from first_transition_adapter import digest, prepare, remaining_pre_ddl_gates, step_invariants
 from first_transition_candidate import (CLOSED_GATES, CandidatePort, CandidateRunner, topology_contract,
                                         candidate_release_files, verify_candidate_release, write_candidate_release, write_hold_override)
 from first_transition_orchestrator import assemble, classify_recovery, load_config
@@ -390,6 +390,54 @@ def _assemble_transition(args, prepared, journal, secret, database, ingress, wri
                     run=io.get('run'), sleep=io.get('sleep') or time.sleep, git=io.get('git'))
 
 
+_INTEGRITY_COUNTS = ('membro_por_vinculo', 'numero_atendimento', 'aptitude_backfill',
+                     'invalid_links', 'duplicates')
+
+
+def _integrity_receipt(path, plan):
+    """Classify provided counts; this does not authenticate their origin or accept migrations."""
+    result = dict(source='none', conditions=dict.fromkeys(_INTEGRITY_COUNTS, 'missing'),
+                  migration_audit={f'M{i:02d}': 'not_evaluated' for i in range(1, 53)})
+    if not path:
+        return result
+    if plan is None:
+        result['conditions'] = dict.fromkeys(_INTEGRITY_COUNTS, 'not_evaluated')
+        return result
+    try:
+        os.lstat(path)
+        receipt = _json(path)
+        require(isinstance(receipt, dict) and set(receipt) == {'schema', 'plan_digest', 'counts'}
+                and receipt['schema'] == 'igreja12.integrity-counts.v1'
+                and receipt['plan_digest'] == plan.digest and isinstance(receipt['counts'], dict)
+                and set(receipt['counts']) <= set(_INTEGRITY_COUNTS), 'integrity-receipt-invalid')
+    except FileNotFoundError:
+        return result
+    except Exception:  # noqa: BLE001 - untrusted local receipt is not evidence on failure
+        result['conditions'] = dict.fromkeys(_INTEGRITY_COUNTS, 'invalid')
+        return result
+    result['source'] = 'unverified_local_receipt'
+    for name, count in receipt['counts'].items():
+        if type(count) is not int or not 0 <= count <= 2**63 - 1:
+            result['conditions'][name] = 'invalid'
+            continue
+        observation = dict(ledger=(), invalid=(), duplicates=0, invalid_links=0,
+                           aptitude_backfill=0, backfills=dict(membro_por_vinculo=0, numero_atendimento=0))
+        if name in observation['backfills']:
+            observation['backfills'][name] = count
+        else:
+            observation[name] = count
+        try:
+            if name in ('duplicates', 'invalid_links'):
+                step_invariants(observation)
+            else:
+                remaining_pre_ddl_gates(observation)
+        except Refused:
+            result['conditions'][name] = 'nonzero_observed'
+        else:
+            result['conditions'][name] = 'zero_observed'
+    return result
+
+
 def dry_run(args, out=print):
     """Check local artifacts only; never assert operational readiness."""
     checks = dict.fromkeys(('config', 'plan', 'package', 'layout'), 'not_evaluated')
@@ -412,6 +460,7 @@ def dry_run(args, out=print):
         require(config.digest == digest(raw), 'window-config-invalid')
         return config
 
+    plan = None
     config = attempt('config', config_check)
     if config is not None:
         io = args._io
@@ -431,6 +480,7 @@ def dry_run(args, out=print):
                 package_manifest_sha256=config.package_manifest_sha256,
                 migrations=[m.name for m in plan.migrations], git=io.get('git')))
     out(json.dumps(dict(status='incomplete', checks=checks, j3_j6_approved=False,
+                        data_integrity=_integrity_receipt(args.integrity_receipt, plan),
                         assertions_are_authorization=False), sort_keys=True))
     return 2
 
@@ -556,6 +606,7 @@ def main(argv=None, out=print, *, io=None):
                                          'status', 'resume-legacy', 'run', 'a10'))
     parser.add_argument('--config', required=True)
     parser.add_argument('--dry-run', action='store_true', help='Local, incomplete artifact checks only.')
+    parser.add_argument('--integrity-receipt', help='Sanitized local counts for dry-run only.')
     parser.add_argument('--env-file')
     parser.add_argument('--env-var', help='Explicit variable in the private file; required for prepare/run.')
     parser.add_argument('--backup-config')
@@ -569,7 +620,9 @@ def main(argv=None, out=print, *, io=None):
     try:
         args = parser.parse_args(argv)
         args._io = io or {}
-        require(not args.dry_run or args.mode == 'run', 'window-arguments')
+        require((not args.dry_run or args.mode == 'run')
+                and (args.integrity_receipt is None or (args.dry_run and bool(args.integrity_receipt))),
+                'window-arguments')
         if args.dry_run:
             return dry_run(args, out)
         if args.mode == 'prepare':
