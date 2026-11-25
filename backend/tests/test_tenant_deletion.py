@@ -17,10 +17,20 @@ from app.services.tenant_deletion import (
     CleanupTask,
     TenantDeletionActor,
     TenantDeletionBlocked,
+    TenantDeletionError,
     TenantDeletionResult,
+    _erase_tenant_private_content,
     run_pending_cleanup,
 )
 from app.services.storage import StorageError, StoragePathError, tenant_owned_paths
+
+
+def test_missing_private_receipt_is_a_local_failure() -> None:
+    session = SimpleNamespace(
+        execute=lambda *args: SimpleNamespace(scalar_one=lambda: None),
+    )
+    with pytest.raises(TenantDeletionError, match="Recibo de exclusão privada indisponível"):
+        _erase_tenant_private_content(session, uuid.uuid4())
 
 
 class _Result:
