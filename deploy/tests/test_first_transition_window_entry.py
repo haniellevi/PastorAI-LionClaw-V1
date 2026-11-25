@@ -196,8 +196,9 @@ class Entry:
             value = [self.world.spec.network_id, self.world.spec.network_name, 'bridge', None]
         elif argv[5:7] == ['image', 'inspect']:
             image = argv[-1]
+            revision = self.world.spec.sha if image == self.world.spec.image else None
             value = [image if image == self.world.spec.image else 'sha256:' + 'f' * 64,
-                     [image], 'linux', self.world.spec.sha, ['PG_MAJOR=17', None], 'amd64']
+                     [image], 'linux', revision, ['PG_MAJOR=17', None], 'amd64']
         elif argv[5] == 'compose':
             assert argv[argv.index('--env-file') + 1] == '/dev/null' and kwargs['cwd'] == '/'
             value = self.model()
@@ -215,6 +216,13 @@ def entry(pinned, tmp_path):
     e = Entry(pinned, tmp_path)
     yield e
     e.world.journal.close()
+
+
+def test_image_template_tolerates_absent_labels():
+    assert ('{{with index .Config "Labels"}}'
+            '{{index . "org.opencontainers.image.revision" | json}}'
+            '{{else}}null{{end}}') in window.IMAGE_TEMPLATE
+    assert '.Config.Labels' not in window.IMAGE_TEMPLATE
 
 
 def test_prepare_is_pure_and_run_composes_real_backup_and_controller(entry):
