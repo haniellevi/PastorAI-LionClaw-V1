@@ -15,13 +15,13 @@ from tests.test_uv_conclusao_pg import complete, marco
 from tests.test_uv_presencas_pg import payload as attendance_payload, setup
 from tests.test_uv_turmas_pg import (
     create,
-    database,
+    database,  # noqa: F401
     matricula,
-    migrated_database,
+    migrated_database,  # noqa: F401
     principal,
-    rls_database_url,
+    rls_database_url,  # noqa: F401
     scoped,
-    seeded,
+    seeded,  # noqa: F401
 )
 
 pytestmark = pytest.mark.rls_integration
