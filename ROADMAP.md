@@ -396,6 +396,21 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
   integral ou aplicação das 52 em produção; a janela continua bloqueada. Os
   próximos passos são concluir as provas no candidato final e resolver J4 e o
   dry-run antes de reavaliar a janela.
+  Atualização na main `cd029ebc`: #717 acrescentou prova sintética de
+  compatibilidade legada da M20; #718/#719 caracterizaram integridade da M3 e
+  correlação do recibo cadastral, sem eliminar a dívida antes de liberar o
+  recurso. Pela decisão `e1081`, exclusão/reset aguardam a correção; o Item 29
+  encerra-se como decisão, com a pendência de integridade preservada. `e1071`
+  mantém, para contas comuns, a política cadastral atual de exclusão de
+  sessões e a política cadastral atual da trilha editorial; pedidos privados
+  preservam histórico, com encerramento cadastral distinto, e sessões da
+  identidade administrativa preservada seguem a retenção aprovada até
+  expiração e novo login. A modelagem não foi integrada nem o recurso liberado.
+  A F3 baseada em modelo fictício não foi integrada. As #712–#716 avançaram
+  diagnóstico e verificações locais parciais;
+  não há causa verificada para J4 nem prova viva integral de dry-run. O conjunto
+  segue em 52 ativas e cinco pausadas, na ordem lexical preservada; 4.6, T, J4
+  e dry-run integral continuam pendentes, sem janela liberada.
 - **Histórico de 24/11:** houve ensaio V9 em clone com 52 aplicadas, ledger
   130 e maior migration de 0,372 s (105,988 s totais, que não barram pela D9),
   com T registrada em `966d0ec5`, ainda não integrada.
@@ -1025,7 +1040,7 @@ Sem reescrita geral, renomeio em massa ou refatoração como pré-requisito de t
 | Triagem semântica Jev | em andamento | S1 implementada/testada com simulações; falta avaliar qualidade real, crise/humano e falsos opt-outs, contrato de tratamento de dados e autorização específica. Jev B/C/D continuam condicionados. | não verificado; não autoriza ativação. |
 | Comunicados, assinatura/Asaas e e-mail/Brevo | em andamento | Bases implementadas; faltam aceite por finalidade, domínio/remetente e canários separados. Não envolver a igreja em cortesia em cobrança real. | não verificado |
 | Onboarding da igreja, equipe, permissões e console | em andamento | Integradas: autorização de telas isolada por igreja (#536), reenvio de convite isolado (#538) e vínculo Pessoa ↔ usuário pelo admin, com auditoria e índice único (#543); ativação trava a igreja antes de Pessoa/usuário, eliminando a espera mútua com a gestão de equipe, com teste da corrida com convite que já traz Pessoa (#556). A tela de equipe sinaliza contas sem Pessoa vinculada (#557). Leitura após reset em 27/10: zero duplicidades de (igreja, pessoa). Correção nominal cancelada; revalidar ausência antes da migration da #543. | Cobertura completa: não verificado. |
-| Exclusão da pessoa, exclusão da igreja e reset | em andamento | Fatias integradas: #509, #518, pedido da pessoa com decisão admin (#535) e reset privado por pessoa (#541). Reset privado preserva cadastros/opt-out/consentimento e não autoriza reset cadastral. A trilha de vínculo Pessoa (#543) guarda UUIDs após exclusão aprovada; contrato atual documentado (#594) no [runbook de exclusão](docs/ops/EXCLUSAO-PRIVADA.md#trilha-de-vínculo-pessoa-543-após-exclusão), sem anonimização nem purga; produção não verificada. Novos derivados acompanham sua implementação. | não verificado |
+| Exclusão da pessoa, exclusão da igreja e reset | em andamento, funcionalidade de exclusão/reset adiada | Fatias integradas: #509, #518, pedido da pessoa com decisão admin (#535) e reset privado por pessoa (#541). Decisão `e1081`: exclusão/reset aguardam correção; a dívida de integridade do Item 29/M3 permanece antes de liberar o recurso, embora o item esteja encerrado como decisão. #718/#719 registram caracterização sintética da integridade e correlação de recibo, sem sanar as referências pendentes; F3 com modelo fictício não integrada. `e1071` mantém a política cadastral atual de exclusão de sessões de contas comuns e a política cadastral atual da trilha editorial; pedidos privados preservam histórico, com encerramento cadastral distinto; sessões da identidade administrativa preservada seguem a retenção aprovada até expiração e novo login. A modelagem não foi integrada nem o recurso liberado. Reset privado preserva cadastros/opt-out/consentimento e não autoriza reset cadastral. A trilha de vínculo Pessoa (#543) guarda UUIDs após exclusão aprovada; contrato atual documentado (#594) no [runbook de exclusão](docs/ops/EXCLUSAO-PRIVADA.md#trilha-de-vínculo-pessoa-543-após-exclusão), sem anonimização nem purga; produção não verificada. Novos derivados acompanham sua implementação. | não verificado |
 | UX, acessibilidade e desempenho do painel | em andamento | Integradas: teclado nas abas da Central (#527) e foco/anúncios/reflow no atendimento (#532). Faltam leitor de tela e celular reais, zoom e métricas autenticadas de campo. | Frontend publicado conforme registros; backend/telemetria e operação completa: não verificado. |
 | Agenda completa e importação Google | em andamento | Operações locais pelo WhatsApp com SIM e recibo integradas (#540), desligadas. Lembretes pela outbox com gate próprio fechado (#547) e janela configurável por evento (2h/24h/72h/168h, públicos existentes, invalidação de pendentes; #560). Faltam G2b (termo sem definição em nenhum arquivo; investigar antes) e credencial Google isolada por igreja antes de usar Google. | não verificado |
 | Observabilidade de IA e operação | em andamento | Há logs/custos/filas, consumo de IA por igreja (#537) e idade/contagem agregada de mensagens e tarefas pendentes por igreja (#544, só admin, sem conteúdo); outbox e webhooks entram na medição, com DLQ separada e função de métricas restrita a admin ativo da igreja (#562, migration nova, não aplicada); alerta `stuck_flow` preparado e DESLIGADO até existir credencial dedicada de leitura. Faltam métricas por rota, retenção e metas de serviço. | não verificado |
