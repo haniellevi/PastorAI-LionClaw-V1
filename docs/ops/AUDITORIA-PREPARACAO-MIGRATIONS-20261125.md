@@ -10,6 +10,7 @@
 | [Reconciliação #701, §§1.2–1.4](PREPARACAO-JANELA-VIRADA-20261124.md#12-lista-exata-das-52-pendentes-esperadas) | Listas nominais e modos de execução; comparados com os arquivos desta base e os cabeçalhos de pausa. |
 | Recibo de leitura autorizada, 25/11 às 12:37:41 UTC | Em `public.schema_migrations`: 78 nomes esperados, 78 observados, zero ausentes, extras ou duplicados. Origens: 63 `PROVA_OBJETO`, seis `BASELINE_V1_HISTORICO`, nove `MIGRATE_PY`. O ledger nativo tem 32 registros, apenas históricos. É uma observação pontual de nomes, não uma prova de schema, dados, permissões, VPS ou autorização de execução. |
 | Auditoria local `task_403d48169df1` e incremental `task_ef857b2157aa`, 25/11 | Inventário e classificação estáticos, indícios de dependências e propostas de checagem. A leitura nominal posterior resolve a lacuna dos 78 nomes, mas não comprova as demais pré-condições. As propostas foram adaptadas à ordem lexical vigente. |
+| Parecer estático Neon sobre 01 e 02, base `f4bb30df`, 25/11 | Identificou riscos funcionais e de integridade no contexto da baseline 78. Não houve execução, medição de candidatos ou teste sintético; os efeitos descritos são possíveis, não ocorrências comprovadas. |
 | Histórico da tentativa de 24/11, no ROADMAP | V9 em clone: 52 aplicadas, ledger 130 e maior migration de 0,372 s (total 105,988 s). A tentativa real parou em J4 antes do marcador de DDL; não prova a execução final, nem a validade de um novo ensaio. |
 
 Partição nominal conferida nesta preparação: 135 arquivos de topo = 78 observados no ledger + 52 ativas pendentes (44 transacionais, oito concorrentes) + cinco bloqueadas. Portanto havia 57 nomes de topo fora do ledger no instante da leitura; apenas 52 integram o candidato. O SQL aninhado em `private_runtime/` e os SQLs auxiliares não entram nessa seleção. O catálogo histórico pausado não é um ledger. Nenhum arquivo de migration, ordem de aplicação ou registro do banco foi alterado.
@@ -20,7 +21,7 @@ Os grupos abaixo são uma **sequência de revisão**, não lotes de aplicação.
 
 | Grupo | IDs da matriz | Dependências e foco de aceite (pendentes de prova) |
 |---|---|---|
-| G1. Ajustes históricos | 01–04 | Revisar os dois ajustes de dados de pessoas em conjunto, conferir efeito esperado dos registros e proteção dos administradores; Jev permanece inativo conforme seus gates. |
+| G1. Ajustes históricos | 01–04 | Revisar os dois ajustes de dados de pessoas em conjunto, incluindo o parecer específico abaixo, conferir efeito esperado dos registros e proteção dos administradores; Jev permanece inativo conforme seus gates. |
 | G2. Visitas, consolidação e setor | 06, 07, 30 | Baseline; conferir vínculos, recibos de aceite e disponibilidade/compatibilidade de `btree_gist` para responsabilidades. |
 | G3. Universidade da Vida | 08–10, 20 | Turmas antes de presenças e marcos, que antecedem Reencontro; preservar etapa de pessoa e integridade do vínculo. |
 | G4. Capacitação Destino | 11–14, 21 | Catálogo/turmas, matrículas, presenças, conclusões/certificados e equivalências; validar encadeamento e referências. |
@@ -91,6 +92,19 @@ Os grupos abaixo são uma **sequência de revisão**, não lotes de aplicação.
 | 50 | `20261030_140000_private_summary_runtime_identity.sql` | tx | G8C | Identidade de resumos; autorização e escopo de memória. |
 | 51 | `20261030_160000_queue_worker_runtime_identity.sql` | tx | G8C | Identidade da fila; execução e isolamento. |
 | 52 | `20261112_160000_celula_alerta_regras.sql` | tx | G9 | Regras de alerta, compatibilidade da tabela existente e painel; RLS e permissões. |
+
+### Revisão estática específica dos itens 01 e 02 (G1)
+
+O parecer Neon de 25/11 sobre os dois arquivos imutáveis identificou os seguintes riscos de integridade funcional, a validar no contexto completo da baseline 78:
+
+| Escopo | Risco possível identificado | Aceite pendente em dados fictícios |
+|---|---|---|
+| 01 e 02 | Alteração do tipo de pessoa arquivada. | Preservação do histórico de pessoas arquivadas. |
+| 01 | Promoção a membro a partir de vínculo residual em célula inativa ou de pessoa sem interesse; elegibilidade inconsistente. | Classificação coerente com atividade, vínculo e elegibilidade. |
+| 02 | Reclassificação indevida diante de telefone ambíguo ou vinculado à liderança, inclusive referências antigas de conexão. | Preservação da classificação de líderes e de pessoas que não representam o número oficial; tratamento coerente de ambiguidades. |
+| 01 e 02, em conjunto | Mudanças de tipo podem alterar etapa/subetapa via regras de pipeline e produzir efeitos na contagem faturável e em mudanças de plano; a redução posterior da contagem pode não desfazer um efeito intermediário. | Conferir integridade do pipeline, contagens e operações de billing antes/depois, inclusive no limite de um plano, sem efeitos externos. |
+
+A revisão estática confirmou a necessidade de testar as duas migrations com o contexto da baseline, inclusive dependências de domínio já presentes e efeitos combinados de pipeline/billing. Os testes existentes citados no parecer não bastam para demonstrar esses cenários completos; o aceite sintético específico permanece pendente. Não há afirmação de que algum desses casos exista hoje no banco gerenciado, nem decisão de alterar SQL, ordem ou política de execução. Eventual falha deve ser registrada e submetida à decisão no processo vigente, antes de aceitar G1.
 
 ## 4. Exclusões preservadas
 
