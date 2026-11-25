@@ -332,6 +332,12 @@ def test_integrity_receipt_classifies_each_existing_validator(tmp_path, name, co
     assert set(result['migration_audit'].values()) == {'not_evaluated'}
 
 
+def test_integrity_receipt_missing_path_is_missing_not_invalid(tmp_path):
+    result = window._integrity_receipt(str(tmp_path / 'absent.json'), SimpleNamespace(digest='a' * 64))
+    assert set(result['conditions'].values()) == {'missing'}
+    assert result['source'] == 'none'
+
+
 def test_integrity_receipt_refuses_unexpected_data_and_no_plan(tmp_path):
     path = tmp_path / 'integrity.json'
     path.write_text(json.dumps({'schema': 'igreja12.integrity-counts.v1', 'plan_digest': 'a' * 64,

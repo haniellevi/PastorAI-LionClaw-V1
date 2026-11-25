@@ -404,11 +404,14 @@ def _integrity_receipt(path, plan):
         result['conditions'] = dict.fromkeys(_INTEGRITY_COUNTS, 'not_evaluated')
         return result
     try:
+        os.lstat(path)
         receipt = _json(path)
         require(isinstance(receipt, dict) and set(receipt) == {'schema', 'plan_digest', 'counts'}
                 and receipt['schema'] == 'igreja12.integrity-counts.v1'
                 and receipt['plan_digest'] == plan.digest and isinstance(receipt['counts'], dict)
                 and set(receipt['counts']) <= set(_INTEGRITY_COUNTS), 'integrity-receipt-invalid')
+    except FileNotFoundError:
+        return result
     except Exception:  # noqa: BLE001 - untrusted local receipt is not evidence on failure
         result['conditions'] = dict.fromkeys(_INTEGRITY_COUNTS, 'invalid')
         return result
