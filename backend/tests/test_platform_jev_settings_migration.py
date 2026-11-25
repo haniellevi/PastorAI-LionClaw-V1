@@ -259,7 +259,7 @@ def test_limites_timeout_modelo_e_update_dpa(migrated_db):
 
 
 @pytest.fixture
-def migrated_public_session(rls_database_url, monkeypatch):
+def migrated_public_session_factory(rls_database_url, monkeypatch):
     """Cria banco descartável com schema `public` limpo e migration intacta."""
     db_name = f"jev_func_{uuid.uuid4().hex}"
     admin_engine = create_engine(rls_database_url, isolation_level="AUTOCOMMIT")
@@ -288,8 +288,7 @@ def migrated_public_session(rls_database_url, monkeypatch):
             raw_conn.commit()
         finally:
             raw_conn.close()
-        with session_local() as db:
-            yield db
+        yield session_local
     finally:
         crypto._get_fernet.cache_clear()  # noqa: SLF001
         engine.dispose()
@@ -298,10 +297,15 @@ def migrated_public_session(rls_database_url, monkeypatch):
         admin_engine.dispose()
 
 
-def _make_jev_client(db: Session, admin_uuid: uuid.UUID) -> TestClient:
+def _make_jev_client(session_factory: sessionmaker[Session], admin_uuid: uuid.UUID) -> TestClient:
     app = FastAPI()
     app.include_router(platform_jev.router)
-    app.dependency_overrides[get_db] = lambda: db
+
+    def _override_get_db():
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_platform_admin] = lambda: PlatformAdminUser(
         app_user_id=str(admin_uuid),
         clerk_user_id="clerk-master-ficticio",
@@ -311,8 +315,8 @@ def _make_jev_client(db: Session, admin_uuid: uuid.UUID) -> TestClient:
     return TestClient(app)
 
 
-def test_ciclo_funcional_servico_e_router_pg17(migrated_public_session, monkeypatch):
-    db = migrated_public_session
+def test_ciclo_funcional_servico_e_router_pg17(migrated_public_session_factory, monkeypatch):
+    session_factory = migrated_public_session_factory
     admin_uuid = uuid.uuid4()
     igreja_a = uuid.uuid4()
     igreja_b = uuid.uuid4()
@@ -327,21 +331,22 @@ def test_ciclo_funcional_servico_e_router_pg17(migrated_public_session, monkeypa
     )
     monkeypatch.setattr(jev_triage, "get_triage_settings", lambda: base_settings)
 
-    assert jev_triage.console_table_exists(db) is True
-    assert jev_triage.load_console_settings(db) is None
-    antes = jev_triage.effective_settings(db)
-    assert antes.chave_origem == "ambiente"
-    assert antes.settings.typesafe_timeout_seconds == 2.0
+    with session_factory() as db:
+        assert jev_triage.console_table_exists(db) is True
+        assert jev_triage.load_console_settings(db) is None
+        antes = jev_triage.effective_settings(db)
+        assert antes.chave_origem == "ambiente"
+        assert antes.settings.typesafe_timeout_seconds == 2.0
 
-    db.add_all(
-        [
-            Igreja(id=igreja_a, nome="Igreja Fictícia Alpha"),
-            Igreja(id=igreja_b, nome="Igreja Fictícia Beta"),
-        ]
-    )
-    db.commit()
+        db.add_all(
+            [
+                Igreja(id=igreja_a, nome="Igreja Fictícia Alpha"),
+                Igreja(id=igreja_b, nome="Igreja Fictícia Beta"),
+            ]
+        )
+        db.commit()
 
-    client = _make_jev_client(db, admin_uuid)
+    client = _make_jev_client(session_factory, admin_uuid)
     resp = client.put(
         "/admin/jev/config",
         json={
@@ -368,24 +373,24 @@ def test_ciclo_funcional_servico_e_router_pg17(migrated_public_session, monkeypa
         key=lambda i: i["id"],
     )
 
-    db.expire_all()
-    row = db.execute(select(PlatformJevSettings).where(PlatformJevSettings.id == 1)).scalar_one()
-    assert row.timeout_seconds == Decimal("2.5")
-    assert set(row.igreja_ids) == {igreja_a, igreja_b}
-    assert row.updated_by == admin_uuid
-    assert row.api_key_encrypted is not None
-    assert crypto.decrypt_secret(row.api_key_encrypted) == chave_ficticia
+    with session_factory() as db:
+        row = db.execute(select(PlatformJevSettings).where(PlatformJevSettings.id == 1)).scalar_one()
+        assert row.timeout_seconds == Decimal("2.5")
+        assert set(row.igreja_ids) == {igreja_a, igreja_b}
+        assert row.updated_by == admin_uuid
+        assert row.api_key_encrypted is not None
+        assert crypto.decrypt_secret(row.api_key_encrypted) == chave_ficticia
 
-    efetiva = jev_triage.effective_settings(db)
-    assert efetiva.chave_origem == "console"
-    assert efetiva.settings.typesafe_api_key == chave_ficticia
-    assert isinstance(efetiva.settings.typesafe_timeout_seconds, float)
-    assert efetiva.settings.typesafe_timeout_seconds == 2.5
-    assert efetiva.dpa_assinado_em == dt.date(2026, 9, 20)
-    assert set(efetiva.settings.jev_shadow_triage_igreja_ids.split(",")) == {
-        str(igreja_a),
-        str(igreja_b),
-    }
+        efetiva = jev_triage.effective_settings(db)
+        assert efetiva.chave_origem == "console"
+        assert efetiva.settings.typesafe_api_key == chave_ficticia
+        assert isinstance(efetiva.settings.typesafe_timeout_seconds, float)
+        assert efetiva.settings.typesafe_timeout_seconds == 2.5
+        assert efetiva.dpa_assinado_em == dt.date(2026, 9, 20)
+        assert set(efetiva.settings.jev_shadow_triage_igreja_ids.split(",")) == {
+            str(igreja_a),
+            str(igreja_b),
+        }
 
     for limite in (0.1, 10.0):
         borda = client.put(
@@ -403,13 +408,14 @@ def test_ciclo_funcional_servico_e_router_pg17(migrated_public_session, monkeypa
     limpo = client.put("/admin/jev/config", json={"igrejaIds": [], "dpaAssinadoEm": None})
     assert limpo.status_code == 200
     assert limpo.json()["igrejas"] == []
-    assert jev_triage.effective_settings(db).settings.jev_shadow_triage_igreja_ids == ""
+    with session_factory() as db:
+        assert jev_triage.effective_settings(db).settings.jev_shadow_triage_igreja_ids == ""
 
 
 def test_igreja_excluida_em_igreja_ids_nao_quebra_leitura_nem_atualizacao_pg17(
-    migrated_public_session, monkeypatch
+    migrated_public_session_factory, monkeypatch
 ):
-    db = migrated_public_session
+    session_factory = migrated_public_session_factory
     admin_uuid = uuid.uuid4()
     igreja_a = uuid.uuid4()
     igreja_b = uuid.uuid4()
@@ -420,15 +426,16 @@ def test_igreja_excluida_em_igreja_ids_nao_quebra_leitura_nem_atualizacao_pg17(
         lambda: TriageSettings(_env_file=None),  # type: ignore[call-arg]
     )
 
-    db.add_all(
-        [
-            Igreja(id=igreja_a, nome="Igreja Mantida"),
-            Igreja(id=igreja_b, nome="Igreja Removida"),
-        ]
-    )
-    db.commit()
+    with session_factory() as db:
+        db.add_all(
+            [
+                Igreja(id=igreja_a, nome="Igreja Mantida"),
+                Igreja(id=igreja_b, nome="Igreja Removida"),
+            ]
+        )
+        db.commit()
 
-    client = _make_jev_client(db, admin_uuid)
+    client = _make_jev_client(session_factory, admin_uuid)
     put_ok = client.put(
         "/admin/jev/config",
         json={
@@ -438,20 +445,22 @@ def test_igreja_excluida_em_igreja_ids_nao_quebra_leitura_nem_atualizacao_pg17(
     )
     assert put_ok.status_code == 200
 
-    igreja_removida = db.execute(select(Igreja).where(Igreja.id == igreja_b)).scalar_one()
-    db.delete(igreja_removida)
-    db.commit()
+    with session_factory() as db:
+        igreja_removida = db.execute(select(Igreja).where(Igreja.id == igreja_b)).scalar_one()
+        db.delete(igreja_removida)
+        db.commit()
 
     get_resp = client.get("/admin/jev")
     assert get_resp.status_code == 200
     por_id = {item["id"]: item["nome"] for item in get_resp.json()["igrejas"]}
     assert por_id == {str(igreja_a): "Igreja Mantida", str(igreja_b): None}
 
-    efetiva = jev_triage.effective_settings(db)
-    assert set(efetiva.settings.jev_shadow_triage_igreja_ids.split(",")) == {
-        str(igreja_a),
-        str(igreja_b),
-    }
+    with session_factory() as db:
+        efetiva = jev_triage.effective_settings(db)
+        assert set(efetiva.settings.jev_shadow_triage_igreja_ids.split(",")) == {
+            str(igreja_a),
+            str(igreja_b),
+        }
 
     atualizado = client.put(
         "/admin/jev/config",
