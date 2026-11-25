@@ -1,10 +1,12 @@
-"""Functional characterization of the two July data migrations.
+"""Functional characterization of the two July data migrations on an evolved baseline.
 
 Only a disposable PostgreSQL cluster is supported. Each case gets a fresh
-database with a minimal synthetic business schema and the historical trigger
-definitions, not the complete release schema or any providers.
+database with a minimal synthetic business schema and the August billing
+trigger definitions present in the evolved baseline. This is not a replay of
+the schema as it was in July, the complete release schema, or any providers.
 """
 
+import os
 from pathlib import Path
 from uuid import uuid4
 
@@ -82,20 +84,38 @@ create table schema_migrations (name text primary key);
 def db(rls_database_url):
     """Create and remove only our freshly named database (CI uses localhost)."""
     base = make_url(rls_database_url)
-    if base.host not in {"127.0.0.1", "localhost", "::1"} or base.query:
+    if (
+        base.drivername not in {"postgresql", "postgresql+psycopg2"}
+        or base.host != "127.0.0.1"
+        or base.port is None
+        or base.database != "rls_disposable"
+        or not base.username
+        or not base.password
+        or base.query
+        or any(key.upper().startswith("PG") for key in os.environ)
+    ):
         raise RuntimeError("July migration test requires a local disposable database")
     name = f"july_data_test_{uuid4().hex}"
-    admin_url = base.set(drivername="postgresql", database="postgres")
-    test_url = admin_url.set(database=name)
-    admin = psycopg2.connect(admin_url.render_as_string(hide_password=False))
+    connection_args = dict(
+        host=base.host, hostaddr=base.host, port=base.port,
+        user=base.username, password=base.password,
+    )
+    admin = psycopg2.connect(dbname=base.database, **connection_args)
     admin.autocommit = True
     try:
         with admin.cursor() as cur:
+            cur.execute("select current_database(), system_identifier::text from pg_control_system()")
+            database, cluster_id = cur.fetchone()
+            if database != "rls_disposable":
+                raise RuntimeError("Unexpected disposable database identity")
             cur.execute(sql.SQL("create database {} template template0").format(sql.Identifier(name)))
         try:
-            conn = psycopg2.connect(test_url.render_as_string(hide_password=False))
+            conn = psycopg2.connect(dbname=name, **connection_args)
             try:
                 with conn, conn.cursor() as cur:
+                    cur.execute("select current_database(), system_identifier::text from pg_control_system()")
+                    if cur.fetchone() != (name, cluster_id):
+                        raise RuntimeError("Unexpected fresh database identity")
                     cur.execute(DDL)
                     cur.execute("insert into igrejas(id) values (%s)", (IGREJA_A,))
                 yield conn
@@ -146,7 +166,8 @@ def state(conn, pessoa):
 
 
 def install_triggers(conn):
-    # Exact definitions, without executing unrelated DDL or permission changes.
+    # Evolved baseline: exact pipeline and August billing definitions, without
+    # replaying unrelated DDL or permission changes.
     pipeline = (MIGRATIONS / "0004_triggers.sql").read_text(encoding="utf-8")
     start = pipeline.index("create or replace function fn_promote_pipeline()")
     end = pipeline.index("execute function fn_promote_pipeline();", start)
@@ -200,6 +221,7 @@ def test_m1_classification(db, tipo, archived, csim, cell_active, link_active, c
         ("550091110000", "5500991110000", False, "online", None, False, "contato"),
         ("550091110000", "01991110000", False, "online", None, False, "membro"),
         ("550091110000", "---", False, "online", None, False, "membro"),
+        ("", "", False, "online", None, False, "membro"),
         ("550091110000", "00991110000", False, "online", True, False, "membro"),
         # Historical characterization only: archived records, ambiguous phone
         # identity and offline leadership cases still require business review.
@@ -207,7 +229,7 @@ def test_m1_classification(db, tipo, archived, csim, cell_active, link_active, c
         ("0032224444", "00932224444", False, "online", None, False, "contato"),
         ("550091110000", "00991110000", False, "offline", None, True, "contato"),
     ],
-    ids=["masked", "legacy-inactive-link", "country-code", "different-ddd", "empty-canonical", "active-member",
+    ids=["masked", "legacy-inactive-link", "country-code", "different-ddd", "empty-canonical", "both-phones-empty", "active-member",
          "archived", "landline-ambiguity", "offline-cell-leader"],
 )
 def test_m2_classification(db, number, phone, archived, status, link_active, leader, current):
@@ -248,14 +270,17 @@ def test_pipeline_updates_both_migrations(db):
     assert state(db, official) == ("contato", "consolidar", "em_consolidacao")
 
 
-@pytest.mark.parametrize("plan, remote_id, after_plan, operations", [
-    ("ate_100", None, "101_200", []),
-    ("ate_100", "sub_sintetico", "ate_100", [("prepared", "autoupgrade", "101_200")]),
-    ("cortesia", None, "cortesia", []),
-], ids=["local-paid", "prepared-only", "complimentary"])
-def test_billing_sequence(db, plan, remote_id, after_plan, operations):
+@pytest.mark.parametrize("plan, remote_id, next_price, after_plan, operations", [
+    ("ate_100", None, 199, "101_200", []),
+    ("ate_100", "sub_sintetico", 199, "ate_100", [("prepared", "autoupgrade", "101_200")]),
+    ("cortesia", None, 199, "cortesia", []),
+    ("cortesia", "sub_sintetico", 199, "cortesia", []),
+    ("ate_100", None, 0, "acima_201", []),
+], ids=["local-paid", "prepared-only", "complimentary", "complimentary-with-id", "skip-free-target"])
+def test_billing_sequence(db, plan, remote_id, next_price, after_plan, operations):
     query(db, """insert into planos values
-        ('ate_100',true,99,2),('101_200',true,199,4),('cortesia',true,0,2)""")
+        ('ate_100',true,99,2),('101_200',true,%s,4),('acima_201',true,299,6),
+        ('cortesia',true,0,2)""", (next_price,))
     query(db, "update igrejas set plano=%s where id=%s", (plan, IGREJA_A))
     query(db, """insert into subscriptions (igreja_id,plano,pessoas,limite,asaas_subscription_id)
                  values (%s,%s,2,2,%s)""", (IGREJA_A, plan, remote_id))
@@ -281,7 +306,7 @@ def test_billing_sequence(db, plan, remote_id, after_plan, operations):
     assert local_operations() == []
     apply(db, M1)
     assert state(db, candidate)[0] == state(db, archived)[0] == state(db, csim)[0] == "membro"
-    limit = 4 if after_plan == "101_200" else 2
+    limit = {"101_200": 4, "acima_201": 6}.get(after_plan, 2)
     assert billing_state() == [(3, after_plan, after_plan, limit)]
     assert local_operations() == operations
     apply(db, M2)
