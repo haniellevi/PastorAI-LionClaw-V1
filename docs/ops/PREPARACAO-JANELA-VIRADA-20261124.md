@@ -1,9 +1,11 @@
 # Preparação da janela de virada: reconciliação e propostas para revisão
 
-Data: 24/11/2026. Status: somente documental, para revisão do Raniel.
-Este documento não autoriza execução nem altera decisões ou gates do
-[ROADMAP](../../ROADMAP.md). A proposta de aprovação da seção 2 depende de
-aceite explícito antes de substituir o procedimento atual.
+Data: 24/11/2026. Registro histórico da PR #701, mesclada em `d4f614c2`.
+O [ROADMAP, Fase 4](../../ROADMAP.md#fase-4--ferramenta-da-virada-apontada-para-a-main)
+registra a atualização vigente: A = `e1c63ed1`, revalidação pós-SIM aprovada
+como procedimento, janela bloqueada até J4 corrigido com teste e dry-run
+completo na VPS aprovado e limpo. A aprovação do procedimento não é SIM
+operacional; este documento preserva a evidência e as propostas originais.
 
 Critério de conclusão desta preparação: explicar nominalmente 52 versus 57,
 propor aprovação com revalidação após a resposta do dono e explicitar a
@@ -14,7 +16,7 @@ implantação e a prova do link ativo no J9, sem executar a janela.
 | Fonte | Evidência e limite |
 |---|---|
 | Git local, base `origin/main` conferida nesta preparação | `41c5b1802d733e289e83f579f890f3d610f812f7`; checkout inicialmente limpo. Todos os nomes e classificações de SQL abaixo foram derivados dessa árvore e confrontados com A. |
-| Aplicação A, preservada | `6af9f75c8d673cb3454de1f8740a0acc509937ff`, backend e painel. Nenhum retorno a `afdfb78d`. |
+| Aplicação A, na preparação original da #701 | `6af9f75c8d673cb3454de1f8740a0acc509937ff`, backend e painel. Identidade histórica, substituída por `e1c63ed1`; nenhum retorno a `afdfb78d`. |
 | Aplicador fixo | `37c7d68d60b6f86cfb1fe75d4c720530537845d6` (`EXECUTOR_SHA`). Não confundir com a ferramenta T. |
 | Ferramenta T | O Git auditado contém o seletor atual. O SHA exato de T instalado/usado no V8 precisa vir do recibo operacional e ser conferido na futura leitura autorizada. Esta nota não afirma que a ponta documental está instalada na VPS. |
 | Última leitura de produção informada pelo Raniel nesta tarefa | Em 24/11: 78 linhas em `public.schema_migrations`; última aplicada `20261002_173000_visitor_expectation_whatsapp.sql`, aplicada em 14/10/2026. Não foi feita nova consulta nem recebido aqui o conjunto nominal completo dessas 78 linhas. |
@@ -80,7 +82,8 @@ processo catalog-bound; não usar seus wrappers nem reabrir governança para
 explicar esta diferença. O [ROADMAP](../../ROADMAP.md), quadro da seção 2 e
 Fase 4, registra 130 ativas, cinco pausadas e 52 pendentes. Os trechos antigos
 sobre 129/51 ou `afdfb78d` são históricos; a referência atual de A está no
-[runbook §12.6](PRODUCTION-RUNBOOK.md#126-kit-e-roteiro-do-dia).
+[ROADMAP, Fase 4](../../ROADMAP.md#fase-4--ferramenta-da-virada-apontada-para-a-main).
+Os SQLs de topo não mudaram entre a identidade histórica e a atual.
 A lista antiga de 51 no [runbook do lote](RELEASE-LOTE-2026-10.md#lista-exata-das-51-pendentes-ordem-lexical-de-migratepy)
 corresponde aos itens 1 a 51 abaixo, antes da inclusão do item 52.
 
@@ -335,7 +338,11 @@ SIM2 ou do caso `e691`: não se atribui o prazo do relato a um timer comprovado
 nesses módulos. O registro operacional da pergunta/prova é uma evidência
 adicional a conferir, não um comportamento novo implementado por esta PR.
 
-### 2.2 Procedimento proposto, ainda sujeito ao aceite do Raniel
+### 2.2 Procedimento proposto na #701 (aceite posterior registrado no ROADMAP)
+
+Registro da proposta original. O desenho foi aceito posteriormente, nos
+limites da decisão da Fase 5 do ROADMAP, sem validar os SHAs ou artefatos
+históricos abaixo para uma nova execução.
 
 1. **Congelar o pedido antes de perguntar.** Identificar ambiente/igreja e
    operador, ação exata do bloco e efeitos, A completo acima, T integrado
@@ -409,8 +416,8 @@ ensaio sintético antes do uso; esta nota não permite ignorar sua recusa.
 > vencido encerra a tentativa. SIM 3, A10, publicação e J9 mantêm seus blocos
 > próprios. Esta autorização do procedimento não é o SIM 2 de uma janela.
 
-O Raniel deve aprovar esse desenho antes de usá-lo. Esta PR é o material para
-revisão; nenhum SIM operacional é inferido de seu merge futuro.
+Na proposta original, o aceite do desenho era pendente. O aceite posterior
+está registrado no ROADMAP; nenhum SIM operacional é inferido do merge da PR.
 
 ## 3. `/opt/pastorai-current`: lacuna e fechamento no J9
 

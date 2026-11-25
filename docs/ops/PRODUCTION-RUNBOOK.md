@@ -777,6 +777,16 @@ Registrar:
 
 ## 12. Primeira virada da instalação legada (janela A1–A10)
 
+**Estado de preparação em 24/11/2026:** o
+[ROADMAP, Fase 4](../../ROADMAP.md#fase-4--ferramenta-da-virada-apontada-para-a-main)
+fixa A em `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`. As referências a
+`6af9f75c` nesta seção são da versão anterior; os respectivos comandos,
+artefatos e provas permanecem como registro, não estão validados para A.
+A seção ainda requer harmonização e revisão no T final. A janela não pode
+ser agendada até J4 corrigido com teste e dry-run completo na VPS aprovado
+e limpo; os SIMs por bloco e a revalidação pós-SIM permanecem obrigatórios.
+Este registro não autoriza execução nem substitui as provas pendentes.
+
 Vale só para a primeira troca do sistema antigo pelo novo. Os releases
 seguintes usam o [deploy manual](../../deploy/BACKEND-RELEASE-MANUAL.md).
 Nada aqui autoriza executar: cada **SIM** abaixo é uma frase do Raniel no
@@ -786,7 +796,7 @@ autorização.
 
 Ferramenta: `deploy/first_transition_window.py` (modos somente leitura `status`,
 `prepare`, `check`, `check-bindings`, além de `prepare-layout`, `rehearse-backup`,
-`resume-legacy`, `run` e `a10`). Alvo desta virada (Fase 4/5): SHA **A** =
+`resume-legacy`, `run` e `a10`). Alvo da versão anterior desta seção: SHA **A** =
 `6af9f75c8d673cb3454de1f8740a0acc509937ff` (`130` migrations = `78` de base +
 `52` pendentes, sendo `44` transacionais e `8` `CONCURRENTLY`). O modo `run` vai
 da contenção até a A9 numa execução só, parando sempre após gravar `ddl-marker`

@@ -6,6 +6,8 @@ O Plano Casa Limpa e as decisões de 13/11 (seção 7) regem a execução. Para 
 virada, valem o alvo A, a autorização por bloco com o agente como operador,
 o limite por migration, a recuperação por estado e os envios fechados ao fim.
 As regras de produto deste registro seguem vigentes onde o plano não as altera.
+Os números, SHAs e procedimentos de virada de 12/11 são históricos; para a
+preparação atual, vale a atualização de 24/11 da Fase 4.
 
 **Ordem do trabalho:**
 
@@ -177,9 +179,11 @@ usar os números abaixo para apagar nada.
 7. **Segredos** nunca entram em chat, documento, log ou commit. Arquivo de
    segredo só é copiado de um lugar para outro dentro da VPS, sem ser lido.
 8. **Nunca editar migration.**
-9. **Congelamento da `main`:** do merge da ferramenta (4.6) até o fim da
-   virada (5.5), nenhuma outra PR entra. Se a base de T avançar antes do
-   merge, refixar A e refazer as provas afetadas no novo candidato.
+9. **Congelamento do candidato A:** a partir da decisão de 24/11, preservar
+   `e1c63ed1` até a conclusão da 5.5; pausar a Fase 3 e mudanças de produto.
+   Só integrar a preparação indispensável à virada, sem alterar o pacote de
+   runtime ou as migrations de A. Mudança do candidato exige nova decisão e
+   renovação das provas afetadas.
 10. **Sem migration nova** na `main` até o release normal ganhar um caminho
     para mudança em tabela existente (fila, item 1).
 11. **Cuidado enxuto** (decisão de 13/11): ficam 1 backup antes de mexer no
@@ -204,10 +208,10 @@ usar os números abaixo para apagar nada.
 | 8 | Pasta local nova | não | 7 | troca a pasta por um clone limpo |
 | 9 | Prova final | leitura | 8 | fecha o plano e abre a fila |
 
-Caminho crítico: prova local do cofre → 2 → 4 → 5, com as leituras da Fase 1
-em paralelo. A Fase 3 não segura a virada: o que dela não
-tiver entrado até o congelamento continua depois da Fase 5 (remover documento
-não muda o que está no ar; a prova é o item 2 da seção 1).
+Caminho crítico do plano: prova local do cofre → 2 → 4 (inclusive as duas
+provas prévias de 24/11) → 5, com as leituras autorizadas da Fase 1.
+As Fases 6 a 9 e o restante da Fase 3 ficam para depois da 5.5 concluída.
+A decisão do cofre local permanece vigente; esta preparação não reabre a D1.
 
 Por que uma parada só (e não virada + release, como na versão 2): o release
 normal recusa a migration 130 nos dois sentidos, e as saídas estudadas exigem
@@ -345,18 +349,93 @@ passarem no SHA candidato.
 
 #### Fase 4 — Ferramenta da virada apontada para a `main`
 
-Justificativa: hoje a virada está travada pela regra de tempo e, mesmo
-destravada, deixaria a produção 168 commits atrás, com um segundo release que
-o verificador recusa. Esta fase resolve as duas coisas numa PR só.
+**Atualização vigente de 24/11/2026: janela bloqueada, ainda sem agendamento.**
+O dono fixou **A = `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`** para o backend
+e o painel. O aplicador fixo continua `37c7d68d`; T é a ferramenta que ainda
+precisa ser integrada e validada. O A anterior (`6af9f75c`) e o alvo mais
+antigo (`afdfb78d`) são referências históricas, não alternativas para a janela.
+
+- **Git:** a PR #701 (merge `d4f614c2`) documentou a reconciliação nominal e a
+  proposta de revalidação pós-SIM. A PR #703 (ponta local `bda12141`) está
+  registrada como aberta e bloqueada, apesar do CI verde informado; não foi
+  integrada. Na base local `e1c63ed1`, a ferramenta ainda aponta para o A
+  anterior. O saneamento ou substituição da #703 precisa consolidar T no
+  candidato correto, com a correção de inspeção de imagens (`966d0ec5`),
+  a correção testada de J4 e o runbook
+  §12 coerente, mantendo históricos separados. Não houve consulta remota nesta
+  consolidação.
+- **Migrations:** 135 SQLs de topo, 130 ativas (78 de base, 52 pendentes:
+  44 transacionais e 8 concorrentes) e cinco pausadas. Nenhum SQL mudou entre
+  `6af9f75c` e A. A lista nominal está na
+  [reconciliação da #701](docs/ops/PREPARACAO-JANELA-VIRADA-20261124.md#1-reconciliação-nominal-das-migrations).
+  Na leitura autorizada, comparar os conjuntos completos do ledger com as 78
+  esperadas, as 52 pendentes e as cinco excluídas; contagem isolada não basta.
+- **Histórico de 24/11:** houve ensaio V9 em clone com 52 aplicadas, ledger
+  130 e maior migration de 0,372 s (105,988 s totais, que não barram pela D9),
+  com T registrada em `966d0ec5`, ainda não integrada.
+  A tentativa real de 5.4 recusou em J4 antes do marcador de DDL, em estado
+  `containment-partial`; causa raiz não comprovada. A janela foi fechada sem
+  J6 nem 5.5. Ao fechar, a API respondeu 200, cron do backup diário restaurado,
+  gates fechados, tráfego no legado e ledger 78. São registros daquele dia,
+  não provas do estado vivo nem do T final. Os recibos originais de 5.2, 5.3
+  e aborto de 5.4 permanecem na ponta `bda12141`, em
+  `docs/ops/RECIBO-5-2-20261124.md`, `docs/ops/RECIBO-5-3-20261124.md` e
+  `docs/ops/RECIBO-5-4-ABORT-20261124.md`, respectivamente. Preservá-los como
+  histórico, sem transferir as autorizações anteriores para nova janela.
+
+**Condições cumulativas do dono para agendar a Fase 5:**
+
+1. J4 corrigido com causa raiz comprovada por evidência autorizada, correção
+   mínima revisada e teste automatizado de regressão verde, sem enfraquecer
+   as proteções. T integrado, com as provas da 4.1–4.6 e GO escrito da Sarah
+   vinculados ao candidato final. As duas condições não são substituíveis por
+   CI verde de uma PR bloqueada.
+2. Dry-run completo na VPS, aprovado e passando limpo no T integrado sobre A.
+   O dono ainda precisa autorizar nominalmente o escopo e a realização;
+   respeitar a recusa de medição Nginx e a interrupção da implementação
+   anterior. O recibo deve cobrir todos os requisitos pré-janela acordados:
+   identidade e integridade do kit, topologia e vínculos, ambiente e gates,
+   ledger nominal, replay V9 em clone isolado, vizinhos e painel candidato.
+   Classificar cada requisito como confirmado, recusado, indisponível ou
+   dependente da janela.
+   Ausência de evidência, recusa ou indisponibilidade de requisito do escopo
+   reprova; ensaio parcial, checagem estática e o V9 histórico não equivalem
+   a dry-run completo aprovado.
+
+**Alcance e validade da evidência:** distinguir no recibo o tipo de prova
+de cada requisito, conforme o parecer estratégico complementar de 24/11.
+
+| Tipo | O que pode demonstrar | Limite |
+|---|---|---|
+| Estática | Coerência de código, artefatos versionados e conjuntos nominais de migrations | Não comprova o estado vivo da VPS |
+| Leitura passiva autorizada | Estado observado do inventário, kit, ledger, gates e vínculos no alvo | Retrato de um instante, sem provar efeitos futuros |
+| Ensaio isolado | Comportamento e resultado no ambiente de teste, inclusive V9 em clone | Não comprova a execução no alvo |
+| Dependente da janela | Contenção efetiva de J4, quiescência no instante do corte, backup oficial vinculado ao marcador, aplicação real das 52 migrations, A10, publicação/smoke do painel e prova de backup e estado final em J9/J10 | Só verificável nos respectivos blocos autorizados da janela |
+
+A validade do recibo está vinculada ao ambiente, horário, versões A/T,
+imagem, inventário e vínculos vigentes dos serviços, `plan_digest` e
+`window_digest`. Mudanças nessa identidade invalidam a prova de dry-run
+anterior para a configuração nova; a revalidação pós-SIM confere a mesma
+identidade. Recibos de 24/11 permanecem evidências históricas, sem comprovar
+o estado atual. A causa de J4 continua desconhecida; nenhuma prova parcial
+ou classificação dependente da janela equivale a corrigir J4 ou aprovar
+todo o dry-run. Cabe ao dono aprovar o alcance verificável antes do aceite,
+preservadas as restrições vigentes. Ambas as condições de agendamento estão
+**pendentes**; nenhum novo SIM de execução é inferido desta preparação.
+
+Justificativa original de 13/11: a virada estava travada pela regra de tempo
+e deixaria a produção 168 commits atrás, com um segundo release recusado.
+Permanece a decisão de uma parada só; os bloqueios atuais são os descritos
+na atualização de 24/11 acima.
 
 | ID | Tarefa | SIM | Pronto quando |
 |---|---|---|---|
-| 4.1 | Fixar **A** na ponta da `main` após a Fase 2 e as PRs já integradas da Fase 3. Resolver os achados graves da 1.3 e conferir se o ledger da 1.2 corresponde à linha de base do candidato | não | SHA de A, 4 checks e `synthetic-release` verdes |
-| 4.2 | Preparar a PR **T** sobre A com os ajustes abaixo | não | `git diff A T -- backend frontend` vazio; provas da 4.6 |
+| 4.1 | Preservar **A** em `e1c63ed1`. Resolver os achados graves da 1.3 e conferir se o ledger da 1.2 corresponde à linha de base do candidato | não | SHA de A, 4 checks e `synthetic-release` verdes |
+| 4.2 | Consolidar a PR **T** sobre A com os ajustes abaixo e a correção comprovada e testada de J4 | não | equivalência com A no pacote de runtime e no frontend, SQLs intactos; provas da 4.6 |
 | 4.3 | Na T, documentar J9: registrar Compose efetivo, overrides, arquivo privado e dependências; configurar `/opt/pastorai-current` para A; apontar o backup para o arquivo privado efetivo, com modo 0600 e fora do layout verificado. Rodar uma vez o comando do cron manualmente antes de religá-lo | não para documentar; execução na 5.5 | runbook indica como provar um backup novo com `BACKUP_OK`, `sha256sum -c`, status "verified" e serviços de apoio despausados |
 | 4.4 | Conferir variáveis obrigatórias de A contra os nomes da 1.2, migrations que mexem no timeout e contrato do painel antigo com a API de A. Registrar se a volta do painel é utilizável. Ensaiar o procedimento de fechar os envios da 5.2 com a mesma imagem e atualizar os vínculos se os IDs mudarem | não | resultado das conferências e procedimento no runbook |
 | 4.5 | Sarah revisa RLS e autenticação desde o SHA observado na 1.2 até A, os grants e políticas de `cell_alerts` com as roles efetivas e o caminho de aplicação na T | não | GO por escrito nas condições da regra 5 |
-| 4.6 | Antes do merge, rodar `test_first_transition_window_backup_docker` em ambiente sintético no SHA de T, com as 52 migrations e as medições. Registrar comando, SHA e saída. Mesclar com os 4 checks e o `synthetic-release` verdes; registrar o SHA integrado da ferramenta | não | recibo local do teste executado e checks verdes no candidato |
+| 4.6 | Antes do merge, rodar `test_first_transition_window_backup_docker` em ambiente sintético no SHA de T, com as 52 migrations e as medições. Registrar comando, SHA e saída. Mesclar com os 4 checks e o `synthetic-release` verdes; registrar o SHA integrado da ferramenta | não | recibo do ensaio, regressão de J4 e checks verdes no candidato final; revisão 4.5 |
 
 Ajustes da 4.2 na T:
 
@@ -388,8 +467,18 @@ Ajustes da 4.2 na T:
 
 Justificativa: leva o banco de 78 para 130 migrations e sobe backend e painel
 de A. É o único passo com ponto sem volta. O sistema fica fora do ar por
-cerca de 45 minutos (reservar 2 horas). Como ninguém usa e os dados são de
-teste, a data é qualquer dia em que o dono disser.
+cerca de 45 minutos (reservar 2 horas). A data só pode ser marcada pelo dono
+após as duas condições cumulativas da Fase 4 comprovadas; ainda está bloqueada.
+
+**Revalidação pós-SIM aprovada:** aplica-se o desenho da #701, §2.2. Cada SIM
+continua vinculado ao bloco, à identidade congelada, aos efeitos e ao prazo
+originais. Depois da resposta e antes do efeito, obter prova viva autorizada
+do mesmo estado; revalidar identidade e cortes vigentes, inclusive os de
+15 min, sem estendê-los. Uma prova prévia envelhecida pode ser renovada dentro
+desses limites sem repetir o SIM; divergência, prova incompleta ou corte
+vencido impede avançar e exige nova decisão quando aplicável. A revalidação
+não é contenção e não substitui o dry-run integral anterior ao agendamento.
+SIM 3 permanece exclusivo para a 5.4, com 5.5 sob SIM 4 e SIM 5.
 
 | ID | Bloco | O que acontece | SIM | Pronto quando |
 |---|---|---|---|---|
@@ -509,7 +598,7 @@ tags `backup/pre-merge-*` (entram na lista da 1.4).
 | D7 | Fila de envios ao fechar os gates | aceitar, vendo a contagem antes |
 | D8 | "No final, só a `main`" | confirmado: apagar branches depois de guardar; muda `AGENTS.md` e ROADMAP |
 | D9 | Regra de tempo do ensaio | medir cada migration; barra se alguma passar de 60 s; o total não barra |
-| D10 | Data da virada | qualquer momento, quando o dono disser |
+| D10 | Data da virada | quando o dono disser, somente após J4 corrigido com teste e dry-run completo na VPS aprovado e limpo (atualização de 24/11) |
 | D11 | Quem opera | o agente executa, com SIM do dono por bloco |
 | D12 | Trabalhos inacabados | cofre e fila |
 | D13 | Dados de produção | de teste, podem se perder; a configuração é mantida (atualizar o banco atual, não zerar) |
