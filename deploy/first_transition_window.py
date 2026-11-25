@@ -27,7 +27,7 @@ from first_transition_candidate import check_closed_gates, check_candidate_datab
 import first_transition_database as fdb
 from first_transition_adapter import digest, prepare
 from first_transition_candidate import (CLOSED_GATES, CandidatePort, CandidateRunner, topology_contract,
-                                        verify_candidate_release, write_candidate_release, write_hold_override)
+                                        candidate_release_files, verify_candidate_release, write_candidate_release, write_hold_override)
 from first_transition_orchestrator import assemble, classify_recovery, load_config
 from first_transition_window_backup import BACKUP_CODES, REHEARSAL_SCHEMA, WindowBackup, WindowBackupConfig
 from first_transition_window_bindings import (UnknownWriters, bindings_from_dict, validate_bindings_config)
@@ -390,6 +390,51 @@ def _assemble_transition(args, prepared, journal, secret, database, ingress, wri
                     run=io.get('run'), sleep=io.get('sleep') or time.sleep, git=io.get('git'))
 
 
+def dry_run(args, out=print):
+    """Check local artifacts only; never assert operational readiness."""
+    checks = dict.fromkeys(('config', 'plan', 'package', 'layout'), 'not_evaluated')
+
+    def attempt(name, action):
+        try:
+            value = action()
+        except Refused:
+            checks[name] = 'refused'
+            return None
+        except Exception:  # noqa: BLE001 - report unavailable without leaking exception details
+            checks[name] = 'unavailable'
+            return None
+        checks[name] = 'ok'
+        return value
+
+    def config_check():
+        raw = _json(args.config)
+        config = load_config(Path(args.config))
+        require(config.digest == digest(raw), 'window-config-invalid')
+        return config
+
+    config = attempt('config', config_check)
+    if config is not None:
+        io = args._io
+
+        def plan_check():
+            plan = prepare(Path(config.repo), git=io.get('git'))
+            require(args.expect_plan_digest == plan.digest, 'window-plan-digest')
+            return plan
+
+        plan = attempt('plan', plan_check) if args.expect_plan_digest else None
+        attempt('package', lambda: candidate_release_files(
+            config.repo, config.candidate, package_manifest_sha256=config.package_manifest_sha256,
+            git=io.get('git')))
+        if plan is not None and checks['package'] == 'ok':
+            attempt('layout', lambda: verify_candidate_release(
+                config.repo, config.candidate, config.manifest,
+                package_manifest_sha256=config.package_manifest_sha256,
+                migrations=[m.name for m in plan.migrations], git=io.get('git')))
+    out(json.dumps(dict(status='incomplete', checks=checks, j3_j6_approved=False,
+                        assertions_are_authorization=False), sort_keys=True))
+    return 2
+
+
 def run(args, out=print, *, a10=False):
     prepared = _init_inputs(args)
     token = getattr(args, 'a10_token', None)
@@ -510,6 +555,7 @@ def main(argv=None, out=print, *, io=None):
     parser.add_argument('mode', choices=('prepare', 'prepare-layout', 'check', 'rehearse-backup', 'check-bindings',
                                          'status', 'resume-legacy', 'run', 'a10'))
     parser.add_argument('--config', required=True)
+    parser.add_argument('--dry-run', action='store_true', help='Local, incomplete artifact checks only.')
     parser.add_argument('--env-file')
     parser.add_argument('--env-var', help='Explicit variable in the private file; required for prepare/run.')
     parser.add_argument('--backup-config')
@@ -523,6 +569,9 @@ def main(argv=None, out=print, *, io=None):
     try:
         args = parser.parse_args(argv)
         args._io = io or {}
+        require(not args.dry_run or args.mode == 'run', 'window-arguments')
+        if args.dry_run:
+            return dry_run(args, out)
         if args.mode == 'prepare':
             p = prepare_window(args)
             out(json.dumps(dict(plan_digest=p.plan.digest, window_digest=p.window_digest,

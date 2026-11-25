@@ -526,3 +526,33 @@ criação do link e prova real do J9: **não verificados nesta tarefa**.
 Os checks de integração continuam exigidos antes de eventual merge conforme
 AGENTS/ROADMAP; não houve execução local de suítes de aplicação, pois não há
 mudança de código. A entrega solicitada é uma PR aberta para revisão, sem merge.
+
+
+## Verificação local parcial de artefatos
+
+`run --dry-run --config <config-local> --expect-plan-digest <digest-esperado>`
+verifica a configuração, o plano, a identidade do pacote e o layout preparado.
+A ferramenta fixa o candidato aprovado `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`
+e o aplicador `37c7d68d60b6f86cfb1fe75d4c720530537845d6`; outras identidades
+são recusadas. A mudança do candidato ou do controlador invalida recibos
+anteriores e exige novas provas no escopo aprovado.
+
+A saída agrega os estados `ok`, `refused`, `unavailable` e `not_evaluated`;
+a ausência do digest esperado deixa o plano e o layout não avaliados. Quando
+uma dependência falha, o layout permanece não avaliado. A saída sempre indica
+`incomplete`, `j3_j6_approved=false` e retorno 2, mesmo quando as quatro
+verificações passam. Não observa o ambiente, gates, vínculos, ledger vivo,
+V9, vizinhos ou painel e não autoriza J3 a J6 nem substitui o dry-run integral.
+
+Para preservar a restrição de somente leitura na VPS, execute em ambiente local
+isolado: obtenha apenas cópias autorizadas e sanitizadas da configuração pública,
+do layout e do hold; aponte seus caminhos para essas cópias locais. Use também
+uma cópia local do repositório Git que contenha os objetos dos commits fixados
+e o código do controlador revisado, pois a verificação lê os blobs Git e os
+arquivos do controlador, além da configuração, layout e hold. Não copie arquivos
+privados nem credenciais; esta entrada não os lê. As cópias não comprovam o
+estado vivo da VPS. A comparação de migrations cria e remove uma árvore
+temporária privada no diretório temporário do processo e executa a regra de
+seleção do `migrate.py` do pacote, portanto use código revisado e um diretório
+temporário local gravável; não execute essa verificação na VPS sob a restrição
+de somente leitura.
