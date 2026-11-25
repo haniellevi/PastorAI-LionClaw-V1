@@ -617,7 +617,8 @@ def main(argv=None, out=print, *, io=None):
     try:
         args = parser.parse_args(argv)
         args._io = io or {}
-        require((not args.dry_run or args.mode == 'run') and (not args.integrity_receipt or args.dry_run),
+        require((not args.dry_run or args.mode == 'run')
+                and (args.integrity_receipt is None or (args.dry_run and bool(args.integrity_receipt))),
                 'window-arguments')
         if args.dry_run:
             return dry_run(args, out)

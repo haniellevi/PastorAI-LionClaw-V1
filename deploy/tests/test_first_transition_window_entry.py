@@ -350,6 +350,16 @@ def test_receipt_option_is_not_accepted_by_normal_run(entry):
     entry.assert_no_journal_or_effects()
 
 
+@pytest.mark.parametrize('dry_flag', [[], ['--dry-run']])
+def test_empty_integrity_receipt_is_refused_before_dispatch(entry, monkeypatch, dry_flag):
+    monkeypatch.setattr(window, 'run', lambda *a, **kw: pytest.fail('operational path invoked'))
+    output = []
+    argv = ['run', *dry_flag, '--config', str(entry.paths['config']), '--integrity-receipt', '']
+    assert window.main(argv, out=output.append, io=entry.io) == 2
+    assert json.loads(output[0]) == {'refused': 'window-arguments'}
+    entry.assert_no_journal_or_effects()
+
+
 def test_image_template_tolerates_absent_labels():
     assert ('{{with index .Config "Labels"}}'
             '{{index . "org.opencontainers.image.revision" | json}}'
