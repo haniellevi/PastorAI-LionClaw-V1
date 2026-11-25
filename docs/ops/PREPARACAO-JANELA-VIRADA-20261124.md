@@ -556,3 +556,32 @@ temporária privada no diretório temporário do processo e executa a regra de
 seleção do `migrate.py` do pacote, portanto use código revisado e um diretório
 temporário local gravável; não execute essa verificação na VPS sob a restrição
 de somente leitura.
+
+
+### Recibo local de contagens para integridade
+
+Opcionalmente, `run --dry-run` aceita `--integrity-receipt <arquivo-local>`
+com JSON sanitizado de contagens agregadas, sem identificadores ou dados de
+pessoas. O objeto admite somente `schema`, `plan_digest` e `counts`; o schema
+é `igreja12.integrity-counts.v1`, o digest deve coincidir com o plano validado
+e `counts` pode conter exclusivamente as cinco chaves abaixo, com inteiros
+não negativos. O comando não executa consultas para produzir o recibo.
+
+| Chave | Pré-condição representada | Referência existente |
+|---|---|---|
+| `membro_por_vinculo` | M01, candidatos do backfill de vínculo | `BACKFILL_SQL` e `remaining_pre_ddl_gates` |
+| `numero_atendimento` | M02, candidatos do backfill de número | `BACKFILL_SQL` e `remaining_pre_ddl_gates` |
+| `aptitude_backfill` | M10, pessoas com aptidão anterior | `LocalPostgres._observe` e `remaining_pre_ddl_gates` |
+| `invalid_links` | M18, vínculos de solicitação para célula inválidos | `LocalPostgres._observe` e `step_invariants` |
+| `duplicates` | M41, grupos duplicados de usuário por pessoa e igreja | `LocalPostgres._observe` e `step_invariants` |
+
+Para cada contagem, `missing`, `invalid`, `not_evaluated`, `zero_observed`
+ou `nonzero_observed` descreve apenas o conteúdo fornecido, sem ecoar o valor.
+As demais 47 migrations não possuem condição de dados representada por estas
+contagens, e mesmo nas cinco linhas acima elas não cobrem toda a revisão da
+matriz: por isso os 52 itens de `migration_audit` permanecem `not_evaluated`.
+O vínculo ao plano não autentica origem, ambiente, horário ou atualidade;
+`unverified_local_receipt` não comprova estado vivo nem aceite. Evidências
+históricas não são renovadas por sua leitura, e a saída permanece incompleta
+mesmo com cinco zeros. Coleta de dados reais continua sujeita a autorização
+própria e não é realizada por esta entrada.

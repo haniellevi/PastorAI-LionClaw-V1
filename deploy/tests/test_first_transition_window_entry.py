@@ -279,6 +279,77 @@ def test_dry_run_option_is_only_valid_for_run(entry):
     entry.assert_no_journal_or_effects()
 
 
+def test_dry_run_reports_sanitized_receipt_without_accepting_migrations(entry, tmp_path, monkeypatch):
+    for name in ('run', '_open_bindings', '_readiness', 'Journal'):
+        monkeypatch.setattr(window, name, lambda *a, **kw: pytest.fail('operational path invoked'))
+    receipt = {'schema': 'igreja12.integrity-counts.v1', 'plan_digest': entry.world.plan.digest,
+               'counts': {'membro_por_vinculo': 0, 'numero_atendimento': 2, 'aptitude_backfill': 0,
+                          'invalid_links': True}}
+    path = tmp_path / 'integrity.json'
+    path.write_text(json.dumps(receipt))
+    output = []
+    argv = ['run', '--dry-run', '--config', str(entry.paths['config']),
+            '--expect-plan-digest', entry.world.plan.digest, '--integrity-receipt', str(path)]
+    assert window.main(argv, out=output.append, io=entry.io) == 2
+    result = json.loads(output[0])
+    integrity = result['data_integrity']
+    assert integrity['source'] == 'unverified_local_receipt'
+    assert integrity['conditions'] == {'membro_por_vinculo': 'zero_observed',
+                                       'numero_atendimento': 'nonzero_observed',
+                                       'aptitude_backfill': 'zero_observed',
+                                       'invalid_links': 'invalid', 'duplicates': 'missing'}
+    assert len(integrity['migration_audit']) == 52
+    assert set(integrity['migration_audit'].values()) == {'not_evaluated'}
+    assert result['status'] == 'incomplete' and result['j3_j6_approved'] is False
+    assert entry.calls == [] and entry.connections == [] and entry.assembly.popen_calls == []
+    entry.assert_no_journal_or_effects()
+
+
+def test_dry_run_absent_and_wrong_plan_receipts_are_not_evidence(entry, tmp_path):
+    path = tmp_path / 'integrity.json'
+    output = []
+    base = ['run', '--dry-run', '--config', str(entry.paths['config']),
+            '--expect-plan-digest', entry.world.plan.digest]
+    assert window.main(base, out=output.append, io=entry.io) == 2
+    assert set(json.loads(output[-1])['data_integrity']['conditions'].values()) == {'missing'}
+    path.write_text(json.dumps({'schema': 'igreja12.integrity-counts.v1', 'plan_digest': '0' * 64,
+                                'counts': {'membro_por_vinculo': 0}}))
+    assert window.main([*base, '--integrity-receipt', str(path)], out=output.append, io=entry.io) == 2
+    assert set(json.loads(output[-1])['data_integrity']['conditions'].values()) == {'invalid'}
+    entry.assert_no_journal_or_effects()
+
+
+@pytest.mark.parametrize('name', ['membro_por_vinculo', 'numero_atendimento', 'aptitude_backfill',
+                                  'invalid_links', 'duplicates'])
+@pytest.mark.parametrize('count,expected', [(0, 'zero_observed'), (1, 'nonzero_observed')])
+def test_integrity_receipt_classifies_each_existing_validator(tmp_path, name, count, expected):
+    plan = SimpleNamespace(digest='a' * 64)
+    path = tmp_path / 'integrity.json'
+    path.write_text(json.dumps({'schema': 'igreja12.integrity-counts.v1',
+                                'plan_digest': plan.digest, 'counts': {name: count}}))
+    result = window._integrity_receipt(str(path), plan)
+    assert result['conditions'][name] == expected
+    assert set(result['migration_audit'].values()) == {'not_evaluated'}
+
+
+def test_integrity_receipt_refuses_unexpected_data_and_no_plan(tmp_path):
+    path = tmp_path / 'integrity.json'
+    path.write_text(json.dumps({'schema': 'igreja12.integrity-counts.v1', 'plan_digest': 'a' * 64,
+                                'counts': {'membro_por_vinculo': 0}, 'secret-marker': 'x'}))
+    result = window._integrity_receipt(str(path), SimpleNamespace(digest='a' * 64))
+    assert set(result['conditions'].values()) == {'invalid'}
+    assert 'secret-marker' not in json.dumps(result)
+    assert set(window._integrity_receipt(str(path), None)['conditions'].values()) == {'not_evaluated'}
+
+
+def test_receipt_option_is_not_accepted_by_normal_run(entry):
+    output = []
+    assert window.main(['run', '--config', str(entry.paths['config']),
+                        '--integrity-receipt', 'not-read.json'], out=output.append, io=entry.io) == 2
+    assert json.loads(output[0]) == {'refused': 'window-arguments'}
+    entry.assert_no_journal_or_effects()
+
+
 def test_image_template_tolerates_absent_labels():
     assert ('{{with index .Config "Labels"}}'
             '{{index . "org.opencontainers.image.revision" | json}}'
