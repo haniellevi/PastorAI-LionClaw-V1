@@ -34,6 +34,7 @@ from first_transition_window_bindings import (UnknownWriters, bindings_from_dict
 from initial_transition_files import Journal, read_regular
 from initial_transition_ops import Refused, require
 import release_topology
+from maintenance_error_event import emit_event
 
 ENV_NAME = re.compile(r'[A-Z_][A-Z0-9_]{0,62}')
 IMAGE_TEMPLATE = ('[{{json .Id}},{{json .RepoDigests}},{{json .Os}},'
@@ -413,6 +414,8 @@ def run(args, out=print, *, a10=False):
             result = transition.a10(token) if a10 else transition.run()
         except BaseException as exc:
             code = 'window-transition-refused' if isinstance(exc, Exception) else 'window-transition-interrupted'
+            if isinstance(exc, Exception):
+                emit_event(exc, 'transition')
             out(json.dumps(dict(refused=code, recovery=transition.recovery(),
                                 assertions_are_authorization=False), sort_keys=True))
             return 2
@@ -454,6 +457,8 @@ def resume_legacy(args, out=print):
             result = transition.resume_legacy(token, allow_queue_drift=bool(getattr(args, 'allow_queue_drift', False)))
         except BaseException as exc:  # noqa: BLE001 - surface interruption as CLI exit 2 with recovery diagnostics
             code = 'window-transition-refused' if isinstance(exc, Exception) else 'window-transition-interrupted'
+            if isinstance(exc, Exception):
+                emit_event(exc, 'resume')
             out(json.dumps(dict(refused=code, recovery=transition.recovery(),
                                 assertions_are_authorization=False), sort_keys=True))
             return 2
@@ -540,9 +545,13 @@ def main(argv=None, out=print, *, io=None):
             return rehearse_backup(args, out)
         return check(args, out)
     except Refused as exc:
-        out(json.dumps(dict(refused=_code(exc))))
+        code = _code(exc)
+        if code == 'window-refused':
+            emit_event(exc, 'cli')
+        out(json.dumps(dict(refused=code)))
         return 2
-    except Exception:
+    except Exception as exc:
+        emit_event(exc, 'cli')
         out(json.dumps(dict(refused='window-failed')))
         return 2
 
