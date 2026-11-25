@@ -349,7 +349,7 @@ passarem no SHA candidato.
 
 #### Fase 4 — Ferramenta da virada apontada para a `main`
 
-**Atualização vigente de 24/11/2026: janela bloqueada, ainda sem agendamento.**
+**Atualização vigente de 25/11/2026: janela bloqueada, ainda sem agendamento.**
 O dono fixou **A = `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`** para o backend
 e o painel. O aplicador fixo continua `37c7d68d`; T é a ferramenta que ainda
 precisa ser integrada e validada. O A anterior (`6af9f75c`) e o alvo mais
@@ -360,16 +360,28 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
   registrada como aberta e bloqueada, apesar do CI verde informado; não foi
   integrada. Na base local `e1c63ed1`, a ferramenta ainda aponta para o A
   anterior. O saneamento ou substituição da #703 precisa consolidar T no
-  candidato correto, com a correção de inspeção de imagens (`966d0ec5`),
-  a correção testada de J4 e o runbook
-  §12 coerente, mantendo históricos separados. Não houve consulta remota nesta
-  consolidação.
+  candidato correto, preservando a compatibilidade de inspeção de imagens
+  (correção original `966d0ec5`), com a correção testada de J4 e o runbook
+  §12 coerente, mantendo históricos separados. Em 25/11, a `main` remota
+  foi conferida em `f4bb30df` (#704 documental e #705 de compatibilidade de
+  metadados de imagem). A `main` é a referência da preparação documental;
+  os pacotes de backend e painel continuam em **A = `e1c63ed1`**, sem delta
+  nesses pacotes. A integração da #705 não equivale à integração da T final,
+  nem prova correção de J4, instalação na VPS ou deploy.
 - **Migrations:** 135 SQLs de topo, 130 ativas (78 de base, 52 pendentes:
   44 transacionais e 8 concorrentes) e cinco pausadas. Nenhum SQL mudou entre
   `6af9f75c` e A. A lista nominal está na
   [reconciliação da #701](docs/ops/PREPARACAO-JANELA-VIRADA-20261124.md#1-reconciliação-nominal-das-migrations).
-  Na leitura autorizada, comparar os conjuntos completos do ledger com as 78
-  esperadas, as 52 pendentes e as cinco excluídas; contagem isolada não basta.
+  A leitura autorizada de `public.schema_migrations` de 25/11 às 12:37:41 UTC
+  confirmou os 78 nomes exatos da baseline: zero ausentes, extras ou duplicados.
+  Esta evidência resolve a reconciliação nominal naquele instante; não prova
+  catálogo, dados, permissões ou estado da VPS. Revalidar nos blocos autorizados
+  antes da mudança. O [plano de preparação da auditoria das 52 migrations](docs/ops/AUDITORIA-PREPARACAO-MIGRATIONS-20261125.md)
+  detalha a matriz nominal, grupos de revisão e critérios de aceite,
+  compatibilidade e recuperação para as tarefas 4.1–4.6. A sequência de revisão
+  por grupo não modifica a ordem lexical única de aplicação nem autoriza
+  mudanças de segurança ou execução. Os testes específicos do candidato T final
+  permanecem pendentes.
 - **Histórico de 24/11:** houve ensaio V9 em clone com 52 aplicadas, ledger
   130 e maior migration de 0,372 s (105,988 s totais, que não barram pela D9),
   com T registrada em `966d0ec5`, ainda não integrada.
@@ -741,11 +753,11 @@ antigos, como `SPEC.md` e `Plan-Designer-Igreja12/`, estão em
 
 ## O que depende de Raniel agora
 
-1. Supabase de produção: conexão atual **não verificada**. O OAuth/CLI
-   registrado em 24/10 não comprova acesso nesta sessão. A última consulta
-   pelo MCP foi recusada por permissão; em 26/10 o conector manual não apareceu
-   entre as ferramentas disponíveis. Reconectar o MCP correto e liberar leitura
-   será necessário antes de uma nova consulta autorizada; não enviar tokens no chat.
+1. Supabase de produção: a leitura autorizada pelo conector em 25/11 às
+   12:37:41 UTC confirmou os 78 nomes do ledger conforme Fase 4. O acesso
+   e o estado atuais exigem nova verificação no escopo autorizado. Os registros
+   de acesso e indisponibilidade do conector de outubro são históricos; a
+   leitura pontual de 25/11 é a evidência mais recente. Não enviar tokens no chat.
 2. VPS: acesso testado em 24/10 conforme registro histórico; conexão e versão
    em uso agora **não verificadas**. Operações reais continuam condicionadas
    à autorização nominal e ao runbook, sem presumir acesso atual.
