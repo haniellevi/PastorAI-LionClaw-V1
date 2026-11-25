@@ -426,3 +426,58 @@ def test_lookup_hides_member_of_another_cell_and_ineligible_people(visit):
         result=lookup_people(db,visit.actors['lider_celula'],reuniao_id=str(visit.meeting),q='Busca',page=1,page_size=20)
         assert result['total'] == 3
         assert {p['nome'] for p in result['items']} == {f'Busca Sintética {i}' for i in [2,3,4]}
+
+
+@pytest.mark.parametrize('legacy_hora,expected_time', [
+    (None, dt.time(0, 0)),
+    ('', dt.time(0, 0)),
+    ('19:30:00', dt.time(19, 30)),
+    ('00:00', dt.time(0, 0)),
+])
+def test_legacy_meeting_hora_compatibility(visit, legacy_hora, expected_time):
+    from zoneinfo import ZoneInfo
+    from app.visits.models import VisitEvent
+    from app.visits.cell_link import suggestion
+    fixed_date = dt.date(2026, 1, 10)
+    with visit.factory.begin() as db:
+        meeting = db.get(CelulaReuniao, visit.meeting)
+        meeting.data = fixed_date
+        meeting.hora = legacy_hora
+    event_id = register(visit)
+    with visit.factory() as db:
+        event = db.get(VisitEvent, event_id)
+        expected_dt = dt.datetime.combine(fixed_date, expected_time, ZoneInfo('America/Sao_Paulo'))
+        assert event.data_ocorrencia == expected_dt
+        assert db.get(Pessoa, visit.person).subetapa == 'visitante'
+        sugg = suggestion(db, visit.actors['pastor'], visit.person)
+        assert sugg is not None and sugg['blocked_reason'] is None
+
+
+@pytest.mark.parametrize('legacy_hora', ['9:30', '19:30 ', '   '])
+def test_legacy_meeting_non_iso_hora_returns_409_without_partial_write(visit, legacy_hora):
+    """Caracterização: parser Python (time.fromisoformat) rejeita não-ISO com 409 antes da escrita;
+    diverge do cast SQL ::time do Postgres (que aceitaria '9:30' e '19:30 ', mas falharia em '   ')."""
+    from app.visits.models import VisitEvent
+    with visit.factory.begin() as db:
+        meeting = db.get(CelulaReuniao, visit.meeting)
+        meeting.data = dt.date(2026, 1, 10)
+        meeting.hora = legacy_hora
+    with pytest.raises(HTTPException) as exc:
+        register(visit)
+    assert exc.value.status_code == 409
+    # Sem gravação parcial após o rollback executado pelo helper register().
+    with visit.factory() as db:
+        assert db.scalar(select(func.count()).select_from(VisitEvent)) == 0
+        assert db.scalar(select(func.count()).select_from(CelulaVisitante)) == 0
+        assert db.get(Pessoa, visit.person).subetapa == 'novo_contato'
+
+
+def test_meeting_delete_cascades_visit_event(visit):
+    from sqlalchemy import delete
+    from app.visits.models import VisitEvent
+    register(visit)
+    with visit.factory.begin() as db:
+        db.execute(delete(CelulaReuniao).where(CelulaReuniao.id == visit.meeting))
+    with visit.factory() as db:
+        assert db.scalar(select(func.count()).select_from(VisitEvent)) == 0
+        assert db.scalar(select(func.count()).select_from(CelulaVisitante)) == 0

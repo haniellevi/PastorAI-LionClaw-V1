@@ -561,3 +561,64 @@ def test_assignment_result_distinguishes_new_pending_and_accepted(workflow_datab
         accepted = assign()
         assert accepted.invitation_created is False
         assert accepted.atribuicao.status == 'aceita'
+
+
+def test_refusal_and_expiry_allow_reinvitation_and_preserve_history(workflow_database, monkeypatch):
+    from app.services import consolidation_workflow as workflow
+    v = _seed(workflow_database)
+    track, queue = _insert_track(workflow_database, v)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        inv1 = _invite(s, v, track, 'target_a')
+        _answer(s, v, track, inv1, accept=False, key='target_a')
+        assert inv1.status == 'recusada' and inv1.respondida_em is not None
+        assert s.get(Consolidacao, track).responsavel_id == v['actor']
+
+        inv2 = _invite(s, v, track, 'target_b')
+        monkeypatch.setattr(workflow, '_server_now', lambda db: inv2.prazo_aceite)
+        inv3 = _invite(s, v, track, 'target_b')
+        assert inv2.status == 'expirada' and inv2.respondida_em is not None
+        assert inv3.id != inv2.id and inv3.status == 'atribuida'
+
+        _answer(s, v, track, inv3, accept=True, key='target_b')
+        s.commit()
+        assert s.get(Consolidacao, track).responsavel_id == v['target_b']
+        assert s.execute(text('select responsavel_id from work_queue_items where id=:id'), {'id': queue}).scalar_one() == v['target_b']
+        statuses = list(s.execute(text('select status from consolidacao_atribuicoes where consolidacao_id=:t order by criada_em, id'), {'t': track}).scalars())
+        assert statuses == ['recusada', 'expirada', 'aceita']
+
+
+def test_reassignment_after_acceptance_syncs_all_linked_work_items(workflow_database):
+    v = _seed(workflow_database)
+    track, queue = _insert_track(workflow_database, v)
+    with workflow_database.begin() as c:
+        c.execute(text("insert into work_queue_items(igreja_id,consolidacao_id,tipo,titulo,pessoa_id,status,prioridade) values(:tenant,:track,'conectar_celula','Conectar sintético',:person,'aberto',1)"),
+                  {'tenant': v['tenant'], 'track': track, 'person': v['person']})
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        inv1 = _invite(s, v, track, 'target_a')
+        _answer(s, v, track, inv1, accept=True, key='target_a')
+        inv2 = _invite(s, v, track, 'target_b')
+        assert s.get(Consolidacao, track).responsavel_id == v['target_a']
+        _answer(s, v, track, inv2, accept=True, key='target_b')
+        s.commit()
+        assert s.get(Consolidacao, track).responsavel_id == v['target_b']
+        holders = s.execute(text('select responsavel_id, status from work_queue_items where consolidacao_id=:t'), {'t': track}).all()
+        assert holders == [(v['target_b'], 'assumido'), (v['target_b'], 'assumido')]
+        accepted_count = s.execute(text("select count(*) from consolidacao_atribuicoes where consolidacao_id=:t and status='aceita'"), {'t': track}).scalar_one()
+        assert accepted_count == 2
+
+
+def test_consolidacao_delete_cascades_invitations_and_db_checks_enforce_consistency(workflow_database):
+    from sqlalchemy.exc import IntegrityError
+    v = _seed(workflow_database)
+    track, _ = _insert_track(workflow_database, v)
+    with _scoped(_factory(workflow_database), v['tenant']) as s:
+        with pytest.raises(IntegrityError) as exc:
+            s.execute(text("insert into consolidacao_atribuicoes(igreja_id,consolidacao_id,responsavel_id,atribuida_por,criada_em,prazo_aceite,status,autoatribuicao) values(:tenant,:track,:target_a,:actor,now(),now()+interval '24 hours','atribuida',true)"),
+                      {'tenant': v['tenant'], 'track': track, 'target_a': v['target_a'], 'actor': v['actor']})
+        assert exc.value.orig.diag.constraint_name == 'consolidacao_atribuicoes_check2'
+        s.rollback()
+        _invite(s, v, track, 'target_a')
+        s.commit()
+        s.execute(text('delete from consolidacoes where id=:t'), {'t': track})
+        s.commit()
+        assert s.execute(text('select count(*) from consolidacao_atribuicoes where consolidacao_id=:t'), {'t': track}).scalar_one() == 0
