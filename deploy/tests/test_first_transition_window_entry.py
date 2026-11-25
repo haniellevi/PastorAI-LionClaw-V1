@@ -218,6 +218,61 @@ def entry(pinned, tmp_path):
     e.world.journal.close()
 
 
+def test_dry_run_reports_independent_refusals_without_operational_start(entry, monkeypatch):
+    entry.raw['package_manifest_sha256'] = '0' * 64
+    entry.write()
+    for name in ('run', '_open_bindings', '_readiness', 'Journal'):
+        monkeypatch.setattr(window, name, lambda *a, **kw: pytest.fail('operational path invoked'))
+    output = []
+    argv = ['run', '--dry-run', '--config', str(entry.paths['config']), '--expect-plan-digest', '0' * 64]
+    assert window.main(argv, out=output.append, io=entry.io) == 2
+    result = json.loads(output[0])
+    assert len(output) == 1
+    assert result['checks'] == {'config': 'ok', 'plan': 'refused', 'package': 'refused',
+                                'layout': 'not_evaluated'}
+    assert result['status'] == 'incomplete' and result['j3_j6_approved'] is False
+    assert entry.calls == [] and entry.connections == [] and entry.assembly.popen_calls == []
+    entry.assert_no_journal_or_effects()
+
+
+def test_dry_run_valid_inputs_remain_incomplete(entry, monkeypatch):
+    for name in ('run', '_open_bindings', '_readiness', 'Journal'):
+        monkeypatch.setattr(window, name, lambda *a, **kw: pytest.fail('operational path invoked'))
+    output = []
+    argv = ['run', '--dry-run', '--config', str(entry.paths['config']),
+            '--expect-plan-digest', entry.world.plan.digest]
+    assert window.main(argv, out=output.append, io=entry.io) == 2
+    result = json.loads(output[0])
+    assert len(output) == 1
+    assert result['checks'] == {'config': 'ok', 'plan': 'ok', 'package': 'ok', 'layout': 'ok'}
+    assert result['status'] == 'incomplete' and result['j3_j6_approved'] is False
+    assert entry.calls == [] and entry.connections == [] and entry.assembly.popen_calls == []
+    entry.assert_no_journal_or_effects()
+
+
+def test_dry_run_marks_missing_plan_and_sanitizes_unavailable(entry, monkeypatch):
+    def broken(*args, **kwargs):
+        raise OSError('sensitive-marker')
+
+    monkeypatch.setattr(window, 'candidate_release_files', broken)
+    output = []
+    assert window.main(['run', '--dry-run', '--config', str(entry.paths['config'])],
+                       out=output.append, io=entry.io) == 2
+    result = json.loads(output[0])
+    assert result['checks'] == {'config': 'ok', 'plan': 'not_evaluated', 'package': 'unavailable',
+                                'layout': 'not_evaluated'}
+    assert 'sensitive-marker' not in output[0]
+    entry.assert_no_journal_or_effects()
+
+
+def test_dry_run_option_is_only_valid_for_run(entry):
+    output = []
+    assert window.main(['prepare-layout', '--dry-run', '--config', str(entry.paths['config'])],
+                       out=output.append, io=entry.io) == 2
+    assert json.loads(output[0]) == {'refused': 'window-arguments'}
+    entry.assert_no_journal_or_effects()
+
+
 def test_image_template_tolerates_absent_labels():
     assert ('{{with index .Config "Labels"}}'
             '{{index . "org.opencontainers.image.revision" | json}}'
