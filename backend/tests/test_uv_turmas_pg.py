@@ -41,8 +41,7 @@ def rls_database_url():
     return url
 
 
-@pytest.fixture(scope='module')
-def migrated_database(rls_database_url):
+def replay_database(rls_database_url, before_migration=None):
     from scripts import migrate
     assert_disposable_database(rls_database_url)
     engine = create_engine(rls_database_url)
@@ -67,6 +66,8 @@ def migrated_database(rls_database_url):
         c.exec_driver_sql('create table public.schema_migrations(name text primary key)')
     env = dict(os.environ, MIGRATION_DATABASE_URL=rls_database_url.replace('postgresql+psycopg2:', 'postgresql:'))
     for filename in migrate.migration_files():
+        if before_migration:
+            before_migration(engine, filename)
         body = (migrate.MIGRATIONS_DIR / filename).read_text()
         concurrent = any('index concurrently' in line.lower() for line in body.splitlines()
                          if not line.lstrip().startswith('--'))
@@ -79,6 +80,12 @@ def migrated_database(rls_database_url):
             command.extend(['--lock-timeout', '5s'])
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         assert result.returncode == 0, f"{filename}: {result.stderr}"
+    return engine
+
+
+@pytest.fixture(scope='module')
+def migrated_database(rls_database_url):
+    engine = replay_database(rls_database_url)
     yield engine
     engine.dispose()
 
