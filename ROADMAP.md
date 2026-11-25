@@ -378,10 +378,12 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
   J6 nem 5.5. Ao fechar, a API respondeu 200, cron do backup diário restaurado,
   gates fechados, tráfego no legado e ledger 78. São registros daquele dia,
   não provas do estado vivo nem do T final. Os recibos originais de 5.2, 5.3
-  e aborto de 5.4 permanecem na ponta `bda12141`, em
+  e aborto de 5.4 permanecem na [árvore histórica da #703 no commit `bda12141`](https://github.com/haniellevi/PastorAI-LionClaw-V1/tree/bda12141ac81c3ba72095f3be90eba1f3b3a55c3/docs/ops), em
   `docs/ops/RECIBO-5-2-20261124.md`, `docs/ops/RECIBO-5-3-20261124.md` e
   `docs/ops/RECIBO-5-4-ABORT-20261124.md`, respectivamente. Preservá-los como
   histórico, sem transferir as autorizações anteriores para nova janela.
+  São fontes externas ao checkout desta PR documental, não arquivos integrados
+  à nova versão do runbook.
 
 **Condições cumulativas do dono para agendar a Fase 5:**
 
@@ -416,8 +418,10 @@ A validade do recibo está vinculada ao ambiente, horário, versões A/T,
 imagem, inventário e vínculos vigentes dos serviços, `plan_digest` e
 `window_digest`. Mudanças nessa identidade invalidam a prova de dry-run
 anterior para a configuração nova; a revalidação pós-SIM confere a mesma
-identidade. Recibos de 24/11 permanecem evidências históricas, sem comprovar
-o estado atual. A causa de J4 continua desconhecida; nenhuma prova parcial
+identidade. Se o preparo da 5.2 mudar a identidade validada, renovar a prova
+integral no escopo aprovado antes de avançar para 5.3; o replay isolado não
+substitui essa prova. Recibos de 24/11 permanecem evidências históricas, sem
+comprovar o estado atual. A causa de J4 continua desconhecida; nenhuma prova parcial
 ou classificação dependente da janela equivale a corrigir J4 ou aprovar
 todo o dry-run. Cabe ao dono aprovar o alcance verificável antes do aceite,
 preservadas as restrições vigentes. Ambas as condições de agendamento estão
