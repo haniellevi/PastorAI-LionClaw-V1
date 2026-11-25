@@ -305,7 +305,7 @@ def _make_jev_client(db: Session, admin_uuid: uuid.UUID) -> TestClient:
     app.dependency_overrides[get_platform_admin] = lambda: PlatformAdminUser(
         app_user_id=str(admin_uuid),
         clerk_user_id="clerk-master-ficticio",
-        email="master-ficticio@igreja12.local",
+        email="master@example.test",
         nome="Master Fictício",
     )
     return TestClient(app)
