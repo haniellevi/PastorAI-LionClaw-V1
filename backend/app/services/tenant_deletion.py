@@ -658,9 +658,11 @@ def _lock_and_clear_secretaria_offers_before_messages(
 
 
 def _erase_tenant_private_content(session: Session, igreja_id: uuid.UUID) -> uuid.UUID:
+    # The cadastral transition owns a fresh operation identity. A committed
+    # tenant deletion is replayed through its durable platform audit instead.
     receipt_id = session.execute(
-        text("select public.private_delete_content(:t,'igreja',:t,:t)"),
-        {"t": igreja_id},
+        text("select public.private_delete_content(:t,'igreja',:t,:operation)"),
+        {"t": igreja_id, "operation": uuid.uuid4()},
     ).scalar_one()
     if not isinstance(receipt_id, uuid.UUID):
         raise TenantDeletionError("Recibo de exclusão privada indisponível")

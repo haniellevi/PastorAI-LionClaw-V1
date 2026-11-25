@@ -157,6 +157,8 @@ chamada de provedor dentro da transação. Consulte também o recibo/fila privad
 
 O evento cadastral `tenant_deletion.private_receipt_linked` correlaciona o
 alvo ao UUID do recibo privado retornado pelo serviço na mesma transação.
+Cada transição cadastral cria um identificador de operação próprio no servidor,
+distinto dos identificadores de outras exclusões privadas.
 Sua persistência acompanha o commit da exclusão local; em rollback, nem o
 evento nem o recibo permanecem. No reset integral, o ator é técnico
 (`app_user_id` nulo), e os eventos de todas as igrejas pertencem à transação

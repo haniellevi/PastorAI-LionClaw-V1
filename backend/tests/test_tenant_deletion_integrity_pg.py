@@ -1,4 +1,5 @@
 """Nominal platform deletion with administrative authors on the full active schema."""
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -9,10 +10,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import AppUser
-from app.db.tenant_session import mark_cross_tenant
+from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.deps import get_platform_admin
 from app.services.auth_sessions import register_session
 from app.services.clerk import ClerkIdentity
+from app.services.private_deletion import delete_private
 from app.services.tenant_deletion import TenantDeletionActor, delete_tenant_locally, reset_all_tenants
 from tests.test_private_deletion_pg import (
     database,  # noqa: F401
@@ -122,10 +124,13 @@ def administrative_requests(database, administrative_authorship):
 
 def _receipt_event(executor, tenant, actor_id, actor_email, execution_host=None):
     params = dict(tenant=tenant)
-    receipt_id = executor.execute(text("""select id from private_deletion_receipts
-        where igreja_id=:tenant and scope='igreja' and target_id=:tenant and operation_id=:tenant"""), params).scalar_one()
     event = executor.execute(text("""select id,actor_id,actor_email,alvo_tipo,detalhe
         from platform_audit_log where alvo_id=:tenant and acao='tenant_deletion.private_receipt_linked'"""), params).one()
+    receipt_id = UUID(event.detalhe['receipt_id'])
+    operation_id = executor.execute(text("""select operation_id from private_deletion_receipts
+        where id=:receipt and igreja_id=:tenant and scope='igreja' and target_id=:tenant"""),
+        dict(params, receipt=receipt_id)).scalar_one()
+    assert operation_id.version == 4 and operation_id != tenant
     detail = dict(version=1, receipt_id=str(receipt_id))
     if execution_host is not None:
         detail['execution_host'] = execution_host
@@ -259,3 +264,26 @@ def test_integral_reset_receipt_events_share_one_transaction(database, administr
         assert retry.pending_tasks == result.pending_tasks
     for tenant, admin in pairs:
         assert _snapshot(database, tenant, admin) == after[tenant]
+
+
+def test_cadastral_deletion_links_its_own_receipt_after_a_legitimate_private_reset(database, administrative_authorship):
+    v = administrative_authorship
+    prior_operation = uuid4()
+    with Session(database) as s:
+        mark_tenant_scoped(s, v['tenant'], source='synthetic_nominal_private_reset')
+        s.execute(text("select set_config('request.jwt.claims', :claims, true)"),
+                  dict(claims=json.dumps({'sub': v['clerk']})))
+        prior = delete_private(s, scope='igreja', igreja_id=v['tenant'],
+                               target_id=v['tenant'], operation_id=prior_operation)
+    clerk = _register_session(database, v['other_admin'], v['other_clerk'])
+    assert _delete(database, v, clerk).deleted_now
+    with database.connect() as c:
+        event = _receipt_event(c, v['tenant'], v['other_admin'], 'other@example.invalid')
+        rows = c.execute(text("""select id,operation_id from private_deletion_receipts
+            where igreja_id=:tenant and target_id=:tenant and scope='igreja'"""), v).all()
+        assert len(rows) == 2
+        assert (UUID(prior['id']), prior_operation) in rows
+        assert event[1] != UUID(prior['id'])
+    assert not _delete(database, v, clerk).deleted_now
+    with database.connect() as c:
+        assert _receipt_event(c, v['tenant'], v['other_admin'], 'other@example.invalid') == event
