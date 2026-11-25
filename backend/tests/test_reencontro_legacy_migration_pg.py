@@ -10,7 +10,8 @@ from app.services.enviar_read import ler_evidencias_oficiais
 from tests.test_cd_matriculas_pg import command
 from tests.test_cd_turmas_pg import create
 from tests.test_uv_conclusao_pg import marco
-from tests.test_uv_turmas_pg import rls_database_url, replay_database, scoped, principal, seeded
+from tests.test_uv_turmas_pg import replay_database, scoped, principal, seeded
+from tests.test_uv_turmas_pg import rls_database_url as rls_database_url
 
 pytestmark = pytest.mark.rls_integration
 M20 = '20261018_100000_enviar_reencontro.sql'
