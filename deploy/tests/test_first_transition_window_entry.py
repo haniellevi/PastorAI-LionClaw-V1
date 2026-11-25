@@ -771,6 +771,36 @@ def test_a10_mode_needs_its_token_and_a_wrong_one_changes_nothing(entry):
     entry.world.consumers_held()
 
 
+@pytest.mark.parametrize('variation', ['name', 'order'])
+def test_layout_plan_divergence_refused_before_journal_or_writes(entry, monkeypatch, variation):
+    original_prepare = window.prepare
+
+    def divergent_plan(*args, **kwargs):
+        plan = original_prepare(*args, **kwargs)
+        migrations = list(plan.migrations)
+        if variation == 'name':
+            migrations[0] = replace(migrations[0], name='fictional-migration.sql')
+        else:
+            migrations[0], migrations[1] = migrations[1], migrations[0]
+        return replace(plan, migrations=tuple(migrations))
+
+    monkeypatch.setattr(window, 'prepare', divergent_plan)
+    status, lines = entry.execute()
+    assert status == 2 and lines == [{'refused': 'window-refused'}]
+    entry.assert_no_journal_or_effects()
+
+    import shutil
+    target = Path(entry.world.spec.release_root) / entry.world.spec.sha
+    shutil.rmtree(target)
+    Path(entry.world.spec.hold_override).unlink()
+    output = []
+    assert window.main(['prepare-layout', '--config', str(entry.paths['config'])],
+                       out=output.append, io=entry.io) == 2
+    assert json.loads(output[-1]) == {'refused': 'window-refused'}
+    assert not target.exists() and not Path(entry.world.spec.hold_override).exists()
+    entry.assert_no_journal_or_effects()
+
+
 def test_prepare_layout_writes_layout_and_hold_without_secret_daemon_or_journal(entry):
     import shutil
     spec = entry.world.spec

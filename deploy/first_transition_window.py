@@ -255,7 +255,7 @@ def _source_version(connect, expected_user):
 def _readiness(args, prepared, secret, database, ingress):
     c, b, io = prepared.config, prepared.backup, args._io
     verify_candidate_release(c.repo, c.candidate, c.manifest, package_manifest_sha256=c.package_manifest_sha256,
-                             git=io.get('git'))
+                             migrations=[m.name for m in prepared.plan.migrations], git=io.get('git'))
     for path in (c.state_dir, c.migration_workdir, c.candidate.release_root, c.docker[2], b.backup_root, b.clone_workdir):
         # Runtime backup directories may be named "backups": inspect only metadata,
         # never pass their contents to the artifact reader or generate anything here.
@@ -352,7 +352,8 @@ def prepare_layout(args, out=print):
                                     package_manifest_sha256=config.package_manifest_sha256, git=io.get('git'))
     write_hold_override(config.candidate)
     verify_candidate_release(config.repo, config.candidate, config.manifest,
-                             package_manifest_sha256=config.package_manifest_sha256, git=io.get('git'))
+                             package_manifest_sha256=config.package_manifest_sha256,
+                             migrations=[m.name for m in plan.migrations], git=io.get('git'))
     out(json.dumps(dict(layout=str(Path(config.candidate.release_root) / config.candidate.sha), files=files,
                         hold_override=config.candidate.hold_override, plan_digest=plan.digest,
                         assertions_are_authorization=False, production_ready=False), sort_keys=True))

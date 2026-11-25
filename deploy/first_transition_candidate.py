@@ -291,9 +291,17 @@ def candidate_release_files(repo, spec, *, package_manifest_sha256, git=None):
     return files
 
 
-def verify_candidate_release(repo, spec, manifest, *, package_manifest_sha256, git=None):
-    """Read-only preflight of a previously prepared layout and hold file; never repair."""
+def _require_plan_migrations(files, migrations):
+    sql = {p.split('/', 2)[2]: b for p, b in files.items() if re.fullmatch(r'backend/migrations/[^/]+\.sql', p)}
+    names = migration_manifest(files['backend/scripts/migrate.py'], sql)
+    require(list(names) == list(migrations), 'layout-migrations-differ-from-plan')
+    return names
+
+
+def verify_candidate_release(repo, spec, manifest, *, package_manifest_sha256, migrations, git=None):
+    """Verify an existing layout and hold without modifying them; uses a private temp tree."""
     files = candidate_release_files(repo, spec, package_manifest_sha256=package_manifest_sha256, git=git)
+    _require_plan_migrations(files, migrations)
     wanted = layout_files(files, topology_contract(spec, manifest), spec.image, spec.sha)
     target = no_symlink(Path(spec.release_root) / spec.sha)
     require(target.is_dir(), 'candidate-layout-not-prepared')
@@ -305,9 +313,7 @@ def verify_candidate_release(repo, spec, manifest, *, package_manifest_sha256, g
 def write_candidate_release(repo, spec, manifest, *, package_manifest_sha256, migrations, git=None):
     """Exact package blobs of ``spec.sha`` -> ``<release_root>/<sha>``; returns the file count."""
     files = candidate_release_files(repo, spec, package_manifest_sha256=package_manifest_sha256, git=git)
-    sql = {p.split('/', 2)[2]: b for p, b in files.items() if re.fullmatch(r'backend/migrations/[^/]+\.sql', p)}
-    names = migration_manifest(files['backend/scripts/migrate.py'], sql)
-    require(list(names) == list(migrations), 'layout-migrations-differ-from-plan')
+    names = _require_plan_migrations(files, migrations)
     return write_release(spec.release_root, spec.sha, files, topology_contract(spec, manifest), names, spec.image)
 
 
