@@ -950,3 +950,29 @@ def test_prayer_expiry_notice_is_bounded_to_one_minute(prayer, elapsed):
         _assert_prayer_yields_sim(prayer)
     with prayer.factory() as db:
         assert db.scalar(select(func.count()).select_from(PrayerRequest)) == 0
+
+
+def test_pastoral_lider_business_flow_and_cell_reference_integrity(prayer):
+    row = create_request(prayer, "Pastores e meu líder")
+    assert row.audience == "pastoral_lider"
+    assert row.cell_id == prayer.cell
+    assert row.leader_id is not None
+    assert len(row.authorization_hash) == 64
+    assert row.state == "open"
+    with prayer.factory.begin() as db:
+        proposal = db.get(PrayerProposal, row.proposal_id)
+        assert proposal.state == "executed"
+        assigned = service.assume(db, prayer.actors["lider_celula"], row.id)
+        assert assigned.state == "assigned"
+        assert assigned.responsavel_id == uuid.UUID(prayer.actors["lider_celula"].app_user_id)
+        closed = service.close(db, prayer.actors["lider_celula"], row.id)
+        assert closed.state == "closed"
+        assert closed.closed_at is not None
+    with prayer.factory.begin() as db:
+        db.execute(delete(CelulaMembro).where(CelulaMembro.celula_id == prayer.cell))
+        db.execute(delete(Celula).where(Celula.id == prayer.cell))
+    with prayer.factory() as db:
+        kept = db.get(PrayerRequest, row.id)
+        kept_proposal = db.get(PrayerProposal, row.proposal_id)
+        assert kept is not None and kept.cell_id is None and kept.state == "closed"
+        assert kept_proposal is not None and kept_proposal.cell_id is None
