@@ -381,7 +381,21 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
   compatibilidade e recuperação para as tarefas 4.1–4.6. A sequência de revisão
   por grupo não modifica a ordem lexical única de aplicação nem autoriza
   mudanças de segurança ou execução. Os testes específicos do candidato T final
-  permanecem pendentes.
+  permanecem pendentes. Atualização após #706: as PRs test-only #707 (`28567e2a`),
+  #708 (`83e50f1b`), #709 (`86eefd3d`) e #710 (`e4ec2781`) foram integradas;
+  os 15 checks reportados ficaram verdes. O recibo DB-only do Item 24 passou
+  `test_zz_reconciled_baseline_accepts_pending_batch_with_team_migration` em
+  PG17.6 descartável, com ledger sintético 78→130, 52 ativas, cinco excluídas,
+  oito índices válidos/prontos e nenhum inválido público; os SQLs e `migrate.py`
+  foram comparados com A `e1c63ed1` e a `main` `86eefd3d`. Uma nova leitura
+  agregada pontual reporta os mesmos 78 nomes do ledger, sem delta. Esses dados
+  comprovam apenas seus escopos sintético e nominal. A matriz de resultados por
+  grupo está em
+  [AUDITORIA-PREPARACAO-MIGRATIONS-20261125.md](docs/ops/AUDITORIA-PREPARACAO-MIGRATIONS-20261125.md#11-atualização-de-evidências-por-grupo).
+  A dívida do Item 29 é da M3, não da M29. Nada disso aprova 4.6, T, J4, dry-run
+  integral ou aplicação das 52 em produção; a janela continua bloqueada. Os
+  próximos passos são concluir as provas no candidato final e resolver J4 e o
+  dry-run antes de reavaliar a janela.
 - **Histórico de 24/11:** houve ensaio V9 em clone com 52 aplicadas, ledger
   130 e maior migration de 0,372 s (105,988 s totais, que não barram pela D9),
   com T registrada em `966d0ec5`, ainda não integrada.
