@@ -127,7 +127,7 @@ try {
   scripts += assertDocumentHeaders(dottedNotFound, "404 com ponto");
 
   for (const path of ["/privacidade", "/termos"]) {
-    const legalPage = await assertPublicPage((path) => request(port, path), path);
+    const legalPage = assertPublicPage(await request(port, path), path);
     scripts += assertDocumentHeaders(legalPage, path);
   }
 

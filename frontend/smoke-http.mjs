@@ -45,8 +45,7 @@ export function request(port, path, host = `127.0.0.1:${port}`) {
   });
 }
 
-export async function assertPublicPage(get, path) {
-  const response = await get(path);
+export function assertPublicPage(response, path) {
   assert.equal(response.status, 200, `${path}: status`);
   return response;
 }

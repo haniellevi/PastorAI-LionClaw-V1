@@ -68,24 +68,24 @@ process.once("SIGINT", terminate);
 
 try {
   const deadline = Date.now() + 60_000;
-  let ready = false;
+  let homePage;
   while (Date.now() < deadline) {
     if (spawnError) throw spawnError;
     if (child.exitCode !== null || child.signalCode !== null) {
       throw new Error("Wrangler encerrou antes do smoke");
     }
     try {
-      ready = (await request(port, "/")).status === 200;
-      if (ready) break;
+      homePage = await request(port, "/");
+      break;
     } catch {
       // O servidor local ainda pode estar inicializando.
     }
     await delay(250);
   }
-  assert(ready, "Wrangler não ficou pronto em 60s");
+  assert(homePage, "Wrangler não respondeu HTTP em 60s");
 
   for (const path of ["/", "/privacidade", "/termos"]) {
-    const page = await assertPublicPage((path) => request(port, path), path);
+    const page = assertPublicPage(path === "/" ? homePage : await request(port, path), path);
     assert.match(page.headers["content-type"], /^text\/html\b/, `${path}: HTML`);
     assert.match(page.body, /<html\b/i, `${path}: documento renderizado`);
   }
