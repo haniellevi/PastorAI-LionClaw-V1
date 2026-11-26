@@ -411,6 +411,15 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
   não há causa verificada para J4 nem prova viva integral de dry-run. O conjunto
   segue em 52 ativas e cinco pausadas, na ordem lexical preservada; 4.6, T, J4
   e dry-run integral continuam pendentes, sem janela liberada.
+  Pela decisão `e1138`, a causa histórica da recusa de J4 em 24/11 permanece
+  indeterminada e sua atribuição retrospectiva não é exigida. A prontidão deve
+  ser demonstrada por diagnóstico atual verificável, correção defensiva revisada
+  e teste de regressão se houver defeito identificado, recuperação comprovada,
+  revisão de Sarah e dry-run integral no escopo autorizado. Os pareceres `e1125`
+  não identificaram fatia incremental operacional independente; preservam-se
+  o conjunto de 52 ativas e cinco pausadas e a ordem lexical. A decisão não
+  altera a classificação da topologia nem a recusa de medição Nginx, não reduz
+  o escopo do dry-run, não muda aprovações por bloco nem libera janela.
 - **Histórico de 24/11:** houve ensaio V9 em clone com 52 aplicadas, ledger
   130 e maior migration de 0,372 s (105,988 s totais, que não barram pela D9),
   com T registrada em `966d0ec5`, ainda não integrada.
@@ -428,11 +437,12 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
 
 **Condições cumulativas do dono para agendar a Fase 5:**
 
-1. J4 corrigido com causa raiz comprovada por evidência autorizada, correção
-   mínima revisada e teste automatizado de regressão verde, sem enfraquecer
-   as proteções. T integrado, com as provas da 4.1–4.6 e GO escrito da Sarah
-   vinculados ao candidato final. As duas condições não são substituíveis por
-   CI verde de uma PR bloqueada.
+1. Diagnóstico atual verificável de J4; se ele identificar defeito, correção
+   defensiva revisada e teste automatizado de regressão verde, sem enfraquecer
+   as proteções; recuperação comprovada. A causa histórica de 24/11 permanece
+   indeterminada e não exige atribuição retrospectiva. T integrado, com as
+   provas da 4.1–4.6 e GO escrito da Sarah vinculados ao candidato final. Essas
+   condições não são substituíveis por CI verde de uma PR bloqueada.
 2. Dry-run completo na VPS, aprovado e passando limpo no T integrado sobre A.
    O dono ainda precisa autorizar nominalmente o escopo e a realização;
    respeitar a recusa de medição Nginx e a interrupção da implementação
