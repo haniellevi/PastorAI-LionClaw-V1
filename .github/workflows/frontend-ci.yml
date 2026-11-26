@@ -105,4 +105,9 @@ jobs:
           NEXT_PUBLIC_API_URL: https://synthetic-api.example.test
           NEXT_TELEMETRY_DISABLED: "1"
           WRANGLER_SEND_METRICS: "false"
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
         run: npm run build:workers
+
+      - name: Smoke das paginas publicas no runtime Workers local
+        timeout-minutes: 2
+        run: node smoke-workers.mjs
