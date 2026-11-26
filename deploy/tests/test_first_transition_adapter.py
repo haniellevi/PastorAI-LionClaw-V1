@@ -11,7 +11,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from first_transition_adapter import LocalEvidence, Refused, local_endpoint, prepare
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-APP = 'e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0'
+APP = '399ee7b96591bded30b0584812dbdba299c41cb5'
 EXECUTOR = '37c7d68d60b6f86cfb1fe75d4c720530537845d6'
 
 

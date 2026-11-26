@@ -183,7 +183,10 @@ usar os números abaixo para apagar nada.
    `e1c63ed1` até a conclusão da 5.5; pausar a Fase 3 e mudanças de produto.
    Só integrar a preparação indispensável à virada, sem alterar o pacote de
    runtime ou as migrations de A. Mudança do candidato exige nova decisão e
-   renovação das provas afetadas.
+   renovação das provas afetadas. A decisão `e1193` escolheu
+   `399ee7b96591bded30b0584812dbdba299c41cb5` como nova fonte de referência do
+   código; o adaptador operacional ainda fixa a referência anterior, e essa
+   escolha não substitui o congelamento de A nem as provas de prontidão.
 10. **Sem migration nova** na `main` até o release normal ganhar um caminho
     para mudança em tabela existente (fila, item 1).
 11. **Cuidado enxuto** (decisão de 13/11): ficam 1 backup antes de mexer no
@@ -420,6 +423,20 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
   o conjunto de 52 ativas e cinco pausadas e a ordem lexical. A decisão não
   altera a classificação da topologia nem a recusa de medição Nginx, não reduz
   o escopo do dry-run, não muda aprovações por bloco nem libera janela.
+  Pela decisão `e1193`, Raniel escolheu `399ee7b96591bded30b0584812dbdba299c41cb5`
+  como novo SHA de referência do código. Os seis workflows de push desse SHA
+  passaram; o [registro e limites](docs/ops/AUDITORIA-PREPARACAO-MIGRATIONS-20261125.md#atualização-e1193-candidato-de-código-e-prontidão)
+  identifica os recibos. O adaptador operacional ainda fixa o SHA anterior; o
+  diff local de três referências recebeu GO exclusivamente estático, sem CI,
+  publicação ou integração, e não substitui essa pendência. Nenhum pin
+  operacional publicado foi alterado; controles e workflows permanecem sem
+  mudança. SQL e aplicador permanecem idênticos; seguem 52
+  migrations pendentes e cinco pausadas, em ordem lexical, e a exclusão/reset
+  cadastral da M3 permanece adiada. O build OCI local do novo SHA foi verificado
+  com cache, e build/smoke de frontend sintético ocorreu no SHA aprovado, sem
+  manifesto de artefato produtivo. Recibos anteriores seguem históricos; a
+  identidade A/T, prontidão atual de J4, recuperação, revisão Sarah e dry-run
+  integral permanecem pendentes, com a janela bloqueada.
 - **Histórico de 24/11:** houve ensaio V9 em clone com 52 aplicadas, ledger
   130 e maior migration de 0,372 s (105,988 s totais, que não barram pela D9),
   com T registrada em `966d0ec5`, ainda não integrada.
@@ -485,7 +502,7 @@ na atualização de 24/11 acima.
 
 | ID | Tarefa | SIM | Pronto quando |
 |---|---|---|---|
-| 4.1 | Preservar **A** em `e1c63ed1`. Resolver os achados graves da 1.3 e conferir se o ledger da 1.2 corresponde à linha de base do candidato | não | SHA de A, 4 checks e `synthetic-release` verdes |
+| 4.1 | Preservar **A** em `e1c63ed1`. A nova fonte escolhida por `e1193` (`399ee7b96591bded30b0584812dbdba299c41cb5`) não substitui a referência operacional anterior nem encerra esta tarefa. Resolver os achados graves da 1.3 e conferir se o ledger da 1.2 corresponde à linha de base do candidato | não | SHA de A, 4 checks e `synthetic-release` verdes |
 | 4.2 | Consolidar a PR **T** sobre A com os ajustes abaixo e a correção comprovada e testada de J4 | não | equivalência com A no pacote de runtime e no frontend, SQLs intactos; provas da 4.6 |
 | 4.3 | Na T, documentar J9: registrar Compose efetivo, overrides, arquivo privado e dependências; configurar `/opt/pastorai-current` para A; apontar o backup para o arquivo privado efetivo, com modo 0600 e fora do layout verificado. Rodar uma vez o comando do cron manualmente antes de religá-lo | não para documentar; execução na 5.5 | runbook indica como provar um backup novo com `BACKUP_OK`, `sha256sum -c`, status "verified" e serviços de apoio despausados |
 | 4.4 | Conferir variáveis obrigatórias de A contra os nomes da 1.2, migrations que mexem no timeout e contrato do painel antigo com a API de A. Registrar se a volta do painel é utilizável. Ensaiar o procedimento de fechar os envios da 5.2 com a mesma imagem e atualizar os vínculos se os IDs mudarem | não | resultado das conferências e procedimento no runbook |

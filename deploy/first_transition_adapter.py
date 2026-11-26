@@ -22,7 +22,7 @@ from uuid import UUID
 from initial_transition_files import Journal, git_tree, read_regular
 from initial_transition_ops import BACKFILL_SQL, Refused, require
 
-APPLICATION_SHA = 'e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0'  # Base A aprovada para backend e painel.
+APPLICATION_SHA = '399ee7b96591bded30b0584812dbdba299c41cb5'  # Base A aprovada para backend e painel.
 EXECUTOR_SHA = '37c7d68d60b6f86cfb1fe75d4c720530537845d6'
 ROLES = ('backend', 'cron-worker', 'broadcast-worker', 'queue-worker')
 MISSING = frozenset({
