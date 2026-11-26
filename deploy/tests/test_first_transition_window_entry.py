@@ -236,7 +236,7 @@ def test_dry_run_reports_independent_refusals_without_operational_start(entry, m
 
 
 def test_dry_run_valid_inputs_remain_incomplete(entry, monkeypatch):
-    approved = 'e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0'
+    approved = '399ee7b96591bded30b0584812dbdba299c41cb5'
     assert entry.world.plan.application_sha == entry.raw['candidate']['sha'] == approved
     assert entry.world.spec.sha == approved
     assert entry.raw['package_manifest_sha256'] == entry.world.package
