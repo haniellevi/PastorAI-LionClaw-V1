@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import http from "node:http";
-import net from "node:net";
 import { fileURLToPath } from "node:url";
+import { assertPublicPage, freePort, request as requestHttp } from "./smoke-http.mjs";
 
 const frontendRoot = fileURLToPath(new URL(".", import.meta.url));
 const nextBin = fileURLToPath(new URL("./node_modules/next/dist/bin/next", import.meta.url));
@@ -26,46 +25,8 @@ const requiredCspDirectives = [
 const fixedHeaderNames = Object.keys(expectedHeaders);
 const seenNonces = new Set();
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      assert(address && typeof address === "object");
-      const { port } = address;
-      server.close((error) => (error ? reject(error) : resolve(port)));
-    });
-  });
-}
-
 function request(port, path, host = "app.igreja12.com.br") {
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        hostname: "127.0.0.1",
-        port,
-        path,
-        method: "GET",
-        headers: { Host: host, Connection: "close" },
-      },
-      (res) => {
-        const chunks = [];
-        res.on("data", (chunk) => chunks.push(chunk));
-        res.on("end", () => {
-          resolve({
-            status: res.statusCode,
-            headers: res.headers,
-            cspHeaderCount: res.headersDistinct[CSP]?.length ?? 0,
-            body: Buffer.concat(chunks).toString("utf8"),
-          });
-        });
-      },
-    );
-    req.setTimeout(5_000, () => req.destroy(new Error("HTTP timeout")));
-    req.once("error", reject);
-    req.end();
-  });
+  return requestHttp(port, path, host);
 }
 
 function assertFixedHeaders(response, label) {
@@ -166,8 +127,7 @@ try {
   scripts += assertDocumentHeaders(dottedNotFound, "404 com ponto");
 
   for (const path of ["/privacidade", "/termos"]) {
-    const legalPage = await request(port, path);
-    assert.equal(legalPage.status, 200, `${path}: status`);
+    const legalPage = assertPublicPage(await request(port, path), path);
     scripts += assertDocumentHeaders(legalPage, path);
   }
 
