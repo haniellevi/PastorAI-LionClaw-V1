@@ -53,7 +53,8 @@ OBSERVER_APPS = frozenset({OBSERVER_APP, 'pastorai-rehearsal-observer'})
 # The identifier is per event, not shared across events. Earlier boundaries may
 # already have discarded the original exception class.
 _ERROR_CLASSES = {ValueError: 'value_error', TypeError: 'type_error', OSError: 'os_error',
-                  RuntimeError: 'runtime_error'}
+                  RuntimeError: 'runtime_error', TimeoutError: 'timeout',
+                  subprocess.TimeoutExpired: 'timeout'}
 _ERROR_STAGES = frozenset({'transition', 'resume', 'cli'})
 
 
