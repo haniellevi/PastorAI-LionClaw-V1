@@ -44,7 +44,8 @@ recibo anterior. A execução não imprime valores. Os códigos de saída são:
 - `2`: o arquivo final foi criado, mas houve falha de I/O posterior;
   sua durabilidade local não está confirmada. Verifique o diretório privado
   antes de decidir se é necessário registrar de novo. Não repita automaticamente
-  nem apague ou sobrescreva o recibo existente.
+  nem apague ou sobrescreva o recibo existente. Uma falha na limpeza do arquivo
+  temporário pode deixar dois nomes privados referentes ao mesmo arquivo.
 
 ## Interpretação
 

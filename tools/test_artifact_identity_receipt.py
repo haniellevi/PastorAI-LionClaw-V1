@@ -1,5 +1,5 @@
 import json
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from io import StringIO
 import os
 from pathlib import Path
@@ -149,6 +149,37 @@ class ArtifactIdentityReceiptTest(unittest.TestCase):
             files = list(Path(directory).iterdir())
             self.assertEqual(len(files), 1)
             self.assertEqual(json.loads(files[0].read_text())["status"], "correspondente")
+
+    def test_temporary_cleanup_failure_preserves_receipts_without_retry(self):
+        original_temporary_file = tempfile.NamedTemporaryFile
+
+        @contextmanager
+        def cleanup_fails(*args, **kwargs):
+            with original_temporary_file(*args, **kwargs, delete=False) as pending:
+                yield pending
+            raise OSError("synthetic temporary cleanup failure")
+
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            prior = write_receipt({"component": "frontend"}, folder)
+            before = prior.read_bytes()
+            identifier = UUID("00000000-0000-4000-8000-000000000003")
+            with (
+                patch("artifact_identity_receipt.uuid4", return_value=identifier) as generate_id,
+                patch("artifact_identity_receipt.tempfile.NamedTemporaryFile", side_effect=cleanup_fails) as create_temp,
+            ):
+                code, message = self.invoke_main(directory)
+            self.assertEqual(code, 2)
+            self.assertIn("Não repita automaticamente", message)
+            generate_id.assert_called_once()
+            create_temp.assert_called_once()
+            self.assertEqual(prior.read_bytes(), before)
+            final = folder / f"{identifier}.json"
+            self.assertEqual(json.loads(final.read_text())["status"], "correspondente")
+            self.assertEqual(final.stat().st_mode & 0o777, 0o600)
+            remaining = set(folder.iterdir()) - {prior, final}
+            self.assertEqual(len(remaining), 1)
+            self.assertTrue(remaining.pop().samefile(final))
 
     def test_directory_must_be_private(self):
         with tempfile.TemporaryDirectory() as directory:
