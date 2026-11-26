@@ -31,3 +31,7 @@ next-env.d.ts
 /playwright-report/
 /test-results/
 /blob-report/
+
+# Local Workers build
+/.open-next/
+/.wrangler/
