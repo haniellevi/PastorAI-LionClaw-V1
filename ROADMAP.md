@@ -179,14 +179,15 @@ usar os números abaixo para apagar nada.
 7. **Segredos** nunca entram em chat, documento, log ou commit. Arquivo de
    segredo só é copiado de um lugar para outro dentro da VPS, sem ser lido.
 8. **Nunca editar migration.**
-9. **Congelamento do candidato A:** a partir da decisão de 24/11, preservar
-   `e1c63ed1` até a conclusão da 5.5; pausar a Fase 3 e mudanças de produto.
-   Só integrar a preparação indispensável à virada, sem alterar o pacote de
+9. **Congelamento do candidato A:** permanece a decisão de 24/11 de congelar
+   o candidato até a conclusão da 5.5, pausar a Fase 3 e mudanças de produto,
+   e integrar somente a preparação indispensável, sem alterar o pacote de
    runtime ou as migrations de A. Mudança do candidato exige nova decisão e
-   renovação das provas afetadas. A decisão `e1193` escolheu
-   `399ee7b96591bded30b0584812dbdba299c41cb5` como nova fonte de referência do
-   código; o adaptador operacional ainda fixa a referência anterior, e essa
-   escolha não substitui o congelamento de A nem as provas de prontidão.
+   renovação das provas afetadas. Pela decisão `e1193`, a fonte A escolhida é
+   `399ee7b96591bded30b0584812dbdba299c41cb5`; a referência foi versionada e
+   integrada pela [#726](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/726) (`65762e8202621d759c8fe6660357ecb147914554`), com os sete
+   checks de push verdes. Isso não comprova instalação nem existência de
+   artefato produtivo, e não encerra as provas de prontidão.
 10. **Sem migration nova** na `main` até o release normal ganhar um caminho
     para mudança em tabela existente (fila, item 1).
 11. **Cuidado enxuto** (decisão de 13/11): ficam 1 backup antes de mexer no
@@ -424,13 +425,13 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
   altera a classificação da topologia nem a recusa de medição Nginx, não reduz
   o escopo do dry-run, não muda aprovações por bloco nem libera janela.
   Pela decisão `e1193`, Raniel escolheu `399ee7b96591bded30b0584812dbdba299c41cb5`
-  como novo SHA de referência do código. Os seis workflows de push desse SHA
-  passaram; o [registro e limites](docs/ops/AUDITORIA-PREPARACAO-MIGRATIONS-20261125.md#atualização-e1193-candidato-de-código-e-prontidão)
-  identifica os recibos. O adaptador operacional ainda fixa o SHA anterior; o
-  diff local de três referências recebeu GO exclusivamente estático, sem CI,
-  publicação ou integração, e não substitui essa pendência. Nenhum pin
-  operacional publicado foi alterado; controles e workflows permanecem sem
-  mudança. SQL e aplicador permanecem idênticos; seguem 52
+  como SHA da fonte A. A referência versionada foi integrada pela [#726](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/726) em
+  `65762e8202621d759c8fe6660357ecb147914554`, com CI de push 7/7 verde. O diff
+  local de três referências havia recebido GO exclusivamente estático, sem CI
+  ou publicação; sua integração ocorreu depois, pela #726. O código agora fixa
+  a fonte A em `399ee7b96591bded30b0584812dbdba299c41cb5`, sem evidência de
+  instalação nem de artefato produtivo. O [registro e limites](docs/ops/AUDITORIA-PREPARACAO-MIGRATIONS-20261125.md#atualização-e1193-candidato-de-código-e-prontidão)
+  identifica os recibos. SQL e aplicador permanecem idênticos; seguem 52
   migrations pendentes e cinco pausadas, em ordem lexical, e a exclusão/reset
   cadastral da M3 permanece adiada. O build OCI local do novo SHA foi verificado
   com cache, e build/smoke de frontend sintético ocorreu no SHA aprovado, sem
@@ -502,7 +503,7 @@ na atualização de 24/11 acima.
 
 | ID | Tarefa | SIM | Pronto quando |
 |---|---|---|---|
-| 4.1 | Preservar **A** em `e1c63ed1`. A nova fonte escolhida por `e1193` (`399ee7b96591bded30b0584812dbdba299c41cb5`) não substitui a referência operacional anterior nem encerra esta tarefa. Resolver os achados graves da 1.3 e conferir se o ledger da 1.2 corresponde à linha de base do candidato | não | SHA de A, 4 checks e `synthetic-release` verdes |
+| 4.1 | Preservar o congelamento de **A** até a conclusão da 5.5. Pela decisão `e1193`, a fonte A é `399ee7b96591bded30b0584812dbdba299c41cb5`, integrada pela #726; isso não encerra as provas de prontidão. Resolver os achados graves da 1.3 e conferir se o ledger da 1.2 corresponde à linha de base do candidato | não | SHA de A, 4 checks e `synthetic-release` verdes |
 | 4.2 | Consolidar a PR **T** sobre A com os ajustes abaixo e a correção comprovada e testada de J4 | não | equivalência com A no pacote de runtime e no frontend, SQLs intactos; provas da 4.6 |
 | 4.3 | Na T, documentar J9: registrar Compose efetivo, overrides, arquivo privado e dependências; configurar `/opt/pastorai-current` para A; apontar o backup para o arquivo privado efetivo, com modo 0600 e fora do layout verificado. Rodar uma vez o comando do cron manualmente antes de religá-lo | não para documentar; execução na 5.5 | runbook indica como provar um backup novo com `BACKUP_OK`, `sha256sum -c`, status "verified" e serviços de apoio despausados |
 | 4.4 | Conferir variáveis obrigatórias de A contra os nomes da 1.2, migrations que mexem no timeout e contrato do painel antigo com a API de A. Registrar se a volta do painel é utilizável. Ensaiar o procedimento de fechar os envios da 5.2 com a mesma imagem e atualizar os vínculos se os IDs mudarem | não | resultado das conferências e procedimento no runbook |
