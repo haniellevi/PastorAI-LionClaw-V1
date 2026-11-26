@@ -37,8 +37,14 @@ sincronizada publicamente. Não faça upload nem commit dos recibos reais.
 O arquivo JSON de saída (modo `0600`) tem nome UUID, `schema_version: 1`,
 identidade e data UTC do próprio recibo, componente, evidências validadas e
 `status`. A gravação publica somente o arquivo completo e não substitui um
-recibo anterior. A execução não imprime valores; código de saída zero
-significa que o registro foi gravado, não que as identidades correspondem.
+recibo anterior. A execução não imprime valores. Os códigos de saída são:
+
+- `0`: gravação concluída, não necessariamente identidades correspondentes.
+- `1`: entrada recusada ou falha antes de criar um novo recibo.
+- `2`: o arquivo final foi criado, mas houve falha de I/O posterior;
+  sua durabilidade local não está confirmada. Verifique o diretório privado
+  antes de decidir se é necessário registrar de novo. Não repita automaticamente
+  nem apague ou sobrescreva o recibo existente.
 
 ## Interpretação
 

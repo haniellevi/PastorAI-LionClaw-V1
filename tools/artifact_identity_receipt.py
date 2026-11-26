@@ -14,6 +14,10 @@ _EVIDENCE_FIELDS = {"component", "revision", "digest", "evidence_id", "evidence_
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+class ReceiptDurabilityUncertain(OSError):
+    """The final file was created, but the post-publication I/O did not finish."""
+
+
 def _utc_timestamp(value):
     if not isinstance(value, str):
         return False
@@ -95,18 +99,25 @@ def write_receipt(payload, directory):
     receipt["recorded_at"] = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
     path = directory / f"{receipt_id}.json"
     # Publish the complete file atomically. A duplicate ID fails without replacing the prior receipt.
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory) as pending:
-        os.fchmod(pending.fileno(), 0o600)
-        json.dump(receipt, pending, indent=2)
-        pending.write("\n")
-        pending.flush()
-        os.fsync(pending.fileno())
-        os.link(pending.name, path)
-    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    published = False
     try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory) as pending:
+            os.fchmod(pending.fileno(), 0o600)
+            json.dump(receipt, pending, indent=2)
+            pending.write("\n")
+            pending.flush()
+            os.fsync(pending.fileno())
+            os.link(pending.name, path)
+            published = True
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        if published:
+            raise ReceiptDurabilityUncertain("receipt created; durability uncertain") from exc
+        raise
     return path
 
 
@@ -122,6 +133,13 @@ def main():
         if len(sys.argv) != 2:
             raise ValueError("expected a private directory")
         write_receipt(json.load(sys.stdin, object_pairs_hook=_unique_fields), sys.argv[1])
+    except ReceiptDurabilityUncertain:
+        print(
+            "Recibo criado; durabilidade local não confirmada. "
+            "Não repita automaticamente; verifique o diretório privado.",
+            file=sys.stderr,
+        )
+        return 2
     except (OSError, ValueError):
         print("Não foi possível registrar o recibo privado.", file=sys.stderr)
         return 1

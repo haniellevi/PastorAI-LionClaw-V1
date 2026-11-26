@@ -1,4 +1,6 @@
 import json
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import os
 from pathlib import Path
 import subprocess
@@ -8,7 +10,7 @@ import unittest
 from unittest.mock import patch
 from uuid import UUID
 
-from artifact_identity_receipt import compare_evidence, write_receipt
+from artifact_identity_receipt import compare_evidence, main, write_receipt
 
 
 def evidence(component="backend", **changes):
@@ -99,6 +101,54 @@ class ArtifactIdentityReceiptTest(unittest.TestCase):
             files = list(Path(directory).iterdir())
             self.assertEqual(len(files), 1)
             self.assertEqual(json.loads(files[0].read_text())["status"], "desconhecido")
+
+    def invoke_main(self, directory):
+        stdout, stderr = StringIO(), StringIO()
+        payload = json.dumps({"component": "backend", "expected": evidence(), "observed": evidence()})
+        with (
+            patch.object(sys, "argv", ["receipt", directory]),
+            patch.object(sys, "stdin", StringIO(payload)),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            code = main()
+        self.assertEqual(stdout.getvalue(), "")
+        return code, stderr.getvalue()
+
+    def test_io_failure_before_publication_does_not_create_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("artifact_identity_receipt.os.fsync", side_effect=OSError("synthetic write failure")):
+                result = self.invoke_main(directory)
+            self.assertEqual(result, (1, "Não foi possível registrar o recibo privado.\n"))
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_directory_sync_failure_after_publication_preserves_receipt_and_reports_uncertainty(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("artifact_identity_receipt.os.fsync", side_effect=[None, OSError("synthetic sync failure")]):
+                code, message = self.invoke_main(directory)
+            self.assertEqual(code, 2)
+            self.assertEqual(message, "Recibo criado; durabilidade local não confirmada. Não repita automaticamente; verifique o diretório privado.\n")
+            files = list(Path(directory).iterdir())
+            self.assertEqual(len(files), 1)
+            self.assertEqual(json.loads(files[0].read_text())["status"], "correspondente")
+            self.assertEqual(files[0].stat().st_mode & 0o777, 0o600)
+
+    def test_directory_open_failure_after_publication_has_same_uncertain_outcome(self):
+        original_open = os.open
+
+        def open_with_failure(path, flags, *args, **kwargs):
+            if flags & os.O_DIRECTORY:
+                raise OSError("synthetic directory open failure")
+            return original_open(path, flags, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("artifact_identity_receipt.os.open", side_effect=open_with_failure):
+                code, message = self.invoke_main(directory)
+            self.assertEqual(code, 2)
+            self.assertIn("Não repita automaticamente", message)
+            files = list(Path(directory).iterdir())
+            self.assertEqual(len(files), 1)
+            self.assertEqual(json.loads(files[0].read_text())["status"], "correspondente")
 
     def test_directory_must_be_private(self):
         with tempfile.TemporaryDirectory() as directory:
