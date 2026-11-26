@@ -99,3 +99,10 @@ jobs:
 
       - name: Smoke HTTP real dos headers de seguranca
         run: node smoke-security-headers.mjs
+
+      - name: Build Workers sintetico (sem publicacao)
+        env:
+          NEXT_PUBLIC_API_URL: https://synthetic-api.example.test
+          NEXT_TELEMETRY_DISABLED: "1"
+          WRANGLER_SEND_METRICS: "false"
+        run: npm run build:workers
