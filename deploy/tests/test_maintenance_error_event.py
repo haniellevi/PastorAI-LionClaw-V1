@@ -1,5 +1,6 @@
 import json
 import re
+import subprocess
 import sys
 import unittest
 from unittest.mock import patch
@@ -30,6 +31,17 @@ class EventTest(unittest.TestCase):
         assert event['class'] == 'other'
         assert event['stage'] == 'other'
         assert 'secret' not in json.dumps(event)
+
+    def test_timeout_categories_are_sanitized(self):
+        for exc in (TimeoutError('secret-marker'),
+                    subprocess.TimeoutExpired('secret-marker', 1)):
+            with self.subTest(exception=type(exc)):
+                event = json.loads(format_error_event(exc, 'cli'))
+                assert set(event) == {'class', 'stage', 'correlation'}
+                assert event['class'] == 'timeout'
+                assert event['stage'] == 'cli'
+                assert re.fullmatch(r'[0-9a-f]{32}', event['correlation'])
+                assert 'secret-marker' not in json.dumps(event)
 
     def test_emission_failure_is_ignored(self):
         with patch('initial_transition_ops.format_error_event', side_effect=OSError('sensitive')):
