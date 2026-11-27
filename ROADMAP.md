@@ -6,8 +6,9 @@ O Plano Casa Limpa e as decisões de 13/11 (seção 7) regem a execução. Para 
 virada, valem o alvo A, a autorização por bloco com o agente como operador,
 o limite por migration, a recuperação por estado e os envios fechados ao fim.
 As regras de produto deste registro seguem vigentes onde o plano não as altera.
-Os números, SHAs e procedimentos de virada de 12/11 são históricos; para a
-preparação atual, vale a atualização de 24/11 da Fase 4.
+Os números, SHAs e procedimentos de virada de 12/11 são históricos. Para a
+preparação atual, valem as decisões posteriores registradas na Fase 4, em
+especial `e1138` e `e1193`; o retrato de 25/11 abaixo é anterior a `e1193`.
 
 **Ordem do trabalho:**
 
@@ -353,25 +354,29 @@ passarem no SHA candidato.
 
 #### Fase 4 — Ferramenta da virada apontada para a `main`
 
-**Atualização vigente de 25/11/2026: janela bloqueada, ainda sem agendamento.**
-O dono fixou **A = `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`** para o backend
-e o painel. O aplicador fixo continua `37c7d68d`; T é a ferramenta que ainda
-precisa ser integrada e validada. O A anterior (`6af9f75c`) e o alvo mais
+**Registro histórico da preparação em 25/11/2026, anterior a `e1193`:** naquele
+retrato, a janela estava bloqueada e sem agendamento. O dono havia fixado
+**A = `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`** para backend e painel; a
+fonte aprovada posteriormente é **A = `399ee7b96591bded30b0584812dbdba299c41cb5`**. A #726 integrou **T = `65762e8`**, selecionado no Git; a identidade operacional A/T permanece não verificada. Naquele retrato, o aplicador fixo era `37c7d68d` e T ainda precisava ser integrada e validada. O A anterior (`6af9f75c`) e o alvo mais
 antigo (`afdfb78d`) são referências históricas, não alternativas para a janela.
 
 - **Git:** a PR #701 (merge `d4f614c2`) documentou a reconciliação nominal e a
   proposta de revalidação pós-SIM. A PR #703 (ponta local `bda12141`) está
   registrada como aberta e bloqueada, apesar do CI verde informado; não foi
-  integrada. Na base local `e1c63ed1`, a ferramenta ainda aponta para o A
-  anterior. O saneamento ou substituição da #703 precisa consolidar T no
+  integrada. Na base local consultada naquele registro (`e1c63ed1`), a ferramenta ainda
+  apontava para a referência A anterior. O saneamento ou substituição da #703 precisa consolidar T no
   candidato correto, preservando a compatibilidade de inspeção de imagens
-  (correção original `966d0ec5`), com a correção testada de J4 e o runbook
-  §12 coerente, mantendo históricos separados. Em 25/11, a `main` remota
-  foi conferida em `f4bb30df` (#704 documental e #705 de compatibilidade de
-  metadados de imagem). A `main` é a referência da preparação documental;
-  os pacotes de backend e painel continuam em **A = `e1c63ed1`**, sem delta
-  nesses pacotes. A integração da #705 não equivale à integração da T final,
-  nem prova correção de J4, instalação na VPS ou deploy.
+  (correção original `966d0ec5`); se o diagnóstico atual identificar um defeito
+  de J4, incluir correção defensiva revisada e teste de regressão, conforme
+  `e1138`, e manter o runbook §12 coerente, com históricos separados. No
+  snapshot de 25/11, a `main` remota foi conferida em `f4bb30df` (#704
+  documental e #705 de compatibilidade de metadados de imagem). Entre a referência histórica `e1c63ed1` e o A selecionado, backend e frontend
+  diferem; a equivalência constatada limita-se à árvore backend/migrations
+  (`a9072178`). Depois, `e1193` selecionou
+  A=`399ee7b96591bded30b0584812dbdba299c41cb5` como fonte e #726 integrou T=`65762e8`,
+  selecionado no Git; a identidade operacional A/T permanece não verificada. A integração da #705
+  não equivale à integração da T final, nem prova correção de J4, instalação
+  na VPS ou deploy.
 - **Migrations:** 135 SQLs de topo, 130 ativas (78 de base, 52 pendentes:
   44 transacionais e 8 concorrentes) e cinco pausadas. Nenhum SQL mudou entre
   `6af9f75c` e A. A lista nominal está na
@@ -391,7 +396,7 @@ antigo (`afdfb78d`) são referências históricas, não alternativas para a jane
   `test_zz_reconciled_baseline_accepts_pending_batch_with_team_migration` em
   PG17.6 descartável, com ledger sintético 78→130, 52 ativas, cinco excluídas,
   oito índices válidos/prontos e nenhum inválido público; os SQLs e `migrate.py`
-  foram comparados com A `e1c63ed1` e a `main` `86eefd3d`. Uma nova leitura
+  foram comparados no recibo histórico com a referência então usada para A (`e1c63ed1`) e a `main` (`86eefd3d`). Uma nova leitura
   agregada pontual reporta os mesmos 78 nomes do ledger, sem delta. Esses dados
   comprovam apenas seus escopos sintético e nominal. A matriz de resultados por
   grupo está em
@@ -499,7 +504,7 @@ preservadas as restrições vigentes. Ambas as condições de agendamento estão
 Justificativa original de 13/11: a virada estava travada pela regra de tempo
 e deixaria a produção 168 commits atrás, com um segundo release recusado.
 Permanece a decisão de uma parada só; os bloqueios atuais são os descritos
-na atualização de 24/11 acima.
+no registro histórico de 25/11 e nas decisões posteriores `e1138` e `e1193` da Fase 4.
 
 | ID | Tarefa | SIM | Pronto quando |
 |---|---|---|---|
@@ -671,7 +676,7 @@ tags `backup/pre-merge-*` (entram na lista da 1.4).
 | D7 | Fila de envios ao fechar os gates | aceitar, vendo a contagem antes |
 | D8 | "No final, só a `main`" | confirmado: apagar branches depois de guardar; muda `AGENTS.md` e ROADMAP |
 | D9 | Regra de tempo do ensaio | medir cada migration; barra se alguma passar de 60 s; o total não barra |
-| D10 | Data da virada | quando o dono disser, somente após J4 corrigido com teste e dry-run completo na VPS aprovado e limpo (atualização de 24/11) |
+| D10 | Data da virada | quando o dono decidir, após prontidão atual comprovada conforme `e1138`: diagnóstico verificável, correção defensiva revisada e regressão se houver defeito identificado, recuperação comprovada, revisão de Sarah e dry-run integral e limpo na VPS, no escopo autorizado e aprovado. A causa histórica de J4 em 24/11 permanece indeterminada e não exige atribuição retrospectiva. Nenhum desses critérios é declarado concluído aqui |
 | D11 | Quem opera | o agente executa, com SIM do dono por bloco |
 | D12 | Trabalhos inacabados | cofre e fila |
 | D13 | Dados de produção | de teste, podem se perder; a configuração é mantida (atualizar o banco atual, não zerar) |
