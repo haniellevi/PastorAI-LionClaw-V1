@@ -1575,7 +1575,7 @@ root com as variáveis acima.
 | 11:17 | J10 foto dos outros sistemas e `diff` com a das 09:30 | 10 min | bloco da seção 12.0 | Diferença: não mexer em outro sistema; avisar o Raniel. |
 | 11:27 | Encerramento | — | registrar horários, resultado do `run`, da A10, do J8, do J9 e `window_backup_id` | — |
 
-### 12.7 Conferências estáticas da fase 4.4: registro histórico no SHA **A** = `6af9f75c8d673cb3454de1f8740a0acc509937ff` (pré-`e1193`)
+### 12.7 Conferências estáticas da fase 4.4 (SHA **A** = `6af9f75c8d673cb3454de1f8740a0acc509937ff`)
 
 O registro abaixo documenta conferências estáticas feitas no código da
 referência histórica **A** (`6af9f75c`) para V1, V5 e 5.1–5.2. Não as transfere
