@@ -777,15 +777,25 @@ Registrar:
 
 ## 12. Primeira virada da instalação legada (janela A1–A10)
 
-**Estado de preparação em 24/11/2026:** o
+**Registro histórico da preparação em 24/11/2026:** o
 [ROADMAP, Fase 4](../../ROADMAP.md#fase-4--ferramenta-da-virada-apontada-para-a-main)
-fixa A em `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`. As referências a
-`6af9f75c` nesta seção são da versão anterior; os respectivos comandos,
-artefatos e provas permanecem como registro, não estão validados para A.
-A seção ainda requer harmonização e revisão no T final. A janela não pode
-ser agendada até J4 corrigido com teste e dry-run completo na VPS aprovado
-e limpo; os SIMs por bloco e a revalidação pós-SIM permanecem obrigatórios.
-Este registro não autoriza execução nem substitui as provas pendentes.
+registrava A em `e1c63ed1dfaaacf26c21a3cc8d9c8c3151c0aae0`. As referências a
+`6af9f75c` nesta seção pertencem à versão anterior e documentam apenas o escopo
+histórico registrado; comandos, artefatos e provas associados continuam sem
+validação para a fonte aprovada posteriormente. Pela decisão `e1193`, a fonte
+selecionada é A=`399ee7b96591bded30b0584812dbdba299c41cb5`, e a #726 integrou
+T=`65762e8202621d759c8fe6660357ecb147914554` no Git. Isso não comprova a
+identidade operacional A/T, que permanece não verificada, nem harmoniza as
+referências operacionais legadas desta seção.
+
+A causa histórica da recusa de J4 em 24/11 permanece indeterminada; `e1138` não
+exige atribuição retrospectiva. A prontidão atual requer diagnóstico verificável
+e, se houver defeito identificado, correção defensiva revisada e teste de
+regressão; requer também recuperação comprovada, revisão de Sarah e dry-run
+integral, aprovado e limpo na VPS, dentro do escopo autorizado. Nenhum critério
+de prontidão é declarado concluído: a janela segue bloqueada, e os SIMs por
+bloco e a revalidação pós-SIM permanecem obrigatórios. Este registro não
+autoriza execução nem substitui as provas pendentes.
 
 Vale só para a primeira troca do sistema antigo pelo novo. Os releases
 seguintes usam o [deploy manual](../../deploy/BACKEND-RELEASE-MANUAL.md).
@@ -1565,12 +1575,15 @@ root com as variáveis acima.
 | 11:17 | J10 foto dos outros sistemas e `diff` com a das 09:30 | 10 min | bloco da seção 12.0 | Diferença: não mexer em outro sistema; avisar o Raniel. |
 | 11:27 | Encerramento | — | registrar horários, resultado do `run`, da A10, do J8, do J9 e `window_backup_id` | — |
 
-### 12.7 Conferências estáticas da fase 4.4 (SHA **A** = `6af9f75c8d673cb3454de1f8740a0acc509937ff`)
+### 12.7 Conferências estáticas da fase 4.4: registro histórico no SHA **A** = `6af9f75c8d673cb3454de1f8740a0acc509937ff` (pré-`e1193`)
 
-Resultado das conferências locais no código de **A** (`6af9f75c`) para
-V1, V5 e 5.1–5.2. A leitura da configuração efetiva, a comparação
-nominal do ledger e da role aplicadora, e a prova do fechamento dos
-envios na imagem legada ainda são gates da 1.2/5.1–5.2.
+O registro abaixo documenta conferências estáticas feitas no código da
+referência histórica **A** (`6af9f75c`) para V1, V5 e 5.1–5.2. Não as transfere
+para a fonte aprovada atualmente, A=`399ee7b96591bded30b0584812dbdba299c41cb5`,
+nem confirma a identidade operacional A/T, ainda não verificada. Permanecem
+pendentes as conferências de configuração efetiva, ledger nominal e role
+aplicadora, além da prova de fechamento de envios na imagem legada, conforme
+os gates já registrados em 1.2/5.1–5.2.
 
 1. **Variáveis obrigatórias do backend em produção (`backend/app/config.py`, `Settings.assert_production_ready()` e `_validate_whatsapp_transporte()` — apenas NOMES, nunca valores):**
    - `APP_ENV` (`production`)
